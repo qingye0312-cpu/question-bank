@@ -17,8 +17,8 @@
     "enhance": true,
     "showShadowRootInWxmlPanel": false,
     "packNpmRelationList": [],
-    "ignoreUploadUnusedFiles": true,
-    "ignoreDevUnusedFiles": true,
+    "ignoreUploadUnusedFiles": false,
+    "ignoreDevUnusedFiles": false,
     "compileHotReLoad": false,
     "skylineRenderEnable": false,
     "es6": true,
@@ -43,11 +43,14 @@
   "libVersion": "trial",
   "packOptions": {
     "ignore": [
-      {"type": "folder", "value": "data"},
+      {"type": "file", "value": "data/index.json"},
       {"type": "folder", "value": "pages/logs"},
       {"type": "folder", "value": "utils"}
     ],
-    "include": []
+    "include": [
+      {"type": "file", "value": "data/questions.json"},
+      {"type": "file", "value": "data/manifest.json"}
+    ]
   },
   "appid": "wx74610b716883eee9"
 }

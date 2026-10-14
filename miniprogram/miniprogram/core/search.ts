@@ -64,6 +64,27 @@ export function buildPostings(questions: Question[]): Record<string, string> {
   return encoded;
 }
 
+// Yield between batches so the loading screen remains responsive on phones.
+export async function buildPostingsFromLines(lines: string[]): Promise<Record<string, string>> {
+  const postings: Record<string, number[]> = Object.create(null);
+  for (let start = 0; start < lines.length; start += 32) {
+    await new Promise<void>(resolve => setTimeout(resolve, 0));
+    for (let id = start; id < Math.min(start + 32, lines.length); id++) {
+      for (const token of tokens(searchText(JSON.parse(lines[id]) as Question))) {
+        if (!postings[token]) postings[token] = [];
+        postings[token].push(id);
+      }
+    }
+  }
+  const encoded: Record<string, string> = Object.create(null);
+  const keys = Object.keys(postings).sort();
+  for (let start = 0; start < keys.length; start += 512) {
+    await new Promise<void>(resolve => setTimeout(resolve, 0));
+    for (const token of keys.slice(start, start + 512)) encoded[token] = encodePosting(postings[token]);
+  }
+  return encoded;
+}
+
 function intersect(a: number[], b: number[]): number[] {
   const out: number[] = [];
   let i = 0, j = 0;
