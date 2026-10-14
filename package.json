@@ -13,6 +13,9 @@
     "tauri": "node scripts/tauri.mjs",
     "test:platforms": "node --test tests/platform-build.test.mjs",
     "test:ui": "node --test tests/search-presentation.test.mjs tests/ocr-client.test.mjs",
+    "prepare:miniprogram": "node tools/mobile-index/build.mjs",
+    "check:miniprogram": "node tools/mobile-index/build.mjs --check && tsc --noEmit -p miniprogram/tsconfig.json",
+    "test:miniprogram": "node --test tests/miniprogram.test.mjs",
     "prepare:ocr": "node scripts/prepare-ocr.mjs"
   },
   "dependencies": {

@@ -1,10 +1,18 @@
-/**app.wxss**/
-.container {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: space-between;
-  padding: 200rpx 0;
-  box-sizing: border-box;
-} 
+page { background: #f5f7f5; color: #203329; font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 28rpx; }
+view, input, button { box-sizing: border-box; }
+button::after { border: 0; }
+.muted { color: #708078; }
+.match-0 { background: #ffed9b; color: #473900; }
+.match-1 { background: #cfe9ff; color: #183b60; }
+.match-2 { background: #f8d6e5; color: #682545; }
+.match-3 { background: #d8efc3; color: #304d1e; }
+.match-4 { background: #e5daff; color: #47316e; }
+.match-5 { background: #ffdcb7; color: #653a16; }
+.match-6 { background: #c5efea; color: #164a43; }
+.match-7 { background: #f1e3ba; color: #51431d; }
+.match-8 { background: #e0e6ff; color: #293966; }
+.match-9 { background: #e9f3b9; color: #3a4a10; }
+.match-10 { background: #ffdfdd; color: #632b25; }
+.match-11 { background: #d9e9e3; color: #23473b; }
+.error { color: #9b342e; line-height: 1.6; }
+.primary { background: #246b4b; color: white; font-size: 28rpx; border-radius: 16rpx; }

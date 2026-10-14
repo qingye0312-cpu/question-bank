@@ -17,9 +17,10 @@
     "enhance": false,
     "showShadowRootInWxmlPanel": false,
     "packNpmRelationList": [],
-    "ignoreUploadUnusedFiles": true,
+    "ignoreUploadUnusedFiles": false,
+    "ignoreDevUnusedFiles": false,
     "compileHotReLoad": false,
-    "skylineRenderEnable": true,
+    "skylineRenderEnable": false,
     "es6": false,
     "uglifyFileName": false,
     "uploadWithSourceMap": true,
@@ -42,7 +43,7 @@
   "libVersion": "trial",
   "packOptions": {
     "ignore": [],
-    "include": []
+    "include": [{"type": "folder", "value": "data"}]
   },
   "appid": "wx74610b716883eee9"
 }

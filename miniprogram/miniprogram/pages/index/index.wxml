@@ -1,27 +1,40 @@
-<!--index.wxml-->
-<scroll-view class="scrollarea" scroll-y type="list">
-  <view class="container">
-    <view class="userinfo">
-      <block wx:if="{{canIUseNicknameComp && !hasUserInfo}}">
-        <button class="avatar-wrapper" open-type="chooseAvatar" bind:chooseavatar="onChooseAvatar">
-          <image class="avatar" src="{{userInfo.avatarUrl}}"></image>
-        </button>
-        <view class="nickname-wrapper">
-          <text class="nickname-label">昵称</text>
-          <input type="nickname" class="nickname-input" placeholder="请输入昵称" bind:change="onInputChange" />
-        </view>
-      </block>
-      <block wx:elif="{{!hasUserInfo}}">
-        <button wx:if="{{canIUseGetUserProfile}}" bindtap="getUserProfile"> 获取头像昵称 </button>
-        <view wx:else> 请使用2.10.4及以上版本基础库 </view>
-      </block>
-      <block wx:else>
-        <image bindtap="bindViewTap" class="userinfo-avatar" src="{{userInfo.avatarUrl}}" mode="cover"></image>
-        <text class="userinfo-nickname">{{userInfo.nickName}}</text>
-      </block>
+<view class="screen">
+  <view class="header">
+    <view class="eyebrow">本地题库 · 文字搜题</view>
+    <view class="title">{{bankName}}</view>
+    <view class="bank-meta muted">{{ready ? total + ' 道题 · 内置版本 ' + version + ' · 无需下载' : '正在读取内置内容'}}</view>
+    <view class="search-box">
+      <text class="search-symbol">⌕</text>
+      <input class="search-input" placeholder="输入关键词或粘贴题目" value="{{query}}" disabled="{{!ready}}" maxlength="-1" bindinput="onInput" confirm-type="search" />
+      <button wx:if="{{query}}" class="clear" bindtap="onClear" aria-label="清空搜索">×</button>
     </view>
-    <view class="usermotto">
-      <text class="user-motto">{{motto}}</text>
-    </view>
+    <view class="hint muted">空格分隔多个词，双引号搜索连续短语</view>
   </view>
-</scroll-view>
+  <view class="result-heading">
+    <text>{{loading ? '正在查找…' : query ? '找到 ' + count + ' 道题' : '全部题目 · ' + count}}</text>
+    <text class="muted">点击查看完整答案</text>
+  </view>
+  <scroll-view class="results" scroll-y scroll-top="{{scrollTop}}" bindscroll="onScroll" scroll-with-animation="{{false}}">
+    <view wx:if="{{error}}" class="state">
+      <view class="error">{{error}}</view>
+      <button wx:if="{{!ready}}" class="primary retry" bindtap="initialize">重新加载</button>
+    </view>
+    <view wx:elif="{{loading}}" class="state muted">正在读取本地题库…</view>
+    <view wx:elif="{{count === 0}}" class="state">
+      <view>没有找到匹配的题目</view>
+      <view class="muted">试试题干中的短词，或减少关键词</view>
+    </view>
+    <block wx:else>
+      <view style="height: {{before}}px"></view>
+      <view wx:for="{{rows}}" wx:key="questionId" class="result-row" data-id="{{item.id}}" bindtap="onOpen">
+        <view class="card" role="button" aria-label="查看题目 {{item.number}}">
+          <view class="row-meta"><text class="type">{{item.kind}}</text><text class="muted">{{item.number}}</text></view>
+          <view class="snippet"><text wx:for="{{item.segments}}" wx:for-item="part" wx:for-index="partIndex" wx:key="partIndex" class="{{part.color >= 0 ? 'match-' + part.color : ''}}">{{part.text}}</text></view>
+          <view class="answer-line"><text class="muted">答案</text><text class="answer">{{item.answer}}</text><text class="chevron">›</text></view>
+        </view>
+      </view>
+      <view style="height: {{after}}px"></view>
+      <view class="end muted">已显示全部 {{count}} 道题</view>
+    </block>
+  </scroll-view>
+</view>

@@ -1,0 +1,90 @@
+import {readFile, writeFile, mkdir} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
+import {fileURLToPath} from 'node:url';
+import {resolve} from 'node:path';
+import {buildPostings} from '../../miniprogram/miniprogram/core/search.ts';
+
+const root = fileURLToPath(new URL('../../', import.meta.url));
+const destination = resolve(root, 'miniprogram/miniprogram/data');
+const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
+
+// Match Rust Question/Choice field order and serde_json::Value's sorted maps.
+// Published JSONL is consumed byte-for-byte, without re-serializing its payload.
+const sortedValue = v => Array.isArray(v) ? v.map(sortedValue) : v && typeof v === 'object'
+  ? Object.fromEntries(Object.keys(v).sort().map(k => [k, sortedValue(v[k])])) : v;
+export function seedPayload(seed) {
+  return seed.map(q => JSON.stringify({
+    schema_version: q.schema_version ?? '1.0', question_id: q.question_id, base_revision: q.base_revision ?? 1,
+    type: q.type, stem: q.stem,
+    options: q.options.map(o => ({key: o.key, content: o.content, option_id: o.option_id})),
+    answer: q.answer, external_id: q.external_id ?? '', bank: q.bank ?? '', chapter: q.chapter ?? '',
+    explanation: q.explanation ?? '', tags: q.tags ?? [], difficulty: q.difficulty ?? '',
+    applicable_version: q.applicable_version ?? '', source_note: q.source_note ?? '',
+    status: q.status ?? 'unreviewed', issues: q.issues ?? [], sources: (q.sources ?? []).map(sortedValue),
+    attachments: q.attachments ?? [], extensions: q.extensions ?? null,
+  })).join('\n') + '\n';
+}
+
+export async function prepare({check = false, sourceDirectory} = {}) {
+  let payload, manifest;
+  if (sourceDirectory) {
+    payload = await readFile(resolve(sourceDirectory, 'questions.jsonl'));
+    manifest = JSON.parse(await readFile(resolve(sourceDirectory, 'manifest.json'), 'utf8'));
+  } else {
+    const seed = JSON.parse(await readFile(resolve(root, 'src-tauri/resources/seed.json'), 'utf8'));
+    payload = Buffer.from(seedPayload(seed));
+    manifest = {
+      schema_version: '1.0', bank_id: 'ad50971f-66af-51c2-bb0e-dc798b03b369', name: 'HarmonyOS 初级认证',
+      release_id: sha256(payload), release_version: 1, published_at: '2026-10-14T00:00:00Z',
+      min_app_version: '0.1.0', question_count: seed.length,
+      files: [{path: 'questions.jsonl', sha256: sha256(payload), size: payload.length}],
+    };
+  }
+  if (manifest.schema_version !== '1.0' || manifest.release_id !== sha256(payload)
+      || manifest.files?.length !== 1 || manifest.files[0].path !== 'questions.jsonl'
+      || manifest.files[0].sha256 !== sha256(payload) || manifest.files[0].size !== payload.length) {
+    throw new Error('发布清单、大小或 SHA-256 与 questions.jsonl 不一致');
+  }
+  const text = new TextDecoder('utf-8', {fatal: true}).decode(payload);
+  const questions = text.trimEnd().split('\n').map(line => JSON.parse(line));
+  if (questions.length !== manifest.question_count || !questions.length) throw new Error('题数不一致或空题库');
+  const ids = new Set();
+  for (const q of questions) {
+    if (!q.question_id || ids.has(q.question_id) || q.schema_version !== '1.0'
+        || !['single', 'multiple', 'true_false'].includes(q.type) || !q.stem?.trim()
+        || !Array.isArray(q.options) || !Array.isArray(q.tags)
+        || (q.attachments?.length ?? 0) || q.extensions != null) throw new Error('题库存在无效记录、重复 ID 或不支持的附件');
+    if (q.answer === null ? q.status !== 'needs_review'
+      : q.type === 'true_false' ? typeof q.answer !== 'boolean'
+      : !Array.isArray(q.answer) || !q.answer.length || q.answer.some(key => !q.options.some(o => o.key === key))) {
+      throw new Error(`答案格式无效：${q.question_id}`);
+    }
+    ids.add(q.question_id);
+  }
+  const index = {schema_version: 'qbank-index-1', release_id: manifest.release_id,
+    question_count: questions.length, postings: buildPostings(questions)};
+  const files = new Map([
+    ['questions.jsonl', payload],
+    ['manifest.json', Buffer.from(JSON.stringify(manifest) + '\n')],
+    ['index.json', Buffer.from(JSON.stringify(index) + '\n')],
+  ]);
+  // Conservative budget leaving room for UI and compiler output.
+  const dataBytes = [...files.values()].reduce((sum, data) => sum + data.length, 0);
+  if (dataBytes > 1900 * 1024) throw new Error(`内置数据 ${dataBytes} 字节超过 1900 KiB 构建预算，请缩小题库；大题库需要后续文件分发`);
+  if (!check) await mkdir(destination, {recursive: true});
+  for (const [name, data] of files) {
+    const target = resolve(destination, name);
+    if (check) {
+      if (!(await readFile(target)).equals(data)) throw new Error(`${name} 已过期，请运行 pnpm prepare:miniprogram`);
+    } else await writeFile(target, data);
+  }
+  return {questions: questions.length, release_id: manifest.release_id, dataBytes,
+    mode: check ? 'checked' : 'generated', source: sourceDirectory ? 'published-v1' : 'desktop-seed'};
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const args = process.argv.slice(2), sourceAt = args.indexOf('--source');
+  if (sourceAt >= 0 && !args[sourceAt + 1]) throw new Error('--source 需要已解压的 v1 包目录');
+  const result = await prepare({check: args.includes('--check'), sourceDirectory: sourceAt >= 0 ? args[sourceAt + 1] : undefined});
+  console.log(JSON.stringify(result, null, 2));
+}

@@ -39,3 +39,6 @@ Desktop.ini
 *.log
 __pycache__/
 *.py[cod]
+
+# WeChat developer-tool preferences are machine-local.
+/miniprogram/project.private.config.json
