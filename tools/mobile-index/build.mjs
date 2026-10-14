@@ -3,6 +3,8 @@ import {createHash} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {resolve} from 'node:path';
 import {buildPostings} from '../../miniprogram/miniprogram/core/search.ts';
+import {encodeCompact} from '../../miniprogram/miniprogram/core/compact.ts';
+import {brotliCompressSync, constants} from 'node:zlib';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const destination = resolve(root, 'miniprogram/miniprogram/data');
@@ -64,6 +66,8 @@ export async function prepare({check = false, sourceDirectory} = {}) {
   const index = {schema_version: 'qbank-index-1', release_id: manifest.release_id,
     question_count: questions.length, postings: buildPostings(questions)};
   const files = new Map([
+    ['compact.br', brotliCompressSync(Buffer.from(JSON.stringify(encodeCompact(questions, manifest.release_id))),
+      {params: {[constants.BROTLI_PARAM_QUALITY]: 11}})],
     // WeChat code-package reads reject .jsonl/.txt in the tested runtime.
     // A JSON string envelope round-trips the original JSONL, including newlines
     // and field order; release_id still identifies the decoded standard payload.
@@ -71,9 +75,10 @@ export async function prepare({check = false, sourceDirectory} = {}) {
     ['manifest.json', Buffer.from(JSON.stringify(manifest) + '\n')],
     ['index.json', Buffer.from(JSON.stringify(index) + '\n')],
   ]);
-  // Conservative budget leaving room for UI and compiler output.
-  const dataBytes = [...files.values()].reduce((sum, data) => sum + data.length, 0);
-  if (dataBytes > 1900 * 1024) throw new Error(`内置数据 ${dataBytes} 字节超过 1900 KiB 构建预算，请缩小题库；大题库需要后续文件分发`);
+  // Legacy JSON/index remain build/test inputs but are excluded from the code package.
+  const dataBytes = [...files.entries()].filter(([name]) => name !== 'compact.br').reduce((sum, [, data]) => sum + data.length, 0);
+  const compactBytes = files.get('compact.br').length;
+  if (compactBytes > 1400 * 1024) throw new Error(`压缩数据 ${compactBytes} 字节超过 1400 KiB 预算，请减少题目并重新测量最终包体积`);
   if (!check) await mkdir(destination, {recursive: true});
   for (const [name, data] of files) {
     const target = resolve(destination, name);
@@ -81,7 +86,7 @@ export async function prepare({check = false, sourceDirectory} = {}) {
       if (!(await readFile(target)).equals(data)) throw new Error(`${name} 已过期，请运行 pnpm prepare:miniprogram`);
     } else await writeFile(target, data);
   }
-  return {questions: questions.length, release_id: manifest.release_id, dataBytes,
+  return {questions: questions.length, release_id: manifest.release_id, dataBytes, compactBytes: files.get('compact.br').length,
     mode: check ? 'checked' : 'generated', source: sourceDirectory ? 'published-v1' : 'desktop-seed'};
 }
 

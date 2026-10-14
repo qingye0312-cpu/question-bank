@@ -1,4 +1,5 @@
 import {LocalBank, SearchIndex, buildPostingsFromLines} from '../core/search';
+import {CompactBank, decodeCompact, decodeUtf8} from '../core/compact';
 
 export type Manifest = {
   schema_version: string; bank_id: string; name: string; release_id: string;
@@ -24,14 +25,22 @@ function checksum(text: string): number {
 
 async function loadEmbedded(): Promise<BankBundle> {
   const started = Date.now();
-  const [manifestText, questionText] = await Promise.all([readText('data/manifest.json'), readText('data/questions.json')]);
+  const compressed = new Promise<string>((resolve, reject) => {
+    const fs = wx.getFileSystemManager() as WechatMiniprogram.FileSystemManager & {
+      readCompressedFile?: (options: {filePath: string; compressionAlgorithm: 'br';
+        success: (result: {data: ArrayBuffer}) => void; fail: (error: {errMsg: string}) => void}) => void;
+    };
+    if (!fs.readCompressedFile) return reject(new Error('当前微信版本不支持压缩题库，请升级微信'));
+    fs.readCompressedFile({filePath: 'data/compact.br', compressionAlgorithm: 'br',
+      success: result => { try { resolve(decodeUtf8(result.data)); } catch (e) { reject(e); } },
+      fail: error => reject(new Error('压缩题库读取失败：' + error.errMsg))});
+  });
+  const [manifestText, questionText] = await Promise.all([readText('data/manifest.json'), compressed]);
   const manifest = JSON.parse(manifestText) as Manifest;
-  const embedded = JSON.parse(questionText) as {format?: string; payload?: unknown} | null;
-  if (manifest.schema_version !== '1.0' || !/^[a-f0-9]{64}$/.test(manifest.release_id)
-      || embedded?.format !== 'qbank-embedded-jsonl-1' || typeof embedded.payload !== 'string') {
+  if (manifest.schema_version !== '1.0' || !/^[a-f0-9]{64}$/.test(manifest.release_id)) {
     throw new Error('内置题库资源格式无效，请重新编译');
   }
-  const lines = embedded.payload.trimEnd().split('\n');
+  const lines = decodeCompact(JSON.parse(questionText) as CompactBank, manifest.release_id, manifest.question_count);
   if (lines.length !== manifest.question_count) throw new Error('内置题库数量不一致，请重新编译');
   startupMetrics.readMs = Date.now() - started;
   const indexStarted = Date.now();

@@ -44,11 +44,12 @@
   "packOptions": {
     "ignore": [
       {"type": "file", "value": "data/index.json"},
+      {"type": "file", "value": "data/questions.json"},
       {"type": "folder", "value": "pages/logs"},
       {"type": "folder", "value": "utils"}
     ],
     "include": [
-      {"type": "file", "value": "data/questions.json"},
+      {"type": "file", "value": "data/compact.br"},
       {"type": "file", "value": "data/manifest.json"}
     ]
   },

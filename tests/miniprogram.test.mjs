@@ -5,6 +5,8 @@ import {createHash} from 'node:crypto';
 import vm from 'node:vm';
 import ts from 'typescript';
 import * as core from '../miniprogram/miniprogram/core/search.ts';
+import * as compact from '../miniprogram/miniprogram/core/compact.ts';
+import {brotliDecompressSync} from 'node:zlib';
 import {seedPayload, prepare} from '../tools/mobile-index/build.mjs';
 import {normalize as desktopNormalize, queryTerms as desktopTerms} from '../src/search-presentation.ts';
 
@@ -14,6 +16,9 @@ const payload = JSON.parse(embeddedText).payload;
 const lines = payload.trimEnd().split('\n'), questions = lines.map(line => JSON.parse(line));
 const index = JSON.parse(await readFile(new URL('data/index.json', base), 'utf8'));
 const manifest = JSON.parse(await readFile(new URL('data/manifest.json', base), 'utf8'));
+const compactText = brotliDecompressSync(await readFile(new URL('data/compact.br', base))).toString('utf8');
+const readCompressed = readResource => options => readResource({filePath: 'data/compact.br',
+  success: result => {const b = Buffer.from(result.data); options.success({data: b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength)});}, fail: options.fail});
 const bank = () => new core.LocalBank(lines, index);
 const fixture = (overrides = {}) => ({...questions[0], stem: '用户与系统', options: [{key: 'A', content: '聊天服务', option_id: 'a'}],
   answer: ['A'], type: 'single', explanation: '只在解析中出现的秘密词', chapter: '第一章', tags: ['标签示例'], ...overrides});
@@ -43,8 +48,8 @@ async function loadService(readResource, extra = {}) {
   const source = await readFile(new URL('services/bank.ts', base), 'utf8');
   const {outputText} = ts.transpileModule(source, {compilerOptions: {module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020}});
   const exports = {};
-  vm.runInNewContext(outputText, {exports, require: () => core,
-    wx: {env: {USER_DATA_PATH: '/cache'}, getFileSystemManager: () => ({readFile: readResource}), ...extra}, console: {error() {}, info() {}, warn() {}}, Error});
+  vm.runInNewContext(outputText, {exports, require: name => name.endsWith('/compact') ? compact : core,
+    wx: {env: {USER_DATA_PATH: '/cache'}, getFileSystemManager: () => ({readFile: readResource, readCompressedFile: readCompressed(readResource)}), ...extra}, console: {error() {}, info() {}, warn() {}}, Error});
   return exports;
 }
 
@@ -53,13 +58,13 @@ test('native loader reads supported JSON resources, restores JSONL and caches th
   const service = await loadService(options => {
     paths.push(options.filePath);
     if (options.filePath === 'data/manifest.json') return options.success({data: JSON.stringify(manifest)});
-    if (options.filePath === 'data/questions.json') return options.success({data: embeddedText});
+    if (options.filePath === 'data/compact.br') return options.success({data: compactText});
     options.fail({errMsg: 'no cache'});
   });
   const first = service.loadBank(), concurrent = service.loadBank();
   assert.equal(first, concurrent);
   const loaded = await first;
-  assert.deepEqual(paths, ['data/manifest.json', 'data/questions.json', '/cache/qbank-runtime-index-v1.json']);
+  assert.deepEqual([...paths].sort(), ['/cache/qbank-runtime-index-v1.json', 'data/compact.br', 'data/manifest.json']);
   assert.equal(loaded.manifest.release_id, manifest.release_id);
   assert.equal(loaded.bank.question(913).question_id, questions[913].question_id);
   assert.deepEqual(await loaded.bank.search('用户 聊天'), await bank().search('用户 聊天'));
@@ -75,13 +80,14 @@ test('native loader retries read failures and rejects malformed resource envelop
   const fs = {
     readFile: options => {
       if (options.filePath === 'data/manifest.json') return options.success({data: JSON.stringify(manifest)});
-      if (options.filePath === 'data/questions.json' && mode !== 'read-failure') return options.success({data: mode === 'bad-envelope' ? '[]' : embeddedText});
+      if (options.filePath === 'data/compact.br' && mode !== 'read-failure') return options.success({data: mode === 'bad-envelope' ? '[]' : compactText});
       if (disk.has(options.filePath)) return options.success({data: disk.get(options.filePath)});
       options.fail({errMsg: 'not found'});
     },
     writeFile: o => {disk.set(o.filePath, o.data); o.success();},
     rename: o => {disk.set(o.newPath, disk.get(o.oldPath)); disk.delete(o.oldPath); o.success();},
   };
+  fs.readCompressedFile = readCompressed(fs.readFile);
   const service = await loadService(fs.readFile, {
     getFileSystemManager: () => fs,
     downloadFile: () => assert.fail('embedded mode must never download'),
@@ -104,6 +110,21 @@ test('native loader retries read failures and rejects malformed resource envelop
 
 test('runtime index matches build-time index exactly', async () => {
   assert.deepEqual(await core.buildPostingsFromLines(lines), Object.assign(Object.create(null), index.postings));
+});
+
+test('Brotli mobile projection preserves all displayed/searchable data and identical index', async () => {
+  const decoded = compact.decodeCompact(JSON.parse(compactText), manifest.release_id, 914);
+  decoded.forEach((line, i) => {
+    const q = JSON.parse(line), original = questions[i];
+    for (const field of ['question_id', 'external_id', 'type', 'stem', 'answer', 'chapter', 'tags', 'explanation']) {
+      assert.deepEqual(q[field], original[field], field);
+    }
+    assert.deepEqual(q.options.map(({key, content}) => ({key, content})), original.options.map(({key, content}) => ({key, content})));
+  });
+  assert.deepEqual(await core.buildPostingsFromLines(decoded), Object.assign(Object.create(null), index.postings));
+  assert.throws(() => compact.decodeCompact(JSON.parse(compactText), 'wrong-release', 914), /版本/);
+  assert.throws(() => brotliDecompressSync(Buffer.from('broken')), /./);
+  assert.equal(compact.decodeUtf8(new TextEncoder().encode('中文👩‍💻é').buffer), '中文👩‍💻é');
 });
 
 test('real index equals independent full-text reference for single characters, phrases and mixed fields', async () => {
