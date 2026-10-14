@@ -6,7 +6,7 @@ Windows 接手开发、环境准备、验证清单与 Git 同步流程见 [Windo
 
 ## 直接使用
 
-打开 `交付/题库.app`（当前交付为 Mac Apple Silicon 本机构建版，已做本机临时签名，尚未完成开发者签名与公证）。首次启动带有 914 题的「HarmonyOS 初级认证」发布题库。
+Windows x64 使用 `交付/题库_0.2.6_x64-setup.exe`，包含 WebView2 离线安装器，默认安装到当前用户目录。安装包尚未签名。Windows 的构建、运行、性能与待人工验收项见 [Windows 验证报告](docs/Windows验证报告.md)。Mac 本机交付使用 `交付/题库.app`（Apple Silicon，临时签名，尚未完成开发者签名与公证）。首次启动带有 914 题的「HarmonyOS 初级认证」发布题库。
 
 `交付/` 是本机生成目录，不随 Git 克隆；从源码接手时请按下方开发命令构建。
 
@@ -51,7 +51,7 @@ cargo test --manifest-path src-tauri/Cargo.toml --test ocr
 pnpm test:ui                       # Node.js 22.18+
 ```
 
-本次工作区的 Rust 工具链安装在 `.tooling/`，可用 `sh scripts/env.sh` 前缀执行 Cargo / Tauri。桌面程序无需这些开发工具，直接打开 `.app` 即可。
+本次工作区的 Rust 工具链安装在 `.tooling/`。Mac 可用 `sh scripts/env.sh` 前缀执行 Cargo / Tauri；Windows 在 PowerShell 执行 `. .\scripts\env.ps1` 后使用 Cargo / Tauri。桌面程序无需这些开发工具，Windows 安装后从快捷方式打开，Mac 直接打开 `.app`。
 
 ```sh
 sh scripts/env.sh ./node_modules/.bin/tauri build --bundles app
@@ -72,4 +72,4 @@ OCR 的系统适配在 `src-tauri/src/ocr/` 与 `src-tauri/native/ocr_macos.m`�
 
 ## 当前范围
 
-这是可运行的本机验证版，不代表已完成规划中的全部首版验收。Mac 已实际验证截图、图片粘贴、文字粘贴与答案匹配；Windows 截图工具、剪贴板与系统 OCR 适配已编写并通过接口交叉编译检查，尚未完成 Windows 安装和实机运行。Windows 安装与升级、签名公证、全局快捷键、托盘、单实例、导入取消与进度、权重排序和恢复演练仍需继续完成。微信小程序、手机相机入口、复杂公式和题目图片附件按后续阶段实施。
+这是可运行的本机验证版，不代表已完成规划中的全部首版验收。Mac 已实际验证截图、图片粘贴、文字粘贴与答案匹配。Windows 已完成原生构建、NSIS 打包及真实 WebView2 功能检查，系统 OCR、内置离线 OCR、Windows 图片与文字剪贴板均已运行通过；安装生命周期结果和范围见 [Windows 验证报告](docs/Windows验证报告.md)。系统截图框选、截图 Esc / 超时、多显示器和其他缩放比例仍需人工验证。签名公证、全局快捷键、托盘、单实例、导入取消与进度、权重排序和恢复演练仍需继续完成。微信小程序、手机相机入口、复杂公式和题目图片附件按后续阶段实施。

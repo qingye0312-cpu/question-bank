@@ -10,13 +10,15 @@
 
 Windows 接手的目标是：在 Windows 原生环境完成安装依赖、编译、实际运行、功能验证和 NSIS 安装包验证，并保留 Mac 现有功能。
 
+2026-10-14 首轮 Windows 结果已补充到第 10 节和 [Windows 验证报告](docs/Windows验证报告.md)。已完成原生构建、安装、升级、卸载重装、核心功能及性能测量；系统截图、多屏、其他缩放和新机器离线安装仍待人工验证。
+
 | 部分 | 当前依据 | Windows 接手工作 |
 | --- | --- | --- |
-| 通用界面、数据库、搜索、导入导出 | 已有代码与自动化测试；Mac 有本机验证记录 | Windows 重跑测试并检查界面和文件操作 |
-| Windows 系统 OCR | `Windows.Media.Ocr` 适配已实现；历史记录只有模块接口交叉编译检查 | 验证完整应用编译、语言包和运行时可用性 |
-| Windows 截图与剪贴板 | `ms-screenclip:`、剪贴板序号检查、图片 / 文字读取已实现 | 实测截图、取消、超时、粘贴、多屏与缩放 |
-| 内置 OCR | Tesseract.js 7，中英文模型已固定并随源码提交；Mac WebView 已运行 | 验证 Windows WebView2 的 Worker / WASM 和离线识别 |
-| Windows 安装包 | 尚未完成 Windows 实机构建、安装和升级验证 | 构建 NSIS，安装后再验证应用 |
+| 通用界面、数据库、搜索、导入导出 | Windows 36 项回归与 15 组实际应用检查通过 | 原生文件对话框、不同输入法和长时使用继续人工验收 |
+| Windows 系统 OCR | 实际安装版对三张 PNG 识别并匹配到候选 | 缺少语言包等其他机器环境仍需验证 |
+| Windows 截图与剪贴板 | 图片 / 文字剪贴板、Ctrl+V、粘贴按钮通过；截图代码保留 | 截图、Esc、超时、多屏及其他缩放待人工检查 |
+| 内置 OCR | Windows WebView2 实际加载打包 Worker / WASM / 模型并识别成功 | 复杂图片、系统失败后的回退分支继续验证 |
+| Windows 安装包 | NSIS 安装、v0.2.4 → v0.2.6 升级、卸载和重装通过 | 新机器缺少 WebView2 的离线安装和签名仍待验收 |
 
 Mac 的通过结果和 Windows 模块的类型检查，都不能代替 Windows 安装包及实机验收。全局快捷键、托盘、单实例、签名、导入进度与取消等仍属于后续工作；现有识题快捷键是应用内快捷键。
 
@@ -116,29 +118,31 @@ pnpm tauri build --bundles nsis -- --locked
 Get-ChildItem .\src-tauri\target\release\bundle\nsis\*.exe
 ```
 
-当前 `src-tauri/tauri.conf.json` 的默认打包目标为 Mac 的 `app`，因此 Windows 必须显式传 `--bundles nsis`。上面的输出路径适用于未指定 `--target`、未覆盖 `CARGO_TARGET_DIR` 的本机 release 构建。若后续增加 Windows 专用配置，优先用平台配置文件，保留 Mac 配置及 `local.questionbank.desktop` 应用标识。
+`src-tauri/tauri.windows.conf.json` 会在 Windows 自动合并配置，使用 NSIS、当前用户安装和简体中文 / 英语；仍可显式传 `--bundles nsis`。通用配置中的 Mac `app` 目标和 `local.questionbank.desktop` 标识保持不变。上述输出路径适用于未指定 `--target`、未覆盖 `CARGO_TARGET_DIR` 的本机 release 构建。
 
 首次打包可能下载 NSIS 等工具。生成 `.exe` 后还要实际安装、启动并测试，不能只凭打包命令成功就标记完成。当前尚无 Windows 签名和发布流水线。
 
-应用内容和 OCR 模型可离线使用，但安装器在目标机器缺少 WebView2 时，默认处理方式可能需要联网。若要求完全离线安装，应在 Windows 阶段配置并验证 WebView2 的离线安装方式，参见 [Tauri Windows 安装器说明](https://v2.tauri.app/distribute/windows-installer/#webview2-installation-options)。
+应用内容和 OCR 模型可离线使用。Windows 配置已选择 WebView2 `offlineInstaller`，最终包内包含微软签名有效的离线安装器。本机已有 WebView2，尚未验证全新机器缺失运行时时的安装分支；不能据当前安装成功就宣称所有离线环境均已通过。选项依据见 [Tauri Windows 安装器说明](https://v2.tauri.app/distribute/windows-installer/#webview2-installation-options)。
 
 ### 必须实测的功能
 
-- [ ] 全新测试目录首次启动载入 914 题；退出重开后数据、当前题库、模式、字号和配色正常。
+- [x] 全新测试目录首次启动载入 914 题；退出重开后数据、当前题库、模式、字号和配色正常。
 - [ ] 详细模式与极速模式都能搜索题干、选项、标签、章节、编号，不搜索解析；中文输入、空格多词、引号短语与多色高亮正确。
 - [ ] 极速模式逐字搜索，只在当前题库查询；长列表滚动继续加载，旧请求不会覆盖新查询；长词、高 DPI 和不同字号不遮挡答案。
 - [ ] 详细模式滚动越过第 50、100 题后继续加载，无重复或遗漏；追加结果保留选中题目，`Alt+↑/↓` 能切换并滚动到选中项；更换搜索词、题型、题库或回收站条件后回到列表开头。
 - [ ] 极速模式「预览」默认关闭，开启后移入题目立即显示全文、选项、答案和已有解析；换行及滚动时对应正确题目，移出列表或按 Esc 关闭，重启保留开关状态；不同字号、高 DPI 和窗口边缘不裁切内容。
-- [ ] 新建题库、建立可编辑副本、编辑、删除、回收站恢复均正常；发布题库仍只读。
+- [x] 新建题库、建立可编辑副本、编辑、删除、回收站恢复均正常；发布题库仍只读（真实 Tauri IPC / SQLite 验证）。
 - [ ] Excel / Word / JSONL 导入预览及导出正常；标准模板可下载；中文、空格路径及对话框取消正常。
 - [ ] `.qbank.zip` 制包、导入、重复导入、版本更新及回退正常；Mac 与 Windows 交换同一包可读取。
-- [ ] 图片文件、拖入图片、`Ctrl+V`、识题面板「粘贴识别」、完整文字粘贴均可工作；短关键词仍正常搜索。
+- [x] 图片文件、拖入图片、`Ctrl+V`、识题面板「粘贴识别」、完整文字粘贴均可工作；短关键词分类由前端回归覆盖。
 - [ ] `Ctrl+Shift+O` 在应用内打开识题；「截取屏幕」启动 Windows 截图工具，拿到新截图，截图后恢复窗口。
 - [ ] 截图 Esc 取消、超时和失败能恢复窗口，取消不会误用剪贴板旧图片；验证多屏及 100% / 150% / 200% 缩放。
 - [ ] 系统 OCR 的中文能力可用；系统 OCR 不可用时能回退内置引擎；手动选择内置引擎后断网识别成功。
-- [ ] 文字样本 `tests/fixtures/ocr/multiple-reordered.txt` 能把选项换序映射为 B、C、D；对应图片若 OCR 有错字，应能保留候选供确认。
+- [x] 文字样本 `tests/fixtures/ocr/multiple-reordered.txt` 能把选项换序映射为 B、C、D；对应图片若 OCR 有错字，保留候选供确认。
 - [ ] `true-false.png` / `single-code.png`、无匹配、空答案及相似题场景均有合理结果；不要把低质量 OCR 候选当作确定答案。
-- [ ] 安装包在实际 Windows 环境安装后能够启动和完成上述核心功能；升级、卸载及用户数据保留行为单独记录。
+- [x] 安装包在实际 Windows 环境安装后能够启动和完成已验证核心功能；升级、卸载及独立测试数据保留行为已单独记录。
+
+未勾选的复合项目含仍需人工操作或另一台机器的子项，并非其中所有功能都未验证。自动化通过范围、截图和日志索引见第 10 节引用的报告。
 
 识题样本来自内置题库。系统 OCR 受语言包、应用包身份和系统版本影响，这些是需要验证的问题；本机接口检查没有证明运行时一定可用。截图调用使用 `ms-screenclip:`，若系统没有自动将新截图复制到剪贴板，应记录现象并验证 `Win+Shift+S` 后粘贴的备用入口。
 
@@ -161,7 +165,7 @@ Get-ChildItem .\src-tauri\target\release\bundle\nsis\*.exe
 
 标准模板已经提交，正常编译无需重建。`scripts/build_templates.mjs` 依赖 Codex 工作区提供的 `@oai/artifact-tool`，不在普通应用依赖内；Word 模板重建另需 `python-docx` 及合适字体。`scripts/migrate_legacy.py` 是一次性迁移工具，依赖本次未入库的原始 Word；不要在普通新克隆目录运行它以覆盖现有 `seed.json`。
 
-`scripts/env.sh` 是可选的 Mac / POSIX 辅助入口，会复用存在的 `.tooling/`，否则使用系统工具；Windows 原生 PowerShell 按本文命令运行即可。
+`scripts/env.sh` 是 Mac / POSIX 辅助入口；Windows 可执行 `. .\scripts\env.ps1`。两者复用存在的工作区 `.tooling/`，否则使用系统工具，不修改永久 PATH。
 
 ## 7. 数据保护与两台电脑同步
 
@@ -211,3 +215,11 @@ git push -u origin windows/first-validation
 可复制下面这段作为新聊天的第一条消息：
 
 > 这是从 qingye0312-cpu/question-bank 克隆的离线题库项目。请先阅读根目录 Windows开发交接.md 和 README.md，保留 Mac 功能、应用标识、题库数据、两种搜索模式及既有答案规则。在 Windows 原生环境核对依赖并执行本文的测试、开发运行和 NSIS 构建；遇到平台问题做最小修改。完成后实际安装并验证截图、图片与文字粘贴、系统 / 内置 OCR、选项换序和离线题库包。请明确区分编译通过、自动化测试通过和 Windows 实机通过，把结果与未解决事项更新到 Windows开发交接.md。
+
+## 10. Windows 首轮实际结果（2026-10-14）
+
+Windows 11 专业版 26H1（28000.2956），x64，i9-14900K，31.74 GiB；Node 24.19.0、pnpm 11.25.0、Rust / Cargo 1.99.0、MSVC 14.44.35207、SDK 10.0.26100.0、WebView2 154.0.4258.53。前端 12 项、Rust 核心 16 项、OCR 8 项通过，实际安装版另通过 15 组 WebView2 / IPC 功能检查。实测发现并修复重复选择当前识题题库后匹配停住的问题。
+
+安装包为 `交付/题库_0.2.6_x64-setup.exe`，234,480,475 字节；SHA-256 为 `7315a2abd57a3fdb27faa36a9a242cd2f2f3aaace0aad781a9f7ac22d1afc798`。未签名，包含 WebView2 离线安装器。安装、从真实 v0.2.4 升级、卸载与重装均已执行；独立测试数据库、回收站、修订历史及显示偏好保留。最终程序位于 `C:\Users\STAR\AppData\Local\题库\question-bank.exe`，正常数据目录实际为 `%APPDATA%\local.questionbank.desktop\`。
+
+10 万题核心检索 P95 8.29 ms；详细 / 极速界面 P95 31.6 / 49.4 ms，各 600 次采样。数据、测量条件、复现脚本和未验证项完整记录在 [Windows 验证报告](docs/Windows验证报告.md)。原生桌面自动化工具初始化失败，所以未替代用户操作系统截图、原生文件对话框和多显示器；这些项目仍保持待人工验收状态。
