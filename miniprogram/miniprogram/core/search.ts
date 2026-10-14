@@ -54,7 +54,10 @@ export function decodePosting(value: string): number[] {
 export function buildPostings(questions: Question[]): Record<string, string> {
   const postings: Record<string, number[]> = Object.create(null);
   questions.forEach((q, id) => {
-    for (const token of tokens(searchText(q))) (postings[token] ||= []).push(id);
+    for (const token of tokens(searchText(q))) {
+      if (!postings[token]) postings[token] = [];
+      postings[token].push(id);
+    }
   });
   const encoded: Record<string, string> = Object.create(null);
   for (const token of Object.keys(postings).sort()) encoded[token] = encodePosting(postings[token]);
