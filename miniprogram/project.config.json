@@ -13,12 +13,12 @@
     },
     "coverView": false,
     "postcss": false,
-    "minified": false,
+    "minified": true,
     "enhance": false,
     "showShadowRootInWxmlPanel": false,
     "packNpmRelationList": [],
-    "ignoreUploadUnusedFiles": false,
-    "ignoreDevUnusedFiles": false,
+    "ignoreUploadUnusedFiles": true,
+    "ignoreDevUnusedFiles": true,
     "compileHotReLoad": false,
     "skylineRenderEnable": false,
     "es6": false,
@@ -42,8 +42,12 @@
   },
   "libVersion": "trial",
   "packOptions": {
-    "ignore": [],
-    "include": [{"type": "folder", "value": "data"}]
+    "ignore": [
+      {"type": "folder", "value": "data"},
+      {"type": "folder", "value": "pages/logs"},
+      {"type": "folder", "value": "utils"}
+    ],
+    "include": []
   },
   "appid": "wx74610b716883eee9"
 }

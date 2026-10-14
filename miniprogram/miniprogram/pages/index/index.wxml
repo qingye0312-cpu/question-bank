@@ -2,7 +2,7 @@
   <view class="header">
     <view class="eyebrow">本地题库 · 文字搜题</view>
     <view class="title">{{bankName}}</view>
-    <view class="bank-meta muted">{{ready ? total + ' 道题 · 内置版本 ' + version + ' · 无需下载' : '正在读取内置内容'}}</view>
+    <view class="bank-meta muted">{{ready ? total + ' 道题 · 缓存版本 ' + version + ' · 可离线搜索' : '正在加载题库，首次使用需下载'}}</view>
     <view class="search-box">
       <text class="search-symbol">⌕</text>
       <input class="search-input" placeholder="输入关键词或粘贴题目" value="{{query}}" disabled="{{!ready}}" maxlength="-1" bindinput="onInput" confirm-type="search" />
@@ -19,7 +19,7 @@
       <view class="error">{{error}}</view>
       <button wx:if="{{!ready}}" class="primary retry" bindtap="initialize">重新加载</button>
     </view>
-    <view wx:elif="{{loading}}" class="state muted">正在读取本地题库…</view>
+    <view wx:elif="{{loading}}" class="state muted">正在加载题库…</view>
     <view wx:elif="{{count === 0}}" class="state">
       <view>没有找到匹配的题目</view>
       <view class="muted">试试题干中的短词，或减少关键词</view>

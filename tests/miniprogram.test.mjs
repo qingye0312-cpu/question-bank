@@ -39,12 +39,12 @@ test('generated content is deterministic, retains source metadata and matches de
   assert.equal((await prepare({check: true})).questions, 914);
 });
 
-async function loadService(readResource) {
+async function loadService(readResource, extra = {}) {
   const source = await readFile(new URL('services/bank.ts', base), 'utf8');
   const {outputText} = ts.transpileModule(source, {compilerOptions: {module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020}});
   const exports = {};
   vm.runInNewContext(outputText, {exports, require: () => core,
-    wx: {getFileSystemManager: () => ({readFile: readResource})}, console: {error() {}}, Error});
+    wx: {env: {USER_DATA_PATH: '/cache'}, getFileSystemManager: () => ({readFile: readResource}), ...extra}, console: {error() {}}, Error});
   return exports;
 }
 
@@ -52,35 +52,47 @@ test('native loader reads supported JSON resources, restores JSONL and caches th
   const paths = [];
   const service = await loadService(options => {
     paths.push(options.filePath);
-    // Non-JSON resources were rejected by the actual code-package runtime.
-    if (!options.filePath.endsWith('.json')) return options.fail({errMsg: 'permission denied'});
-    readFile(new URL(options.filePath, base), 'utf8').then(data => options.success({data}), options.fail);
+    options.success({data: JSON.stringify([JSON.stringify(manifest), embeddedText, JSON.stringify(index)])});
   });
   const first = service.loadBank(), concurrent = service.loadBank();
   assert.equal(first, concurrent);
   const loaded = await first;
-  assert.deepEqual(paths.sort(), ['data/index.json', 'data/manifest.json', 'data/questions.json']);
+  assert.deepEqual(paths, ['/cache/qbank-download-v1.json']);
   assert.equal(loaded.manifest.release_id, manifest.release_id);
   assert.equal(loaded.bank.question(913).question_id, questions[913].question_id);
   assert.deepEqual(await loaded.bank.search('用户 聊天'), await bank().search('用户 聊天'));
   assert.equal(await service.loadBank(), loaded);
-  assert.equal(paths.length, 3);
+  assert.equal(paths.length, 1);
 });
 
 test('native loader retries read failures and rejects malformed resource envelopes', async () => {
-  const files = {'data/manifest.json': JSON.stringify(manifest), 'data/questions.json': embeddedText, 'data/index.json': JSON.stringify(index)};
+  const files = [JSON.stringify(manifest), embeddedText, JSON.stringify(index)];
   let mode = 'read-failure';
-  const service = await loadService(options => {
-    if (mode === 'read-failure') return options.fail({errMsg: 'permission denied'});
-    const data = options.filePath === 'data/questions.json' && mode === 'bad-envelope'
-      ? JSON.stringify({format: 'qbank-embedded-jsonl-1', payload: []}) : files[options.filePath];
-    options.success({data});
+  const disk = new Map();
+  const fs = {
+    readFile: options => {
+      if (disk.has(options.filePath)) return options.success({data: disk.get(options.filePath)});
+      options.fail({errMsg: 'not found'});
+    },
+    copyFile: o => {disk.set(o.destPath, disk.get(o.srcPath)); o.success();},
+    rename: o => {disk.set(o.newPath, disk.get(o.oldPath)); disk.delete(o.oldPath); o.success();},
+  };
+  const service = await loadService(fs.readFile, {
+    getFileSystemManager: () => fs,
+    downloadFile: options => {
+      if (mode === 'read-failure') return options.fail({errMsg: 'offline'});
+      disk.set('/temp', mode === 'bad-envelope' ? '[]' : JSON.stringify(files));
+      options.success({statusCode: 200, tempFilePath: '/temp'});
+    },
   });
-  await assert.rejects(service.loadBank(), /内置题库读取失败/);
+  await assert.rejects(service.loadBank(), /无法下载题库/);
   mode = 'bad-envelope';
   await assert.rejects(service.loadBank(), /资源格式无效/);
+  assert.equal(disk.has('/cache/qbank-download-v1.json'), false);
   mode = 'success';
   assert.equal((await service.loadBank()).bank.question(0).question_id, questions[0].question_id);
+  const offline = await loadService(fs.readFile, {downloadFile: () => assert.fail('cached startup must not download')});
+  assert.equal((await offline.loadBank()).manifest.question_count, 914);
 });
 
 test('real index equals independent full-text reference for single characters, phrases and mixed fields', async () => {
