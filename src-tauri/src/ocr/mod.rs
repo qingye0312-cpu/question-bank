@@ -1,5 +1,9 @@
 pub mod matching;
+#[cfg(target_os = "macos")]
+#[path = "../../../mac/src/ocr.rs"]
+mod mac;
 #[cfg(target_os = "windows")]
+#[path = "../../../windows/src/ocr.rs"]
 mod windows;
 
 use crate::model::{err, Result};
@@ -99,34 +103,11 @@ pub fn decode(data_url: &str) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
-#[cfg(target_os = "macos")]
-unsafe extern "C" {
-    fn qbank_ocr_image(bytes: *const u8, length: usize) -> *mut std::ffi::c_char;
-    fn qbank_ocr_clipboard() -> *mut std::ffi::c_char;
-    fn qbank_ocr_free(value: *mut std::ffi::c_char);
-    fn qbank_capture_allowed() -> bool;
-}
-#[cfg(target_os = "macos")]
-unsafe fn native_json(value: *mut std::ffi::c_char) -> Result<serde_json::Value> {
-    if value.is_null() {
-        return Err("系统识别没有返回数据".into());
-    }
-    let result = serde_json::from_slice(std::ffi::CStr::from_ptr(value).to_bytes()).map_err(err);
-    qbank_ocr_free(value);
-    let result: serde_json::Value = result?;
-    if let Some(message) = result["error"].as_str() {
-        return Err(message.into());
-    }
-    Ok(result)
-}
 pub fn recognize(data_url: &str) -> Result<Recognition> {
     let started = Instant::now();
     let bytes = decode(data_url)?;
     #[cfg(target_os = "macos")]
-    let mut result: Recognition = unsafe {
-        serde_json::from_value(native_json(qbank_ocr_image(bytes.as_ptr(), bytes.len()))?)
-            .map_err(err)?
-    };
+    let mut result = mac::recognize(&bytes)?;
     #[cfg(target_os = "windows")]
     let mut result = windows::recognize(&bytes)?;
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
@@ -139,19 +120,7 @@ pub fn recognize(data_url: &str) -> Result<Recognition> {
 }
 pub fn clipboard() -> Result<ClipboardInput> {
     #[cfg(target_os = "macos")]
-    unsafe {
-        let value = native_json(qbank_ocr_clipboard())?;
-        if let Some(data) = value["image"].as_str() {
-            return Ok(ClipboardInput {
-                image: Some(image_input(&decode(data)?, "粘贴的图片".into())?),
-                text: String::new(),
-            });
-        }
-        return Ok(ClipboardInput {
-            image: None,
-            text: value["text"].as_str().unwrap_or_default().into(),
-        });
-    }
+    return mac::clipboard();
     #[cfg(target_os = "windows")]
     return windows::clipboard();
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
@@ -176,48 +145,11 @@ pub fn capture(window: tauri::WebviewWindow) -> Result<Option<ImageInput>> {
     }
     let restore = Restore(window);
     #[cfg(target_os = "macos")]
-    if !unsafe { qbank_capture_allowed() } {
-        return Err("请在「系统设置 → 隐私与安全性 → 屏幕与系统音频录制」允许题库截图，然后重新打开程序。也可用系统截图后粘贴识别。".into());
-    }
+    mac::check_capture_permission()?;
     restore.0.hide().map_err(err)?;
     std::thread::sleep(Duration::from_millis(250));
     #[cfg(target_os = "macos")]
-    {
-        let temp = tempfile::tempdir().map_err(err)?;
-        let path = temp.path().join("question.png");
-        let mut child = std::process::Command::new("/usr/sbin/screencapture")
-            .args(["-x", "-t", "png", "-D", "1"])
-            .arg(&path)
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::piped())
-            .spawn()
-            .map_err(err)?;
-        let started = Instant::now();
-        loop {
-            if child.try_wait().map_err(err)?.is_some() {
-                break;
-            }
-            if CANCEL_CAPTURE.load(Ordering::SeqCst) || started.elapsed() > Duration::from_secs(60)
-            {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Ok(None);
-            }
-            std::thread::sleep(Duration::from_millis(80));
-        }
-        if !path.exists() {
-            let output = child.wait_with_output().map_err(err)?;
-            let reason = String::from_utf8_lossy(&output.stderr);
-            return Err(format!(
-                "未能截取主屏幕，请检查屏幕录制权限，或使用系统截图后粘贴。{}",
-                reason.trim()
-            ));
-        }
-        let mut input = image_file(&path)?;
-        input.name = "主屏幕截图".into();
-        input.needs_crop = true;
-        return Ok(Some(input));
-    }
+    return mac::capture(&CANCEL_CAPTURE);
     #[cfg(target_os = "windows")]
     return windows::capture(&CANCEL_CAPTURE);
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]

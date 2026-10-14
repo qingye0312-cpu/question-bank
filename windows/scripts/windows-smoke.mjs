@@ -7,7 +7,7 @@ import {fileURLToPath, pathToFileURL} from 'node:url';
 import {spawn} from 'node:child_process';
 import net from 'node:net';
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const executable = path.resolve(process.argv[2] || path.join(root, 'src-tauri/target/release/question-bank.exe'));
 const stamp = new Date().toISOString().replace(/[:.]/g, '-');
 const output = path.join(root, 'artifacts', `windows-smoke-${stamp}`);

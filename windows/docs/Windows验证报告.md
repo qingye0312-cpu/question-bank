@@ -1,5 +1,7 @@
 # Windows 构建与验证报告
 
+本文保留 `windows/first-validation` 的历史验证结果；脚本及配置路径已更新为平台目录布局，所有命令在仓库根目录执行。
+
 日期：2026-10-14。应用版本：0.2.6，Windows x64 本机验证版。本轮从 `24f961e` 接手，工作分支为 `windows/first-validation`。原生编译、自动化回归、实际 WebView2 运行均已执行；尚待人工验收的项目单独列在末尾。
 
 ## 交付与环境
@@ -25,7 +27,7 @@
 | WebView2 | 154.0.4258.53 |
 | Tauri / NSIS / 自动化 | Rust 2.12.3、CLI 2.12.2；NSIS 3.11；Playwright 1.62.1 |
 
-Rust 安装在当前工作区 `.tooling/`，PowerShell 可用 `. .\scripts\env.ps1` 载入。依赖下载使用本机 Clash 代理；代理并非程序运行依赖，也未写入应用代码。
+Rust 安装在当前工作区 `.tooling/`，PowerShell 可用 `. .\windows\scripts\env.ps1` 载入。依赖下载使用本机 Clash 代理；代理并非程序运行依赖，也未写入应用代码。
 
 ## 源码核对与修改
 
@@ -33,7 +35,7 @@ Rust 安装在当前工作区 `.tooling/`，PowerShell 可用 `. .\scripts\env.p
 
 本轮修改：
 
-- 增加 `src-tauri/tauri.windows.conf.json`，在 Windows 使用 NSIS、当前用户安装、中文界面及 WebView2 离线安装器；保留 Mac 配置和 `local.questionbank.desktop` 标识。
+- 增加 Windows 打包配置（现为 `windows/tauri.conf.json`），在 Windows 使用 NSIS、当前用户安装、中文界面及 WebView2 离线安装器；保留 Mac 配置和 `local.questionbank.desktop` 标识。
 - 修复识题面板重复选择当前题库时，取消了匹配请求却不触发新查询的问题。Windows 剪贴板实测复现后修复，并由实际安装版验证覆盖。
 - 增加 PowerShell 环境入口、真实 WebView2 功能验证和界面性能脚本，更新平台交接及验证记录。
 
@@ -97,7 +99,7 @@ Release 构建，独立合成库，200 个查询场景、3 轮，每个规模 / 
 ## 复现
 
 ```powershell
-. .\scripts\env.ps1
+. .\windows\scripts\env.ps1
 pnpm.cmd install --frozen-lockfile
 pnpm.cmd test:ui
 cargo test --locked --manifest-path src-tauri/Cargo.toml --test core --test ocr
@@ -108,11 +110,11 @@ pnpm.cmd tauri build --bundles nsis -- --locked
 New-Item -ItemType Directory -Force .tooling/windows-ui | Out-Null
 pnpm.cmd --dir .tooling/windows-ui --ignore-workspace add --save-exact playwright@1.62.1
 $env:QBANK_PLAYWRIGHT_MODULE = Join-Path $PWD '.tooling/windows-ui/node_modules/playwright/index.mjs'
-node scripts/windows-smoke.mjs src-tauri/target/release/question-bank.exe
+node windows/scripts/windows-smoke.mjs src-tauri/target/release/question-bank.exe
 
 # benchmark 拒绝覆盖同名已有数据库；重复运行时使用新的输出文件名。
 src-tauri/target/release/qbank-tool.exe benchmark 100000 artifacts/new-windows-bench.sqlite
-node scripts/windows-ui-benchmark.mjs src-tauri/target/release/question-bank.exe artifacts/new-windows-bench.sqlite
+node windows/scripts/windows-ui-benchmark.mjs src-tauri/target/release/question-bank.exe artifacts/new-windows-bench.sqlite
 ```
 
 每次功能 / 界面测量会生成新的独立数据目录和 JSON 报告，失败返回非零退出码；不会主动删除既有数据库。测试脚本会操作应用窗口及短暂使用系统剪贴板。日志、截图、数据库、工具链和安装包按 `.gitignore` 保留在本机。

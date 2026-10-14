@@ -1,13 +1,31 @@
+#[path = "../mac/build.rs"]
+mod mac;
+
 fn main() {
-    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
-        cc::Build::new()
-            .file("native/ocr_macos.m")
-            .flag("-fobjc-arc")
-            .compile("qbank_ocr");
-        for framework in ["Foundation", "Vision", "AppKit", "ImageIO", "CoreGraphics"] {
-            println!("cargo:rustc-link-lib=framework={framework}");
+    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let platform_config = match target_os.as_str() {
+        "macos" => Some((
+            "../mac/tauri.conf.json",
+            include_str!("../mac/tauri.conf.json"),
+        )),
+        "windows" => Some((
+            "../windows/tauri.conf.json",
+            include_str!("../windows/tauri.conf.json"),
+        )),
+        _ => None,
+    };
+    if let Some((path, config)) = platform_config {
+        println!("cargo:rerun-if-changed={path}");
+        // The CLI passes merged settings. Plain `cargo test/build` needs the
+        // same platform defaults, including the relocated Windows icon.
+        if std::env::var_os("TAURI_CONFIG").is_none() {
+            let config = config.lines().collect::<String>();
+            std::env::set_var("TAURI_CONFIG", &config);
+            println!("cargo:rustc-env=TAURI_CONFIG={config}");
         }
-        println!("cargo:rerun-if-changed=native/ocr_macos.m");
+    }
+    if target_os == "macos" {
+        mac::build();
     }
     tauri_build::build()
 }

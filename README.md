@@ -2,11 +2,11 @@
 
 Tauri 2 + React + Rust / SQLite 桌面题库。数据保存在本机，搜索、录题、导入、导出和制作离线包均不需要联网。
 
-Windows 接手开发、环境准备、验证清单与 Git 同步流程见 [Windows 开发交接](Windows开发交接.md)。
+平台专属代码分别位于 [mac/](mac/README.md) 和 [windows/](windows/README.md)，`miniprogram/` 仅保留 `.gitkeep` 占位，尚未开发。共享前端、Rust 后端、题库资源和测试保留原有结构。两次已构建提交的差异和文件归属见 [平台目录与分支对比](docs/平台目录与分支对比.md)。
 
 ## 直接使用
 
-Windows x64 使用 `交付/题库_0.2.6_x64-setup.exe`，包含 WebView2 离线安装器，默认安装到当前用户目录。安装包尚未签名。Windows 的构建、运行、性能与待人工验收项见 [Windows 验证报告](docs/Windows验证报告.md)。Mac 本机交付使用 `交付/题库.app`（Apple Silicon，临时签名，尚未完成开发者签名与公证）。首次启动带有 914 题的「HarmonyOS 初级认证」发布题库。
+Windows x64 使用 `交付/题库_0.2.6_x64-setup.exe`，包含 WebView2 离线安装器，默认安装到当前用户目录。安装包尚未签名。Windows 的构建、运行、性能与待人工验收项见 [Windows 验证报告](windows/docs/Windows验证报告.md)。Mac 本机交付使用 `交付/题库.app`（Apple Silicon，临时签名，尚未完成开发者签名与公证）。首次启动带有 914 题的「HarmonyOS 初级认证」发布题库。
 
 `交付/` 是本机生成目录，不随 Git 克隆；从源码接手时请按下方开发命令构建。
 
@@ -27,7 +27,7 @@ Windows x64 使用 `交付/题库_0.2.6_x64-setup.exe`，包含 WebView2 离线�
 
 新题须填写明确答案。单选选一个选项，多选至少两个；判断题填写正确或错误。删除题目后可在回收站恢复。
 
-详细格式见 [导入格式与离线包规范](docs/导入格式与离线包规范_v1.md)，验证结果见 [本机验证报告](docs/本机验证报告.md)。截图权限、识题限制及平台验证状态见 [截图识题实现与验证](docs/截图识题实现与验证.md)。
+详细格式见 [导入格式与离线包规范](docs/导入格式与离线包规范_v1.md)，验证结果见 [Mac 本机验证报告](mac/docs/本机验证报告.md)。截图权限、识题限制及平台验证状态见 [截图识题实现与验证](docs/截图识题实现与验证.md)。
 
 ## 数据与发布
 
@@ -41,6 +41,8 @@ Windows x64 使用 `交付/题库_0.2.6_x64-setup.exe`，包含 WebView2 离线�
 
 常规环境需要 Node.js 22.18+（当前验证使用 24.19.0）、pnpm 11.25.0、稳定 Rust 与 Tauri 的平台依赖。Mac 需 Xcode Command Line Tools；Windows 构建需 MSVC 工具链与 WebView2。依赖版本以 `pnpm-lock.yaml` 和 `src-tauri/Cargo.lock` 为准。
 
+以下命令均在仓库根目录执行。`pnpm tauri` 经由 `scripts/tauri.mjs` 自动合并本机平台的 `mac/tauri.conf.json` 或 `windows/tauri.conf.json`；传入 `--target` 时按目标平台选择。直接使用原生 Tauri CLI 时须显式传入对应的 `--config`，否则不会加载平台安装配置。
+
 ```sh
 pnpm install --frozen-lockfile
 pnpm tauri dev
@@ -49,14 +51,15 @@ pnpm tauri build --bundles nsis      # Windows，须在 Windows 上执行
 cargo test --manifest-path src-tauri/Cargo.toml --test core
 cargo test --manifest-path src-tauri/Cargo.toml --test ocr
 pnpm test:ui                       # Node.js 22.18+
+pnpm test:platforms                # 平台配置与命令参数回归
 ```
 
-本次工作区的 Rust 工具链安装在 `.tooling/`。Mac 可用 `sh scripts/env.sh` 前缀执行 Cargo / Tauri；Windows 在 PowerShell 执行 `. .\scripts\env.ps1` 后使用 Cargo / Tauri。桌面程序无需这些开发工具，Windows 安装后从快捷方式打开，Mac 直接打开 `.app`。
+本次工作区的 Rust 工具链安装在 `.tooling/`。Mac 可用 `sh mac/scripts/env.sh` 前缀执行 Cargo / Tauri；Windows 在 PowerShell 执行 `. .\windows\scripts\env.ps1` 后使用 Cargo / Tauri。桌面程序无需这些开发工具，Windows 安装后从快捷方式打开，Mac 直接打开 `.app`。
 
 ```sh
-sh scripts/env.sh ./node_modules/.bin/tauri build --bundles app
-sh scripts/env.sh cargo test --manifest-path src-tauri/Cargo.toml --test core
-sh scripts/env.sh cargo build --release --manifest-path src-tauri/Cargo.toml --bin qbank-tool
+sh mac/scripts/env.sh pnpm tauri build --bundles app
+sh mac/scripts/env.sh cargo test --manifest-path src-tauri/Cargo.toml --test core
+sh mac/scripts/env.sh cargo build --release --manifest-path src-tauri/Cargo.toml --bin qbank-tool
 src-tauri/target/release/qbank-tool inspect templates/题库导入模板_v1.docx
 src-tauri/target/release/qbank-tool benchmark 100000 artifacts/new-bench.sqlite
 src-tauri/target/release/qbank-tool remeasure artifacts/new-bench.sqlite
@@ -68,8 +71,8 @@ src-tauri/target/release/qbank-tool benchmark-ocr artifacts/new-bench.sqlite --f
 
 源代码按 `model`（数据约束）、`db`（存储与搜索）、`exchange`（导入导出）、Tauri 命令适配、React 界面分层。未来网页与小程序可沿用 JSONL / 发布包协议，仍需实现服务端传输和认证；当前没有在线服务。
 
-OCR 的系统适配在 `src-tauri/src/ocr/` 与 `src-tauri/native/ocr_macos.m`，题目解析、候选检索及答案对应在 `src-tauri/src/ocr/matching.rs`。前端入口在 `src/ocr-panel.tsx`，框选在 `src/ocr-crop.tsx`，内置识别器在 `src/ocr-client.ts`。构建前 `scripts/prepare-ocr.mjs` 校验本地模型并复制运行资源；模型版本、指纹与许可证位于 `assets/ocr/`。当前识别不会将截图上传至外部服务；后续可以添加在线服务，现阶段不需要账号或密钥。
+OCR 的系统适配在 `mac/src/ocr.rs`、`mac/native/ocr_macos.m` 和 `windows/src/ocr.rs`，共享入口 `src-tauri/src/ocr/mod.rs` 按目标平台加载；题目解析、候选检索及答案对应仍在 `src-tauri/src/ocr/matching.rs`。前端入口在 `src/ocr-panel.tsx`，框选在 `src/ocr-crop.tsx`，内置识别器在 `src/ocr-client.ts`。构建前 `scripts/prepare-ocr.mjs` 校验本地模型并复制运行资源；模型版本、指纹与许可证位于 `assets/ocr/`。当前识别不会将截图上传至外部服务；后续可以添加在线服务，现阶段不需要账号或密钥。
 
 ## 当前范围
 
-这是可运行的本机验证版，不代表已完成规划中的全部首版验收。Mac 已实际验证截图、图片粘贴、文字粘贴与答案匹配。Windows 已完成原生构建、NSIS 打包及真实 WebView2 功能检查，系统 OCR、内置离线 OCR、Windows 图片与文字剪贴板均已运行通过；安装生命周期结果和范围见 [Windows 验证报告](docs/Windows验证报告.md)。系统截图框选、截图 Esc / 超时、多显示器和其他缩放比例仍需人工验证。签名公证、全局快捷键、托盘、单实例、导入取消与进度、权重排序和恢复演练仍需继续完成。微信小程序、手机相机入口、复杂公式和题目图片附件按后续阶段实施。
+这是可运行的本机验证版，不代表已完成规划中的全部首版验收。Mac 已实际验证截图、图片粘贴、文字粘贴与答案匹配。Windows 已完成原生构建、NSIS 打包及真实 WebView2 功能检查，系统 OCR、内置离线 OCR、Windows 图片与文字剪贴板均已运行通过；安装生命周期结果和范围见 [Windows 验证报告](windows/docs/Windows验证报告.md)。系统截图框选、截图 Esc / 超时、多显示器和其他缩放比例仍需人工验证。签名公证、全局快捷键、托盘、单实例、导入取消与进度、权重排序和恢复演练仍需继续完成。微信小程序、手机相机入口、复杂公式和题目图片附件按后续阶段实施。

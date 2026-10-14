@@ -1,5 +1,5 @@
 #!/bin/sh
-QBANK_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+QBANK_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 # Reuse this checkout's optional Rust installation; ordinary clones use PATH.
 if [ -d "$QBANK_ROOT/.tooling/cargo" ] && [ -d "$QBANK_ROOT/.tooling/rustup" ]; then
   export CARGO_HOME="$QBANK_ROOT/.tooling/cargo"

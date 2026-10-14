@@ -4,6 +4,8 @@
 
 仓库：[qingye0312-cpu/question-bank](https://github.com/qingye0312-cpu/question-bank)（私有）。Mac 与 Windows 共用源码；Windows 适配在临时分支验证后合回 `main`。
 
+平台整理分支为 `codex/organize-platforms`。本文的命令与反引号中的路径均以仓库根目录为基准；Windows 专属文件放在 `windows/`，共用前端、后端和资源仍在根目录。目录及历史分支对比见 [平台目录与分支对比](../docs/平台目录与分支对比.md)。
+
 ## 1. 接手目标与现状
 
 当前是 Tauri 2 + React 19 / TypeScript + Rust / SQLite 的离线桌面题库。已有搜索、录题维护、回收站、修订记录、标准文件导入导出、离线题库包，以及截图 / 图片粘贴 / 文字粘贴识题。首次使用全新数据目录，会载入 914 题的「HarmonyOS 初级认证」只读发布题库。
@@ -26,7 +28,7 @@ Mac 的通过结果和 Windows 模块的类型检查，都不能代替 Windows �
 
 | 随 Git 提交 | 用途 |
 | --- | --- |
-| `src/`、`src-tauri/src/`、`src-tauri/native/` | 共享界面、Rust 后端、系统适配 |
+| `src/`、`src-tauri/src/`、`mac/`、`windows/` | 共享界面、Rust 后端、各平台系统适配与构建配置 |
 | `package.json`、`pnpm-lock.yaml`、`pnpm-workspace.yaml`、`src-tauri/Cargo.lock` | 固定依赖与构建设置 |
 | `src-tauri/resources/seed.json`、`examples.json` | 内置题库与测试示例；编译时需要 |
 | `public/ocr/lang/*.traineddata`、`assets/ocr/` | 中英文模型、指纹清单与第三方许可证 |
@@ -84,14 +86,15 @@ New-Item -ItemType Directory -Force "$env:USERPROFILE\source" | Out-Null
 Set-Location "$env:USERPROFILE\source"
 git clone https://github.com/qingye0312-cpu/question-bank.git
 Set-Location .\question-bank
-git switch -c windows/first-validation
+git switch codex/organize-platforms
 ```
 
-在 Windows Codex 中把 `question-bank` 文件夹添加为本地项目。分支名称是首轮示例；已经存在时切换到已有分支，不重复创建。
+在 Windows Codex 中把 `question-bank` 仓库根目录添加为本地项目。上述平台整理分支需先由持有它的电脑推送，才可从其他电脑克隆或切换；原 `windows/first-validation` 保留为首轮构建基线。
 
 ```powershell
 pnpm install --frozen-lockfile
 pnpm test:ui
+pnpm test:platforms
 pnpm build
 cargo test --locked --manifest-path src-tauri/Cargo.toml --test core --test ocr
 ```
@@ -118,7 +121,7 @@ pnpm tauri build --bundles nsis -- --locked
 Get-ChildItem .\src-tauri\target\release\bundle\nsis\*.exe
 ```
 
-`src-tauri/tauri.windows.conf.json` 会在 Windows 自动合并配置，使用 NSIS、当前用户安装和简体中文 / 英语；仍可显式传 `--bundles nsis`。通用配置中的 Mac `app` 目标和 `local.questionbank.desktop` 标识保持不变。上述输出路径适用于未指定 `--target`、未覆盖 `CARGO_TARGET_DIR` 的本机 release 构建。
+`pnpm tauri` 通过 `scripts/tauri.mjs` 在 Windows 自动合并 `windows/tauri.conf.json`，使用 NSIS、当前用户安装和简体中文 / 英语；仍可显式传 `--bundles nsis`。Mac `app` 配置保存在 `mac/tauri.conf.json`，通用配置保留 `local.questionbank.desktop` 标识。上述输出路径适用于未指定 `--target`、未覆盖 `CARGO_TARGET_DIR` 的本机 release 构建。若直接调用原生 Tauri CLI，必须显式提供 `--config windows/tauri.conf.json`。
 
 首次打包可能下载 NSIS 等工具。生成 `.exe` 后还要实际安装、启动并测试，不能只凭打包命令成功就标记完成。当前尚无 Windows 签名和发布流水线。
 
@@ -156,16 +159,16 @@ Get-ChildItem .\src-tauri\target\release\bundle\nsis\*.exe
 | `src/ocr-panel.tsx`、`src/ocr-crop.tsx`、`src/ocr-client.ts` | 识题入口、裁切、粘贴判断、内置 OCR |
 | `src-tauri/src/lib.rs` | Tauri 命令、数据目录及启动种子题库 |
 | `src-tauri/src/db.rs`、`model.rs`、`exchange.rs` | 数据、搜索、约束和交换协议 |
-| `src-tauri/src/ocr/windows.rs` | Windows OCR、截图、剪贴板 |
+| `windows/src/ocr.rs` | Windows OCR、截图、剪贴板 |
 | `src-tauri/src/ocr/mod.rs`、`matching.rs` | 平台分发、输入边界、候选检索和选项映射 |
-| `src-tauri/native/ocr_macos.m`、`src-tauri/build.rs` | Mac 实现与按平台编译；修改共享逻辑时保留此分支 |
+| `mac/src/ocr.rs`、`mac/native/ocr_macos.m`、`mac/build.rs` | Mac 实现；共享入口 `src-tauri/build.rs` 按目标平台编译 |
 | `src-tauri/src/bin/qbank-tool.rs` | 导入检查、制包和性能验证辅助程序 |
 
-需求和已有验证入口：[已确认规划](系统级题库建设规划_已确认.md)、[本机验证报告](docs/本机验证报告.md)、[截图识题说明](docs/截图识题实现与验证.md)、[导入与离线包规范](docs/导入格式与离线包规范_v1.md)、[答案核对记录](docs/答案核对记录.md)。报告中引用的 `artifacts/` 是 Mac 历史本机产物，未随仓库提交；需要复测时在 Windows 重新生成日志。
+需求和已有验证入口：[已确认规划](../系统级题库建设规划_已确认.md)、[Mac 本机验证报告](../mac/docs/本机验证报告.md)、[截图识题说明](../docs/截图识题实现与验证.md)、[导入与离线包规范](../docs/导入格式与离线包规范_v1.md)、[答案核对记录](../docs/答案核对记录.md)。报告中引用的 `artifacts/` 是历史本机产物，未随仓库提交；需要复测时在 Windows 重新生成日志。
 
 标准模板已经提交，正常编译无需重建。`scripts/build_templates.mjs` 依赖 Codex 工作区提供的 `@oai/artifact-tool`，不在普通应用依赖内；Word 模板重建另需 `python-docx` 及合适字体。`scripts/migrate_legacy.py` 是一次性迁移工具，依赖本次未入库的原始 Word；不要在普通新克隆目录运行它以覆盖现有 `seed.json`。
 
-`scripts/env.sh` 是 Mac / POSIX 辅助入口；Windows 可执行 `. .\scripts\env.ps1`。两者复用存在的工作区 `.tooling/`，否则使用系统工具，不修改永久 PATH。
+`mac/scripts/env.sh` 是 Mac / POSIX 辅助入口；Windows 可执行 `. .\windows\scripts\env.ps1`。两者复用存在的工作区 `.tooling/`，否则使用系统工具，不修改永久 PATH。
 
 ## 7. 数据保护与两台电脑同步
 
@@ -184,7 +187,7 @@ git add .
 git diff --cached --check
 git diff --cached --stat
 git commit -m "Validate and adapt Windows desktop build"
-git push -u origin windows/first-validation
+git push -u origin codex/organize-platforms
 ```
 
 提交前逐项检查文件；将 Windows 系统版本、架构、工具链、测试结果、安装器文件名与 SHA-256、通过和未通过的实测项补到本文，再合回 `main`。安装器校验值可用 `Get-FileHash <安装器路径> -Algorithm SHA256` 获取。
@@ -214,7 +217,7 @@ git push -u origin windows/first-validation
 
 可复制下面这段作为新聊天的第一条消息：
 
-> 这是从 qingye0312-cpu/question-bank 克隆的离线题库项目。请先阅读根目录 Windows开发交接.md 和 README.md，保留 Mac 功能、应用标识、题库数据、两种搜索模式及既有答案规则。在 Windows 原生环境核对依赖并执行本文的测试、开发运行和 NSIS 构建；遇到平台问题做最小修改。完成后实际安装并验证截图、图片与文字粘贴、系统 / 内置 OCR、选项换序和离线题库包。请明确区分编译通过、自动化测试通过和 Windows 实机通过，把结果与未解决事项更新到 Windows开发交接.md。
+> 这是从 qingye0312-cpu/question-bank 克隆的离线题库项目。请先阅读 windows/README.md 和根目录 README.md，保留 Mac 功能、应用标识、题库数据、两种搜索模式及既有答案规则。在 Windows 原生环境核对依赖并执行本文的测试、开发运行和 NSIS 构建；遇到平台问题做最小修改。完成后实际安装并验证截图、图片与文字粘贴、系统 / 内置 OCR、选项换序和离线题库包。请明确区分编译通过、自动化测试通过和 Windows 实机通过，把结果与未解决事项更新到 windows/README.md。
 
 ## 10. Windows 首轮实际结果（2026-10-14）
 
