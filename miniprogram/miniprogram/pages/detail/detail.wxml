@@ -4,14 +4,14 @@
   <block wx:else>
     <view class="detail-meta muted">{{kind}} · {{number}}</view>
     <view class="paper">
-      <view class="stem"><text selectable wx:for="{{stem}}" wx:key="index" class="{{item.color >= 0 ? 'match-' + item.color : ''}}">{{item.text}}</text></view>
+      <view class="stem"><text user-select wx:for="{{stem}}" wx:key="index" class="{{item.color >= 0 ? 'match-' + item.color : ''}}">{{item.text}}</text></view>
       <view wx:for="{{options}}" wx:key="key" class="option {{item.correct ? 'correct-option' : ''}}">
         <text class="option-key">{{item.key}}.</text>
-        <view class="option-body"><text selectable wx:for="{{item.segments}}" wx:for-item="part" wx:for-index="partIndex" wx:key="partIndex" class="{{part.color >= 0 ? 'match-' + part.color : ''}}">{{part.text}}</text></view>
+        <view class="option-body"><text user-select wx:for="{{item.segments}}" wx:for-item="part" wx:for-index="partIndex" wx:key="partIndex" class="{{part.color >= 0 ? 'match-' + part.color : ''}}">{{part.text}}</text></view>
       </view>
     </view>
     <view class="answer-card"><view class="muted label">答案</view><view class="answer">{{answer}}</view></view>
-    <view wx:if="{{explanation}}" class="paper explanation"><view class="muted label">解析</view><text selectable>{{explanation}}</text></view>
-    <view class="metadata muted"><view wx:for="{{metadata}}" wx:key="label"><text>{{item.label}}：</text><text selectable wx:for="{{item.segments}}" wx:for-item="part" wx:for-index="partIndex" wx:key="partIndex" class="{{part.color >= 0 ? 'match-' + part.color : ''}}">{{part.text}}</text></view></view>
+    <view wx:if="{{explanation}}" class="paper explanation"><view class="muted label">解析</view><text user-select>{{explanation}}</text></view>
+    <view class="metadata muted"><view wx:for="{{metadata}}" wx:key="label"><text>{{item.label}}：</text><text user-select wx:for="{{item.segments}}" wx:for-item="part" wx:for-index="partIndex" wx:key="partIndex" class="{{part.color >= 0 ? 'match-' + part.color : ''}}">{{part.text}}</text></view></view>
   </block>
 </view>

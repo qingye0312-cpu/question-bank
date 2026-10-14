@@ -9,17 +9,18 @@ Page({
     before: 0, after: 0, scrollTop: 0,
   },
   bank: undefined as LocalBank | undefined,
-  ids: [] as number[], terms: [] as string[], layout: new VirtualList(0),
+  ids: [] as number[], terms: [] as string[], layout: null as VirtualList | null,
   request: 0, renderEpoch: 0, start: -1, end: -1, scrollPosition: 0,
   viewport: 700, scrollTimer: undefined as number | undefined, alive: true,
-  onLoad() { void this.initialize(); },
+  // Page() deep-clones free data; construct class instances after that clone.
+  onLoad(): Promise<void> { this.layout = new VirtualList(0); return this.initialize(); },
   onReady() { this.measureViewport(); },
   onResize() { this.measureViewport(); this.layout = new VirtualList(this.ids.length); this.renderRows(true); },
   onUnload() {
     this.alive = false; this.request++; this.renderEpoch++; this.bank?.cancel();
     if (this.scrollTimer !== undefined) clearTimeout(this.scrollTimer);
   },
-  async initialize() {
+  async initialize(): Promise<void> {
     this.setData({loading: true, error: ''});
     try {
       const {bank, manifest} = await loadBank();
@@ -41,7 +42,7 @@ Page({
     void this.runSearch(event.detail.value);
   },
   onClear() { this.setData({query: ''}); void this.runSearch(''); },
-  async runSearch(query: string) {
+  async runSearch(query: string): Promise<void> {
     if (!this.bank) return;
     const request = ++this.request;
     this.renderEpoch++; this.ids = []; this.start = -1; this.end = -1;
@@ -70,7 +71,9 @@ Page({
   },
   renderRows(force = false) {
     if (!this.bank || !this.alive || this.data.loading || this.data.error) return;
-    const range = this.layout.window(this.scrollPosition, this.viewport);
+    const layout = this.layout;
+    if (!layout) return;
+    const range = layout.window(this.scrollPosition, this.viewport);
     if (!force && range.start === this.start && range.end === this.end) return;
     const epoch = ++this.renderEpoch;
     this.start = range.start; this.end = range.end;
@@ -83,12 +86,12 @@ Page({
       if (!this.alive || epoch !== this.renderEpoch || !rows.length) return;
       wx.createSelectorQuery().in(this).selectAll('.result-row').boundingClientRect(rects => {
         if (!this.alive || epoch !== this.renderEpoch || !Array.isArray(rects) || rects.length !== rows.length) return;
-        const anchor = this.layout.at(this.scrollPosition), oldOffset = this.layout.offset(anchor);
-        this.layout.measure(range.start, rects.map(rect => rect.height));
-        const correction = this.layout.offset(anchor) - oldOffset;
+        const anchor = layout.at(this.scrollPosition), oldOffset = layout.offset(anchor);
+        layout.measure(range.start, rects.map(rect => rect.height));
+        const correction = layout.offset(anchor) - oldOffset;
         this.scrollPosition = Math.max(0, this.scrollPosition + correction);
-        const spacing = {before: this.layout.offset(range.start),
-          after: this.layout.offset(this.ids.length) - this.layout.offset(range.end)};
+        const spacing = {before: layout.offset(range.start),
+          after: layout.offset(this.ids.length) - layout.offset(range.end)};
         this.setData(Math.abs(correction) > 0.5 ? {...spacing, scrollTop: this.scrollPosition} : spacing);
         this.renderRows();
       }).exec();

@@ -7,7 +7,8 @@ page { height: 100%; overflow: hidden; }
 .search-box { margin-top: 28rpx; display: flex; align-items: center; background: white; border: 2rpx solid #c8d8cd; border-radius: 20rpx; padding: 0 18rpx; height: 96rpx; }
 .search-symbol { font-size: 48rpx; color: #377958; margin-right: 16rpx; }
 .search-input { flex: 1; min-width: 0; font-size: 29rpx; height: 90rpx; }
-.clear { margin: 0; padding: 0; background: transparent; color: #708078; width: 64rpx; line-height: 64rpx; font-size: 40rpx; }
+/* Override the native button's default width and flex sizing. */
+.search-box .clear { flex: 0 0 64rpx; width: 64rpx; min-width: 64rpx; height: 64rpx; margin: 0; padding: 0; display: flex; align-items: center; justify-content: center; background: transparent; color: #708078; line-height: 1; font-size: 40rpx; }
 .hint { font-size: 22rpx; margin-top: 14rpx; }
 .result-heading { flex: none; display: flex; justify-content: space-between; padding: 14rpx 32rpx 20rpx; font-size: 23rpx; }
 .results { height: 0; flex: 1; min-height: 0; }

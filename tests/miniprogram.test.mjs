@@ -9,7 +9,8 @@ import {seedPayload, prepare} from '../tools/mobile-index/build.mjs';
 import {normalize as desktopNormalize, queryTerms as desktopTerms} from '../src/search-presentation.ts';
 
 const base = new URL('../miniprogram/miniprogram/', import.meta.url);
-const payload = await readFile(new URL('data/questions.jsonl', base), 'utf8');
+const embeddedText = await readFile(new URL('data/questions.json', base), 'utf8');
+const payload = JSON.parse(embeddedText).payload;
 const lines = payload.trimEnd().split('\n'), questions = lines.map(line => JSON.parse(line));
 const index = JSON.parse(await readFile(new URL('data/index.json', base), 'utf8'));
 const manifest = JSON.parse(await readFile(new URL('data/manifest.json', base), 'utf8'));
@@ -29,11 +30,57 @@ test('generated content is deterministic, retains source metadata and matches de
   assert.equal(questions.length, 914);
   assert.equal(manifest.bank_id, 'ad50971f-66af-51c2-bb0e-dc798b03b369');
   assert.equal(manifest.release_id, createHash('sha256').update(payload).digest('hex'));
+  assert.equal(Buffer.byteLength(payload), manifest.files[0].size);
+  assert.equal(manifest.files[0].path, 'questions.jsonl');
   assert.equal(index.release_id, manifest.release_id);
   for (let i = 0; i < seed.length; i++) {
     for (const field of ['question_id', 'options', 'answer', 'sources', 'stem']) assert.deepEqual(questions[i][field], seed[i][field]);
   }
   assert.equal((await prepare({check: true})).questions, 914);
+});
+
+async function loadService(readResource) {
+  const source = await readFile(new URL('services/bank.ts', base), 'utf8');
+  const {outputText} = ts.transpileModule(source, {compilerOptions: {module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020}});
+  const exports = {};
+  vm.runInNewContext(outputText, {exports, require: () => core,
+    wx: {getFileSystemManager: () => ({readFile: readResource})}, console: {error() {}}, Error});
+  return exports;
+}
+
+test('native loader reads supported JSON resources, restores JSONL and caches the bundle', async () => {
+  const paths = [];
+  const service = await loadService(options => {
+    paths.push(options.filePath);
+    // Non-JSON resources were rejected by the actual code-package runtime.
+    if (!options.filePath.endsWith('.json')) return options.fail({errMsg: 'permission denied'});
+    readFile(new URL(options.filePath, base), 'utf8').then(data => options.success({data}), options.fail);
+  });
+  const first = service.loadBank(), concurrent = service.loadBank();
+  assert.equal(first, concurrent);
+  const loaded = await first;
+  assert.deepEqual(paths.sort(), ['data/index.json', 'data/manifest.json', 'data/questions.json']);
+  assert.equal(loaded.manifest.release_id, manifest.release_id);
+  assert.equal(loaded.bank.question(913).question_id, questions[913].question_id);
+  assert.deepEqual(await loaded.bank.search('用户 聊天'), await bank().search('用户 聊天'));
+  assert.equal(await service.loadBank(), loaded);
+  assert.equal(paths.length, 3);
+});
+
+test('native loader retries read failures and rejects malformed resource envelopes', async () => {
+  const files = {'data/manifest.json': JSON.stringify(manifest), 'data/questions.json': embeddedText, 'data/index.json': JSON.stringify(index)};
+  let mode = 'read-failure';
+  const service = await loadService(options => {
+    if (mode === 'read-failure') return options.fail({errMsg: 'permission denied'});
+    const data = options.filePath === 'data/questions.json' && mode === 'bad-envelope'
+      ? JSON.stringify({format: 'qbank-embedded-jsonl-1', payload: []}) : files[options.filePath];
+    options.success({data});
+  });
+  await assert.rejects(service.loadBank(), /内置题库读取失败/);
+  mode = 'bad-envelope';
+  await assert.rejects(service.loadBank(), /资源格式无效/);
+  mode = 'success';
+  assert.equal((await service.loadBank()).bank.question(0).question_id, questions[0].question_id);
 });
 
 test('real index equals independent full-text reference for single characters, phrases and mixed fields', async () => {
@@ -112,6 +159,11 @@ async function loadPage(path, mocks = {}) {
     exports: {}, require: name => name.endsWith('/search') ? core : {loadBank: async () => ({bank: bank(), manifest})},
     Page: options => { page = options; }, wx, setTimeout, clearTimeout, Error,
   });
+  // WeChat instantiates pages by cloning free data. Tests must not accidentally
+  // retain prototypes that would be lost on the actual platform.
+  for (const [key, value] of Object.entries(page)) {
+    if (value !== undefined && typeof value !== 'function') page[key] = JSON.parse(JSON.stringify(value));
+  }
   page.setData = function(values, callback) {Object.assign(this.data, values); callback?.();};
   return page;
 }
@@ -119,7 +171,9 @@ async function loadPage(path, mocks = {}) {
 test('page searches, scrolls, clears errors and navigates with current query context', async () => {
   let navigation;
   const page = await loadPage('pages/index/index.ts', {navigateTo: options => {navigation = options;}});
-  await page.initialize();
+  assert.equal(page.layout, null);
+  await page.onLoad();
+  assert.ok(page.layout instanceof core.VirtualList);
   assert.equal(page.data.total, 914);
   assert.ok(page.data.rows.length < 30);
   page.scrollPosition = 6000; page.renderRows();

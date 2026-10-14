@@ -45,7 +45,7 @@ export async function prepare({check = false, sourceDirectory} = {}) {
       || manifest.files[0].sha256 !== sha256(payload) || manifest.files[0].size !== payload.length) {
     throw new Error('发布清单、大小或 SHA-256 与 questions.jsonl 不一致');
   }
-  const text = new TextDecoder('utf-8', {fatal: true}).decode(payload);
+  const text = new TextDecoder('utf-8', {fatal: true, ignoreBOM: true}).decode(payload);
   const questions = text.trimEnd().split('\n').map(line => JSON.parse(line));
   if (questions.length !== manifest.question_count || !questions.length) throw new Error('题数不一致或空题库');
   const ids = new Set();
@@ -64,7 +64,10 @@ export async function prepare({check = false, sourceDirectory} = {}) {
   const index = {schema_version: 'qbank-index-1', release_id: manifest.release_id,
     question_count: questions.length, postings: buildPostings(questions)};
   const files = new Map([
-    ['questions.jsonl', payload],
+    // WeChat code-package reads reject .jsonl/.txt in the tested runtime.
+    // A JSON string envelope round-trips the original JSONL, including newlines
+    // and field order; release_id still identifies the decoded standard payload.
+    ['questions.json', Buffer.from(JSON.stringify({format: 'qbank-embedded-jsonl-1', payload: text}) + '\n')],
     ['manifest.json', Buffer.from(JSON.stringify(manifest) + '\n')],
     ['index.json', Buffer.from(JSON.stringify(index) + '\n')],
   ]);
