@@ -7,7 +7,7 @@ use serde_json::json;
 use std::io::{Cursor, Read, Write};
 
 #[test]
-fn ordered_fts_matches_a_full_scan_with_mixed_terms_filters_and_pagination() {
+fn ordered_fts_matches_a_full_scan_with_mixed_terms_filters_and_cursors() {
     let (_dir, store) = setup();
     let banks = [store.create("甲").unwrap(), store.create("乙").unwrap()];
     let mut conn = store.conn().unwrap();
@@ -61,13 +61,18 @@ fn ordered_fts_matches_a_full_scan_with_mixed_terms_filters_and_pagination() {
                     })
                     .map(|(row, _, _, _)| *row)
                     .collect();
-                for offset in [0, 50, 100] {
+                for loaded in [0, 50, 100] {
+                    let after_rowid = if loaded == 0 {
+                        0
+                    } else {
+                        expected.get(loaded - 1).copied().unwrap_or(i64::MAX)
+                    };
                     let result = store
                         .search(&Query {
                             text: text.into(),
                             bank_id: bank.into(),
                             trash,
-                            offset,
+                            after_rowid,
                             ..Default::default()
                         })
                         .unwrap();
@@ -76,12 +81,12 @@ fn ordered_fts_matches_a_full_scan_with_mixed_terms_filters_and_pagination() {
                         expected
                             .iter()
                             .copied()
-                            .skip(offset as usize)
+                            .skip(loaded)
                             .take(50)
                             .collect::<Vec<_>>(),
-                        "{text} {bank} {trash} {offset}"
+                        "{text} {bank} {trash} {after_rowid}"
                     );
-                    assert_eq!(result.has_more, expected.len() > offset as usize + 50);
+                    assert_eq!(result.has_more, expected.len() > loaded + 50);
                 }
             }
         }
@@ -518,33 +523,35 @@ fn invalid_answer_types_and_formula_cells_fail() {
 }
 
 #[test]
-fn pagination_and_filtering_do_not_drop_records() {
+fn cursor_continuation_and_filtering_do_not_drop_records() {
     let (_dir, s) = setup();
-    let b = s.create("分页").unwrap();
+    let b = s.create("连续读取").unwrap();
     let mut c = s.conn().unwrap();
     let tx = c.transaction().unwrap();
     for i in 0..123 {
         let mut q = sample();
         q.prepare();
-        q.stem = format!("分页数据 {i}");
+        q.stem = format!("连续读取数据 {i}");
         db::insert(&tx, &b, &q).unwrap();
     }
     tx.commit().unwrap();
     let mut ids = std::collections::HashSet::new();
-    for offset in [0, 50, 100] {
+    let mut after_rowid = 0;
+    for batch in 0..3 {
         let result = s
             .search(&Query {
-                text: "分页".into(),
+                text: "连续读取".into(),
                 bank_id: b.clone(),
                 kind: "single".into(),
-                offset,
+                after_rowid,
                 ..Default::default()
             })
             .unwrap();
+        after_rowid = result.items.last().unwrap().rowid;
         for h in result.items {
             assert!(ids.insert(h.rowid));
         }
-        assert_eq!(result.has_more, offset < 100);
+        assert_eq!(result.has_more, batch < 2);
     }
     assert_eq!(ids.len(), 123);
     assert!(s

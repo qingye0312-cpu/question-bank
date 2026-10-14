@@ -1,6 +1,6 @@
 # Windows 开发交接
 
-更新日期：2026-10-14。交接验证版本：0.2.4；后续以 `package.json`、Cargo 和 Tauri 配置中的一致版本为准。
+更新日期：2026-10-14。交接验证版本：0.2.6；后续以 `package.json`、Cargo 和 Tauri 配置中的一致版本为准。
 
 仓库：[qingye0312-cpu/question-bank](https://github.com/qingye0312-cpu/question-bank)（私有）。Mac 与 Windows 共用源码；Windows 适配在临时分支验证后合回 `main`。
 
@@ -127,6 +127,8 @@ Get-ChildItem .\src-tauri\target\release\bundle\nsis\*.exe
 - [ ] 全新测试目录首次启动载入 914 题；退出重开后数据、当前题库、模式、字号和配色正常。
 - [ ] 详细模式与极速模式都能搜索题干、选项、标签、章节、编号，不搜索解析；中文输入、空格多词、引号短语与多色高亮正确。
 - [ ] 极速模式逐字搜索，只在当前题库查询；长列表滚动继续加载，旧请求不会覆盖新查询；长词、高 DPI 和不同字号不遮挡答案。
+- [ ] 详细模式滚动越过第 50、100 题后继续加载，无重复或遗漏；追加结果保留选中题目，`Alt+↑/↓` 能切换并滚动到选中项；更换搜索词、题型、题库或回收站条件后回到列表开头。
+- [ ] 极速模式「预览」默认关闭，开启后移入题目立即显示全文、选项、答案和已有解析；换行及滚动时对应正确题目，移出列表或按 Esc 关闭，重启保留开关状态；不同字号、高 DPI 和窗口边缘不裁切内容。
 - [ ] 新建题库、建立可编辑副本、编辑、删除、回收站恢复均正常；发布题库仍只读。
 - [ ] Excel / Word / JSONL 导入预览及导出正常；标准模板可下载；中文、空格路径及对话框取消正常。
 - [ ] `.qbank.zip` 制包、导入、重复导入、版本更新及回退正常；Mac 与 Windows 交换同一包可读取。
@@ -145,7 +147,8 @@ Get-ChildItem .\src-tauri\target\release\bundle\nsis\*.exe
 | 文件 | 关注内容 |
 | --- | --- |
 | `src/main.tsx`、`src/styles.css` | 主界面、导入维护流程、布局与样式 |
-| `src/speed-results.tsx`、`src/search-presentation.ts` | 极速结果与搜索高亮 / 片段 |
+| `src/detail-results.tsx`、`src/speed-results.tsx`、`src/use-question-results.ts` | 两种模式的虚拟列表与共享游标续载，隔离过期请求 |
+| `src/question-preview.tsx`、`src/search-presentation.ts`、`src/preferences.ts` | 即时预览定位、搜索高亮 / 片段和显示设置 |
 | `src/ocr-panel.tsx`、`src/ocr-crop.tsx`、`src/ocr-client.ts` | 识题入口、裁切、粘贴判断、内置 OCR |
 | `src-tauri/src/lib.rs` | Tauri 命令、数据目录及启动种子题库 |
 | `src-tauri/src/db.rs`、`model.rs`、`exchange.rs` | 数据、搜索、约束和交换协议 |
@@ -182,15 +185,17 @@ git push -u origin windows/first-validation
 
 提交前逐项检查文件；将 Windows 系统版本、架构、工具链、测试结果、安装器文件名与 SHA-256、通过和未通过的实测项补到本文，再合回 `main`。安装器校验值可用 `Get-FileHash <安装器路径> -Algorithm SHA256` 获取。
 
-## 8. 本轮仓库整理验证
+## 8. 本轮源码同步验证（v0.2.6）
 
-本节记录仓库整理阶段的实际检查，不代表 Windows 已完成验收。整理环境为 Apple Silicon Mac；Windows 完整编译、安装、升级与上述实测项仍待完成。
+本节记录 v0.2.6 源码同步阶段的实际检查，不代表 Windows 已完成验收。验证环境为 Apple Silicon Mac；Windows 完整编译、安装、升级与上述实测项仍待完成。
+
+本次纳入此前未跟踪的 `src/detail-results.tsx`、`src/question-preview.tsx`、`src/use-question-results.ts`，以及与它们配套的界面、搜索接口、回归测试和版本配置变更。`package.json`、`Cargo.toml`、`Cargo.lock`、`tauri.conf.json` 的应用版本均为 0.2.6。
 
 验证对象是仅从 Git 暂存区导出的源码副本，不包含原项目的 `node_modules/`、生成 OCR 资源、`dist/` 或本机数据库。依赖安装复用了本机 pnpm 缓存，Rust 测试复用了现有工具链和编译缓存；这些缓存没有进入仓库。
 
 | 检查 | 结果 |
 | --- | --- |
-| 提交文件与体积 | 80 个文件，约 8.7 MiB；无依赖缓存、本机数据库、原始 Word、日志或安装包 |
+| 提交文件与体积 | 83 个文件，约 8.7 MiB；无依赖缓存、本机数据库、原始 Word、日志或安装包 |
 | 必需资源 | Rust `include_str!` / `include_bytes!` 引用文件全部在提交范围内；模板、样本及模型齐全 |
 | OCR 模型 | 源码、暂存区导出副本和构建后资源的中英文模型 SHA-256 均与清单一致 |
 | 依赖安装 | pnpm 11.25.0 按 `--frozen-lockfile` 安装通过；已有缓存支持本轮离线安装 |
@@ -199,7 +204,7 @@ git push -u origin windows/first-validation
 | Rust 回归 | Mac 上 `cargo test --locked --offline ... --test core --test ocr`：核心 16 项、OCR 8 项通过 |
 | 脚本与 Git | Shell / Node 脚本语法检查、交接文档链接检查及 `git diff --cached --check` 通过 |
 
-上述结果随本次初始化提交保存。Windows 端应在自身环境重新执行第 4～5 节，并追加实际结果；这里只确认可提交源码的完整性及 Mac 上的回归结果。
+上述 36 项现有测试、类型检查和前端构建已通过，游标续载由核心回归测试覆盖；本次未执行连续滚动、即时预览的界面实测或性能测试。Windows 端应在自身环境重新执行第 4～5 节，并追加实际结果；这里只确认可提交源码的完整性及 Mac 上的自动化回归结果。
 
 ## 9. 给 Windows Codex 的接手提示
 

@@ -22,9 +22,10 @@ export type Preferences = {
   bankId: string;
   sidebarCollapsed: boolean;
   searchCollapsed: boolean;
+  speedPreview: boolean;
 };
 export const preferenceKey = 'question-bank.appearance.v1';
-export const defaults: Preferences = {fontSize: 'medium', theme: 'forest', mode: 'detail', bankId: '', sidebarCollapsed: false, searchCollapsed: false};
+export const defaults: Preferences = {fontSize: 'medium', theme: 'forest', mode: 'detail', bankId: '', sidebarCollapsed: false, searchCollapsed: false, speedPreview: false};
 
 export function loadPreferences(): Preferences {
   try {
@@ -36,6 +37,7 @@ export function loadPreferences(): Preferences {
       bankId: typeof value.bankId === 'string' ? value.bankId : '',
       sidebarCollapsed: value.sidebarCollapsed === true,
       searchCollapsed: value.searchCollapsed === true,
+      speedPreview: value.speedPreview === true,
     };
   } catch { return {...defaults}; }
 }

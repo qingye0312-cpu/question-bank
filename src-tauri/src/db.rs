@@ -28,7 +28,7 @@ pub struct Query {
     #[serde(default)]
     pub status: String,
     #[serde(default)]
-    pub offset: u32,
+    pub after_rowid: i64,
     #[serde(default)]
     pub trash: bool,
 }
@@ -226,7 +226,7 @@ impl Store {
                 groups.swap(0, 1);
             }
         }
-        // Let FTS stream row IDs in order and stop after one visible page;
+        // Let FTS stream row IDs in order and stop after one result batch;
         // materializing every matching row ID scales badly for frequent words.
         let mut values: Vec<rusqlite::types::Value> = Vec::new();
         let mut sql = if let Some((table, expr)) = groups.first() {
@@ -254,8 +254,11 @@ impl Store {
             .first()
             .map(|(t, _)| format!("{t}.rowid"))
             .unwrap_or("q.rowid".into());
-        sql.push_str(&format!(" ORDER BY {order} LIMIT 51 OFFSET ?"));
-        values.push((q.offset as i64).into());
+        if q.after_rowid > 0 {
+            sql.push_str(&format!(" AND {order}>?"));
+            values.push(q.after_rowid.into());
+        }
+        sql.push_str(&format!(" ORDER BY {order} LIMIT 51"));
         let mut st = c.prepare(&sql).map_err(err)?;
         let rows = st
             .query_map(rusqlite::params_from_iter(values), |r| {
