@@ -43,15 +43,34 @@
   "libVersion": "trial",
   "packOptions": {
     "ignore": [
-      {"type": "file", "value": "data/index.json"},
-      {"type": "file", "value": "data/questions.json"},
-      {"type": "folder", "value": "pages/logs"},
-      {"type": "folder", "value": "utils"}
+      {
+        "type": "file",
+        "value": "data/manifest.json"
+      },
+      {
+        "type": "file",
+        "value": "data/index.json"
+      },
+      {
+        "type": "file",
+        "value": "data/questions.json"
+      },
+      {
+        "type": "folder",
+        "value": "pages/logs"
+      },
+      {
+        "type": "folder",
+        "value": "utils"
+      }
     ],
     "include": [
-      {"type": "file", "value": "data/compact.br"},
-      {"type": "file", "value": "data/manifest.json"}
+      {
+        "type": "file",
+        "value": "data/compact.br"
+      }
     ]
   },
-  "appid": "wx74610b716883eee9"
+  "appid": "wx22c8135ae81d3acc",
+  "isGameTourist": false
 }

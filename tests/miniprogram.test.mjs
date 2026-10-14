@@ -48,7 +48,7 @@ async function loadService(readResource, extra = {}) {
   const source = await readFile(new URL('services/bank.ts', base), 'utf8');
   const {outputText} = ts.transpileModule(source, {compilerOptions: {module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020}});
   const exports = {};
-  vm.runInNewContext(outputText, {exports, require: name => name.endsWith('/compact') ? compact : core,
+  vm.runInNewContext(outputText, {exports, require: name => name.endsWith('/manifest') ? {bundledManifest: manifest} : name.endsWith('/compact') ? compact : core,
     wx: {env: {USER_DATA_PATH: '/cache'}, getFileSystemManager: () => ({readFile: readResource, readCompressedFile: readCompressed(readResource)}), ...extra}, console: {error() {}, info() {}, warn() {}}, Error});
   return exports;
 }
@@ -64,12 +64,12 @@ test('native loader reads supported JSON resources, restores JSONL and caches th
   const first = service.loadBank(), concurrent = service.loadBank();
   assert.equal(first, concurrent);
   const loaded = await first;
-  assert.deepEqual([...paths].sort(), ['/cache/qbank-runtime-index-v1.json', 'data/compact.br', 'data/manifest.json']);
+  assert.deepEqual([...paths].sort(), ['/cache/qbank-runtime-index-v1.json', 'data/compact.br']);
   assert.equal(loaded.manifest.release_id, manifest.release_id);
   assert.equal(loaded.bank.question(913).question_id, questions[913].question_id);
   assert.deepEqual(await loaded.bank.search('用户 聊天'), await bank().search('用户 聊天'));
   assert.equal(await service.loadBank(), loaded);
-  assert.equal(paths.length, 3);
+  assert.equal(paths.length, 2);
   assert.equal(service.startupMetrics.source, 'generated');
   assert.equal(service.startupMetrics.cacheSaved, false);
 });

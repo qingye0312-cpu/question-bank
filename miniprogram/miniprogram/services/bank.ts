@@ -1,5 +1,6 @@
 import {LocalBank, SearchIndex, buildPostingsFromLines} from '../core/search';
 import {CompactBank, decodeCompact, decodeUtf8} from '../core/compact';
+import { bundledManifest } from '../data/manifest';
 
 export type Manifest = {
   schema_version: string; bank_id: string; name: string; release_id: string;
@@ -35,8 +36,8 @@ async function loadEmbedded(): Promise<BankBundle> {
       success: result => { try { resolve(decodeUtf8(result.data)); } catch (e) { reject(e); } },
       fail: error => reject(new Error('压缩题库读取失败：' + error.errMsg))});
   });
-  const [manifestText, questionText] = await Promise.all([readText('data/manifest.json'), compressed]);
-  const manifest = JSON.parse(manifestText) as Manifest;
+  const questionText = await compressed;
+  const manifest: Manifest = bundledManifest;
   if (manifest.schema_version !== '1.0' || !/^[a-f0-9]{64}$/.test(manifest.release_id)) {
     throw new Error('内置题库资源格式无效，请重新编译');
   }
