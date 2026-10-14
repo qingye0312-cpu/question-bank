@@ -6,8 +6,9 @@ export type Manifest = {
 };
 export type BankBundle = {bank: LocalBank; manifest: Manifest};
 let pending: Promise<BankBundle> | undefined;
-// Loopback development endpoint. Replace with an approved HTTPS domain before release.
-const endpoint = 'http://127.0.0.1:8765/bank.json';
+// LAN development endpoint: phone and computer must be on the same trusted Wi-Fi.
+// If the computer IP changes, update this URL and recompile. Never release this HTTP build.
+const endpoint = 'http://192.168.100.117:8765/bank.json';
 const cacheName = 'qbank-download-v1.json';
 
 function readText(path: string): Promise<string> {
@@ -47,7 +48,7 @@ async function loadDownloaded(): Promise<BankBundle> {
     url: endpoint, timeout: 15000,
     success: result => result.statusCode === 200 ? resolve(result.tempFilePath)
       : reject(new Error(`题库下载失败（HTTP ${result.statusCode}），请重试`)),
-    fail: () => reject(new Error('无法下载题库：请启动本地服务器，并检查开发者工具的本地调试网络设置')),
+    fail: () => reject(new Error('无法下载题库：请确认手机与电脑连接同一局域网、题库服务器已启动，并检查本地调试网络设置')),
   }));
   const bundle = decode(await readText(temporary));
   const fs = wx.getFileSystemManager();
