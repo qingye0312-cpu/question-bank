@@ -8,6 +8,8 @@
 
 ### 小程序头像
 
+当前选用 [branding/wechat-avatar-square.png](branding/wechat-avatar-square.png)：512×512 直角正方形，绿色背景铺满，中央图案与桌面端一致。对应 SVG 源文件为 `branding/wechat-avatar-square.svg`。以下圆角版保留作历史素材。
+
 使用 [branding/wechat-avatar.png](branding/wechat-avatar.png)，512×512 PNG，逐字节复用桌面端 `src-tauri/icons/icon.png`，不另画图案。素材放在小程序代码根目录之外，不增加主包体积。该文件用于微信公众平台的小程序头像设置；仅准备本地素材不代表后台头像已更换，需要登录对应小程序后台完成上传。
 
 ### 压缩与验证记录
