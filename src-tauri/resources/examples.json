@@ -1,0 +1,5 @@
+[
+{"schema_version":"1.0","type":"single","external_id":"DEMO-001","bank":"模板示例","stem":"1＋1 等于多少？","options":[{"key":"A","content":"1"},{"key":"B","content":"2"},{"key":"C","content":"3"},{"key":"D","content":"4"}],"answer":["B"],"explanation":"1＋1＝2。","tags":["基础运算"],"difficulty":"easy"},
+{"schema_version":"1.0","type":"multiple","external_id":"DEMO-002","bank":"模板示例","stem":"下列哪些数是偶数？","options":[{"key":"A","content":"2"},{"key":"B","content":"3"},{"key":"C","content":"4"},{"key":"D","content":"5"}],"answer":["A","C"],"explanation":"2 和 4 是偶数。","tags":["基础运算"],"difficulty":"easy"},
+{"schema_version":"1.0","type":"true_false","external_id":"DEMO-003","bank":"模板示例","stem":"2 是偶数。","options":[],"answer":true,"explanation":"2 能被 2 整除。","tags":["基础运算"],"difficulty":"easy"}
+]

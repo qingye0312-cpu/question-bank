@@ -1,0 +1,20 @@
+# Consistent source files across macOS and Windows.
+* text=auto eol=lf
+
+# Markdown uses two trailing spaces for a hard line break.
+*.md whitespace=-blank-at-eol
+# Preserve upstream license text, including its final blank line.
+assets/ocr/LICENSE-* -whitespace
+
+# Preserve templates, images and checksum-verified OCR data byte for byte.
+*.docx binary
+*.xlsx binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.ico binary
+*.icns binary
+*.traineddata binary
+*.wasm binary
+*.zip binary

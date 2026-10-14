@@ -1,0 +1,33 @@
+{
+  "name": "question-bank",
+  "private": true,
+  "version": "0.2.4",
+  "type": "module",
+  "packageManager": "pnpm@11.25.0",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "scripts": {
+    "dev": "node scripts/prepare-ocr.mjs && vite --host 127.0.0.1",
+    "build": "node scripts/prepare-ocr.mjs && tsc --noEmit && vite build",
+    "tauri": "tauri",
+    "test:ui": "node --test tests/search-presentation.test.mjs tests/ocr-client.test.mjs",
+    "prepare:ocr": "node scripts/prepare-ocr.mjs"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-dialog": "^2",
+    "lucide-react": "^0.468.0",
+    "react": "^19",
+    "react-dom": "^19",
+    "tesseract.js": "^7.0.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^5",
+    "typescript": "^5.9",
+    "vite": "^7"
+  }
+}

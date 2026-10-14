@@ -1,0 +1,40 @@
+[package]
+name = "question-bank"
+version = "0.2.4"
+edition = "2021"
+default-run = "question-bank"
+
+[lib]
+name = "question_bank"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+cc = "1"
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.38", features = ["bundled"] }
+zip = { version = "4", default-features = false, features = ["deflate"] }
+sha2 = "0.10"
+uuid = { version = "1", features = ["v4", "v5", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+roxmltree = "0.21"
+unicode-normalization = "0.1"
+calamine = "0.31"
+rust_xlsxwriter = "0.90"
+tempfile = "3"
+base64 = "0.22"
+regex = "1"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+arboard = "3.6"
+windows = { version = "0.62", features = ["Foundation", "Globalization", "Graphics_Imaging", "Media_Ocr", "Storage_Streams", "Win32_System_WinRT", "Win32_System_DataExchange", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse"] }
+
+[profile.release]
+strip = true
+lto = "thin"

@@ -1,0 +1,293 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "题库题目 v1.0",
+  "description": "额外业务校验由导入器执行：选项须连续、答案对应选项、选项ID唯一、题干非空白、单题不超过1MB。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "type",
+    "stem",
+    "answer"
+  ],
+  "properties": {
+    "external_id": {
+      "type": "string"
+    },
+    "bank": {
+      "type": "string"
+    },
+    "chapter": {
+      "type": "string"
+    },
+    "explanation": {
+      "type": "string"
+    },
+    "applicable_version": {
+      "type": "string"
+    },
+    "source_note": {
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "1.0"
+    },
+    "question_id": {
+      "type": "string",
+      "pattern": "^$|^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    },
+    "base_revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "type": {
+      "enum": [
+        "single",
+        "multiple",
+        "true_false"
+      ]
+    },
+    "stem": {
+      "type": "string",
+      "minLength": 1
+    },
+    "options": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "key",
+          "content"
+        ],
+        "properties": {
+          "key": {
+            "enum": [
+              "A",
+              "B",
+              "C",
+              "D",
+              "E",
+              "F",
+              "G",
+              "H"
+            ]
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1
+          },
+          "option_id": {
+            "type": "string",
+            "pattern": "^$|^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+          }
+        }
+      }
+    },
+    "answer": {
+      "oneOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "array",
+          "items": {
+            "enum": [
+              "A",
+              "B",
+              "C",
+              "D",
+              "E",
+              "F",
+              "G",
+              "H"
+            ]
+          },
+          "uniqueItems": true,
+          "maxItems": 8
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "difficulty": {
+      "enum": [
+        "",
+        "easy",
+        "medium",
+        "hard"
+      ]
+    },
+    "status": {
+      "enum": [
+        "unreviewed",
+        "verified",
+        "needs_review"
+      ]
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "sources": {
+      "type": "array"
+    },
+    "attachments": {
+      "type": "array",
+      "maxItems": 0
+    },
+    "extensions": {
+      "type": "null"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "question_id"
+        ],
+        "properties": {
+          "question_id": {
+            "minLength": 1
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "base_revision"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "true_false"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "options": {
+            "maxItems": 0
+          },
+          "answer": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "status",
+          "sources"
+        ],
+        "properties": {
+          "status": {
+            "const": "needs_review"
+          },
+          "sources": {
+            "minItems": 1
+          }
+        }
+      },
+      "then": {},
+      "else": {
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "single"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "options": {
+                  "minItems": 2
+                },
+                "answer": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 1
+                }
+              },
+              "required": [
+                "options"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "multiple"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "options": {
+                  "minItems": 2
+                },
+                "answer": {
+                  "type": "array",
+                  "minItems": 2
+                }
+              },
+              "required": [
+                "options"
+              ]
+            }
+          },
+          {
+            "properties": {
+              "answer": {
+                "not": {
+                  "type": "null"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "enum": [
+              "single",
+              "multiple"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "answer": {
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

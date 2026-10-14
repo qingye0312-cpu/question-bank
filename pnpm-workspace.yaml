@@ -1,0 +1,4 @@
+allowBuilds:
+  esbuild: true
+  # This package's postinstall only displays an Open Collective funding message.
+  tesseract.js: false

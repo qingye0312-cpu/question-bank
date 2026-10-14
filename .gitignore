@@ -1,0 +1,41 @@
+# Dependencies and machine-local toolchains
+/.tooling/
+node_modules/
+.pnpm-store/
+
+# Build output and generated Tauri/OCR resources
+dist/
+target/
+/src-tauri/gen/
+/public/ocr/core/
+/public/ocr/worker.min.js
+/public/ocr/licenses/
+
+# Keep public/ocr/lang/*.traineddata: these pinned models are build inputs.
+
+# Local databases, reports and generated deliveries
+/.local/
+/artifacts/
+/交付/
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.qbank.zip
+
+# Original migration documents remain on this computer.
+# Standard import templates under templates/ are included in Git.
+/*.docx
+/备份_原题库/
+
+# Local settings, credentials and operating-system files
+.env
+.env.*
+!.env.example
+!.env.sample
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.log
+__pycache__/
+*.py[cod]

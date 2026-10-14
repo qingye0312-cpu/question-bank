@@ -1,0 +1,5 @@
+使用隐式 Want 启动 UIAbility 组件时，以下说法错误的是？
+A. 在 module.json5 配置文件中，“skills” 表示应用组件支持的能力
+B. 可以在创建的 Want 中设置想要启动的 UIAbility 组件的能力字段，如 “entities”
+C. 需要在创建的 Want 中设置 “abilityName” 字段
+D. 想要启动浏览器类应用默认打开链接，可以在创建的 Want 中设置 uri 字段

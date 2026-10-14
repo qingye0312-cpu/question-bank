@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "离线题库包清单 v1.0",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "bank_id",
+    "name",
+    "release_id",
+    "release_version",
+    "published_at",
+    "min_app_version",
+    "question_count",
+    "files"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "bank_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "release_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "release_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "published_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "min_app_version": {
+      "const": "0.1.0"
+    },
+    "question_count": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "files": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "sha256",
+          "size"
+        ],
+        "properties": {
+          "path": {
+            "const": "questions.jsonl"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 536870912
+          }
+        }
+      }
+    }
+  }
+}
