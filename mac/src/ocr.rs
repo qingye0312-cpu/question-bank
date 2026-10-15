@@ -8,8 +8,17 @@ use std::{
 unsafe extern "C" {
     fn qbank_ocr_image(bytes: *const u8, length: usize) -> *mut std::ffi::c_char;
     fn qbank_ocr_clipboard() -> *mut std::ffi::c_char;
+    fn qbank_clipboard_write(text: *const std::ffi::c_char) -> bool;
     fn qbank_ocr_free(value: *mut std::ffi::c_char);
     fn qbank_capture_allowed() -> bool;
+}
+pub fn write_clipboard(text: &str) -> Result<()> {
+    let text = std::ffi::CString::new(text).map_err(err)?;
+    if unsafe { qbank_clipboard_write(text.as_ptr()) } {
+        Ok(())
+    } else {
+        Err("剪贴板写入失败，请重试".into())
+    }
 }
 
 unsafe fn native_json(value: *mut std::ffi::c_char) -> Result<serde_json::Value> {

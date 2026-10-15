@@ -10,6 +10,17 @@ static char *jsonString(NSDictionary *object) {
     return strdup([[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding].UTF8String);
 }
 void qbank_ocr_free(char *value) { free(value); }
+bool qbank_clipboard_write(const char *value) {
+    @autoreleasepool {
+        @try {
+            NSString *text = [NSString stringWithUTF8String:value];
+            if (!text) return false;
+            NSPasteboard *board = NSPasteboard.generalPasteboard;
+            [board clearContents];
+            return [board setString:text forType:NSPasteboardTypeString];
+        } @catch (NSException *exception) { return false; }
+    }
+}
 
 char *qbank_ocr_image(const unsigned char *bytes, size_t length) {
     @autoreleasepool {

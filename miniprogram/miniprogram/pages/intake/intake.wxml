@@ -1,0 +1,28 @@
+<view class="intake-page">
+ <view class="heading">大模型录题 <text class="muted">v{{appVersion}}</text></view>
+ <button class="prompt-card" bindtap="onCopyPrompt">大模型输出规范模版 <text>复制提示词</text></button>
+ <view class="muted hint">复制提示词给模型识题作答，再把整段 JSON 回复粘贴回来。不保存照片。</view>
+ <view class="bank-tools"><picker range="{{banks}}" range-key="name" value="{{bankIndex}}" bindchange="onBankChange" disabled="{{busy}}"><view class="select">{{banks[bankIndex].name || '选择题库'}} ▾</view></picker><button bindtap="onCreateBank" disabled="{{busy}}">新建题库</button></view>
+ <view class="section-heading"><text>模型回复</text><button bindtap="onPaste" disabled="{{busy}}">从剪贴板粘贴</button></view>
+ <textarea class="reply-input" value="{{text}}" bindinput="onInput" maxlength="250000" disabled="{{busy}}" placeholder="粘贴一道题的 JSON 或完整 json 代码块" auto-height/>
+ <button class="primary" bindtap="onParse" disabled="{{busy || !text}}">解析并比对题库</button>
+ <view wx:if="{{reply}}" class="preview">
+  <view class="preview-title">{{status === 'new' ? '新题，可以录入' : status === 'duplicate' ? '已有同题，答案一致' : '已有同题，答案需要核对'}}</view>
+  <text class="full-text" selectable>{{reply.stem}}</text>
+  <view wx:for="{{reply.options}}" wx:key="key" class="option"><text selectable>{{item.key}}. {{item.content}}</text></view>
+  <view class="answer">模型答案：{{answer}}</view><text class="full-text" selectable>{{reply.explanation}}</text>
+  <view class="muted hint">模型：{{reply.model.name}} / {{reply.model.version}}</view>
+  <view wx:for="{{reply.warnings}}" wx:key="*this" class="error">{{item}}</view>
+  <view wx:for="{{existingAnswers}}" wx:key="*this" class="hint">已有答案：{{item}}</view>
+  <view wx:if="{{status !== 'new'}}" class="muted hint">已按选项内容比对；保留现有题目，不加入本次新题。</view>
+  <button wx:if="{{status === 'new'}}" class="primary" bindtap="onSave" disabled="{{busy}}">确认内容并保存新题</button>
+ </view>
+ <view class="section-heading"><text>录入批次</text><button bindtap="onNewBatch" disabled="{{busy || !batchId}}">新一批</button></view>
+ <picker range="{{batches}}" range-key="label" value="{{batchIndex}}" bindchange="onBatchChange" disabled="{{busy}}"><view class="select">{{batches[batchIndex].label}} ▾</view></picker>
+ <view class="muted hint">新题 {{entries.length}} 道。上传标记只在本机记录，飞书上传尚未接通。</view>
+ <view wx:for="{{entries}}" wx:key="id" class="entry"><text class="full-text" selectable>{{item.stem}}</text><view class="hint">答案：{{item.answer}} · {{item.statusLabel}}</view><button size="mini" bindtap="onMark" data-id="{{item.id}}" disabled="{{busy}}">{{item.uploadStatus === 'pending' ? '标记已上传' : '改回待上传'}}</button></view>
+ <button class="primary" bindtap="onExport" disabled="{{busy || !entries.length}}">保存本批次增量包</button>
+ <button wx:if="{{filePath}}" class="share" bindtap="onShare" disabled="{{busy}}">转发增量包给微信好友</button>
+ <button bindtap="onImport" disabled="{{busy}}">从微信聊天导入增量包</button>
+ <view wx:if="{{notice}}" class="notice">{{notice}}</view><view wx:if="{{error}}" class="error">{{error}}</view><view wx:if="{{busy}}" class="muted hint">正在处理…</view>
+</view>

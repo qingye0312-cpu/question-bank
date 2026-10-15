@@ -1,5 +1,6 @@
 pub mod db;
 pub mod exchange;
+pub mod intake;
 pub mod model;
 pub mod ocr;
 use db::{Query, Results, Store};
@@ -40,6 +41,79 @@ async fn ocr_recognize(data_url: String) -> Result<ocr::Recognition> {
 #[tauri::command]
 async fn ocr_clipboard() -> Result<ocr::ClipboardInput> {
     blocking(ocr::clipboard).await
+}
+#[tauri::command]
+async fn clipboard_write_text(text: String) -> Result<()> {
+    blocking(move || ocr::write_clipboard(&text)).await
+}
+#[tauri::command]
+async fn intake_preview(
+    s: State<'_, AppState>,
+    bank_id: String,
+    text: String,
+) -> Result<intake::Comparison> {
+    let d = s.store.clone();
+    blocking(move || intake::preview(&d, &bank_id, &text)).await
+}
+#[tauri::command]
+async fn intake_save(
+    s: State<'_, AppState>,
+    bank_id: String,
+    batch_id: String,
+    text: String,
+) -> Result<intake::Saved> {
+    let d = s.store.clone();
+    let lock = s.writes.clone();
+    blocking(move || {
+        let _g = lock.lock().map_err(err)?;
+        intake::save(&d, &bank_id, &batch_id, &text)
+    })
+    .await
+}
+#[tauri::command]
+async fn intake_batches(s: State<'_, AppState>) -> Result<Vec<intake::Batch>> {
+    let d = s.store.clone();
+    blocking(move || intake::batches(&d)).await
+}
+#[tauri::command]
+async fn intake_entries(s: State<'_, AppState>, batch_id: String) -> Result<Vec<intake::Entry>> {
+    let d = s.store.clone();
+    blocking(move || intake::entries(&d, &batch_id)).await
+}
+#[tauri::command]
+async fn intake_mark_upload(
+    s: State<'_, AppState>,
+    bank_id: String,
+    question_id: String,
+    uploaded: bool,
+) -> Result<()> {
+    let d = s.store.clone();
+    let lock = s.writes.clone();
+    blocking(move || {
+        let _g = lock.lock().map_err(err)?;
+        intake::mark_upload(&d, &bank_id, &question_id, uploaded)
+    })
+    .await
+}
+#[tauri::command]
+async fn intake_export(s: State<'_, AppState>, batch_id: String, path: String) -> Result<usize> {
+    let d = s.store.clone();
+    let lock = s.writes.clone();
+    blocking(move || {
+        let _g = lock.lock().map_err(err)?;
+        intake::export(&d, &batch_id, &PathBuf::from(path))
+    })
+    .await
+}
+#[tauri::command]
+async fn import_delta(s: State<'_, AppState>, path: String) -> Result<intake::Imported> {
+    let d = s.store.clone();
+    let lock = s.writes.clone();
+    blocking(move || {
+        let _g = lock.lock().map_err(err)?;
+        intake::import(&d, &PathBuf::from(path))
+    })
+    .await
 }
 #[tauri::command]
 async fn ocr_capture(window: tauri::WebviewWindow) -> Result<Option<ocr::ImageInput>> {
@@ -227,6 +301,14 @@ pub fn run() {
             ocr_image_file,
             ocr_recognize,
             ocr_clipboard,
+            clipboard_write_text,
+            intake_preview,
+            intake_save,
+            intake_batches,
+            intake_entries,
+            intake_mark_upload,
+            intake_export,
+            import_delta,
             ocr_capture,
             ocr_cancel_capture,
             ocr_match,

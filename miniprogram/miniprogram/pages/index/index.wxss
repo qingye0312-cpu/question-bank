@@ -37,3 +37,5 @@ page { height: 100%; overflow: hidden; }
 @media (prefers-reduced-motion: reduce) {
   .header, .header-fold, .search-box, .header-toggle-arrow { transition: none; }
 }
+
+.app-version{float:right;font-size:21rpx;letter-spacing:0;color:#708078}.bank-switch-hint{font-size:23rpx;font-weight:400;color:#377958}.model-tools{display:flex;gap:12rpx;margin-top:18rpx}.model-tools button{flex:1;margin:0;padding:14rpx 10rpx;font-size:22rpx;line-height:1.5;color:#285a42;background:#e7eeea;border-radius:12rpx}.model-tools button:first-child{flex:1.65}

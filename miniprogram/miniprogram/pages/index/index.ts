@@ -1,5 +1,7 @@
 import {LocalBank, VirtualList, Segment, queryTerms, snippet, answerText, typeNames} from '../../core/search';
-import {loadBank} from '../../services/bank';
+import {loadBank,listBanks,activeBankId,selectBank} from '../../services/bank';
+import {copyPrompt} from '../../services/prompt';
+import {APP_VERSION} from '../../generated/client-assets';
 
 const HEADER_COLLAPSED_KEY = 'qbank-search-header-collapsed-v1';
 // Allow the 220 ms layout transition to finish before the final measurement.
@@ -11,10 +13,11 @@ Page({
     query: '', bankName: '正在打开题库', version: 1, total: 0, count: 0,
     ready: false, loading: true, error: '', rows: [] as Row[],
     before: 0, after: 0, scrollTop: 0, headerCollapsed: false,
+    appVersion:APP_VERSION,bankId:'',banks:[] as {id:string;name:string}[],bankIndex:0,bankLabel:'内置题库',
   },
   bank: undefined as LocalBank | undefined,
   ids: [] as number[], terms: [] as string[], layout: null as VirtualList | null,
-  request: 0, renderEpoch: 0, start: -1, end: -1, scrollPosition: 0,
+  loadEpoch:0, request: 0, renderEpoch: 0, start: -1, end: -1, scrollPosition: 0,
   viewport: 700, scrollTimer: undefined as number | undefined, alive: true,
   headerTimer: undefined as number | undefined,
   // Page() deep-clones free data; construct class instances after that clone.
@@ -24,6 +27,7 @@ Page({
     catch { /* A failed preference read must not prevent local search. */ }
     return this.initialize();
   },
+  onShow(){if(this.data.ready&&!this.data.loading)void this.initialize();},
   onReady() { this.measureViewport(); },
   onResize() { this.measureViewport(); this.layout = new VirtualList(this.ids.length); this.renderRows(true); },
   onUnload() {
@@ -32,15 +36,20 @@ Page({
     if (this.headerTimer !== undefined) clearTimeout(this.headerTimer);
   },
   async initialize(): Promise<void> {
+    const epoch=++this.loadEpoch;this.bank?.cancel();
     this.setData({loading: true, error: ''});
     try {
-      const {bank, manifest} = await loadBank();
-      if (!this.alive) return;
+      const banks=await listBanks();
+      const id=banks.some(b=>b.id===activeBankId())?activeBankId():banks[0].id;
+      const {bank, manifest} = await loadBank(id);
+      if (!this.alive||epoch!==this.loadEpoch) return;
+      selectBank(id);
+      this.setData({banks,bankId:id,bankIndex:banks.findIndex(b=>b.id===id),bankLabel:manifest.release_id==='local'?'本地题库':'内置题库 + 本地新题'});
       this.bank = bank;
       this.setData({ready: true, bankName: manifest.name, version: manifest.release_version, total: manifest.question_count}, () => this.measureViewport());
       await this.runSearch(this.data.query);
     } catch (error) {
-      if (this.alive) this.setData({loading: false, error: error instanceof Error ? error.message : '题库加载失败，请重试'});
+      if (this.alive&&epoch===this.loadEpoch) this.setData({loading: false, error: error instanceof Error ? error.message : '题库加载失败，请重试'});
     }
   },
   measureViewport() {
@@ -65,6 +74,9 @@ Page({
     try { wx.setStorageSync(HEADER_COLLAPSED_KEY, headerCollapsed); }
     catch { /* The in-memory preference remains usable if storage is full. */ }
   },
+  onCopyPrompt(){copyPrompt()},
+  onIntake(){wx.navigateTo({url:`/pages/intake/intake?bank=${this.data.bankId||activeBankId()}`})},
+  onBankChange(event:WechatMiniprogram.PickerChange){const b=this.data.banks[Number(event.detail.value)];if(!b)return;selectBank(b.id);void this.initialize()},
   onInput(event: WechatMiniprogram.Input) {
     this.setData({query: event.detail.value});
     void this.runSearch(event.detail.value);
@@ -130,7 +142,7 @@ Page({
     if (!this.ids.includes(id) || !this.bank) return;
     const q = this.bank.question(id);
     const query = this.data.query;
-    wx.navigateTo({url: `/pages/detail/detail?row=${id}&id=${q.question_id}`,
+    wx.navigateTo({url: `/pages/detail/detail?row=${id}&id=${q.question_id}&bank=${this.data.bankId}`,
       success: result => result.eventChannel.emit('searchContext', {query})});
   },
 });

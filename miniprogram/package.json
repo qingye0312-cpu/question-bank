@@ -2,15 +2,13 @@
   "name": "question-bank-miniprogram",
   "private": true,
   "type": "module",
-  "version": "1.0.0",
+  "version": "0.2.7",
   "description": "内置题库、本地文字搜题",
-  "scripts": {
-  },
+  "scripts": {},
   "keywords": [],
   "author": "",
   "license": "",
-  "dependencies": {
-  },
+  "dependencies": {},
   "devDependencies": {
     "miniprogram-api-typings": "^2.8.3-1"
   }

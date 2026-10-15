@@ -116,6 +116,20 @@ export class LocalBank {
     return q;
   }
   cancel(): void { this.generation++; }
+  get count(): number { return this.lines.length; }
+  append(questions: Question[]): void {
+    this.cancel();
+    for (const q of questions) {
+      const id=this.lines.length;
+      this.lines.push(JSON.stringify(q));
+      for(const token of tokens(searchText(q))) {
+        const previous=this.index.postings[token];
+        const ids=previous?decodePosting(previous):[];ids.push(id);
+        this.index.postings[token]=encodePosting(ids);
+      }
+    }
+    this.index.question_count=this.lines.length;
+  }
   async search(query: string): Promise<number[] | null> {
     const generation = ++this.generation, terms = queryTerms(query);
     if (!terms.length) return this.lines.map((_, id) => id);

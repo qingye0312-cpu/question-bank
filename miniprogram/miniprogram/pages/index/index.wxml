@@ -3,9 +3,9 @@
     <view class="header-fold" aria-hidden="{{headerCollapsed}}">
       <view class="header-fold-inner">
         <view class="bank-summary">
-          <view class="eyebrow">本地题库 · 文字搜题</view>
-          <view class="title">{{bankName}}</view>
-          <view class="bank-meta muted">{{ready ? total + ' 道题 · 内置版本 ' + version + ' · 无需下载' : '正在准备本地题库，首次启动生成索引'}}</view>
+          <view class="eyebrow">本地题库 · 文字搜题 <text class="app-version">v{{appVersion}}</text></view>
+          <picker range="{{banks}}" range-key="name" value="{{bankIndex}}" bindchange="onBankChange" disabled="{{loading}}"><view class="title">{{bankName}} <text class="bank-switch-hint">切换 ▾</text></view></picker>
+          <view class="bank-meta muted">{{ready ? total + ' 道题 · ' + bankLabel : '正在准备本地题库，首次启动生成索引'}}</view>
         </view>
       </view>
     </view>
@@ -21,6 +21,7 @@
     <view class="header-fold" aria-hidden="{{headerCollapsed}}">
       <view class="header-fold-inner">
         <view class="hint muted">空格分隔多个词，双引号搜索连续短语</view>
+        <view class="model-tools"><button bindtap="onCopyPrompt">大模型输出规范模版 · 复制</button><button bindtap="onIntake">录题 / 增量包</button></view>
         <view class="result-heading">
           <text>{{loading ? '正在查找…' : query ? '找到 ' + count + ' 道题' : '全部题目 · ' + count}}</text>
           <text class="muted">点击查看完整答案</text>

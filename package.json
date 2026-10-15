@@ -1,28 +1,29 @@
 {
   "name": "question-bank",
   "private": true,
-  "version": "0.2.6",
+  "version": "0.2.7",
   "type": "module",
   "packageManager": "pnpm@11.25.0",
   "engines": {
     "node": ">=22.18.0"
   },
   "scripts": {
-    "dev": "node scripts/prepare-ocr.mjs && vite --host 127.0.0.1",
-    "build": "node scripts/prepare-ocr.mjs && tsc --noEmit && vite build",
+    "dev": "node scripts/sync-client-assets.mjs && node scripts/prepare-ocr.mjs && vite --host 127.0.0.1",
+    "build": "node scripts/sync-client-assets.mjs && node scripts/prepare-ocr.mjs && tsc --noEmit && vite build",
     "tauri": "node scripts/tauri.mjs",
     "test:platforms": "node --test tests/platform-build.test.mjs",
     "test:ui": "node --test tests/search-presentation.test.mjs tests/ocr-client.test.mjs",
-    "prepare:miniprogram": "node tools/mobile-index/build.mjs",
+    "prepare:miniprogram": "node scripts/sync-client-assets.mjs && node tools/mobile-index/build.mjs",
     "serve:miniprogram": "node tools/mobile-index/server.mjs",
-    "check:miniprogram": "node tools/mobile-index/build.mjs --check && tsc --noEmit -p miniprogram/tsconfig.json",
+    "check:miniprogram": "node scripts/sync-client-assets.mjs --check && node tools/mobile-index/build.mjs --check && tsc --noEmit -p miniprogram/tsconfig.json",
     "test:miniprogram": "node --test tests/miniprogram.test.mjs",
     "feishu:prepare": "node tools/feishu/setup.mjs init",
     "feishu:check": "node tools/feishu/setup.mjs doctor",
     "feishu:plan": "node tools/feishu/setup.mjs plan",
     "feishu:setup": "node tools/feishu/setup.mjs apply",
     "test:feishu": "node --test tests/feishu-setup.test.mjs",
-    "prepare:ocr": "node scripts/prepare-ocr.mjs"
+    "prepare:ocr": "node scripts/prepare-ocr.mjs",
+    "test:intake": "node scripts/sync-client-assets.mjs --check && node --test tests/intake.test.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

@@ -149,6 +149,12 @@ pub fn clipboard() -> Result<ClipboardInput> {
     }
     Ok(ClipboardInput { image: None, text })
 }
+pub fn write_clipboard(text: &str) -> Result<()> {
+    arboard::Clipboard::new()
+        .map_err(err)?
+        .set_text(text)
+        .map_err(err)
+}
 pub fn capture(cancel: &AtomicBool) -> Result<Option<ImageInput>> {
     // Snipping Tool copies the new snip to the clipboard. Sequence checking avoids
     // accidentally recognizing an older clipboard image. No MSIX callback needed.

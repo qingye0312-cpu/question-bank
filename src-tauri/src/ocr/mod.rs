@@ -1,7 +1,7 @@
-pub mod matching;
 #[cfg(target_os = "macos")]
 #[path = "../../../mac/src/ocr.rs"]
 mod mac;
+pub mod matching;
 #[cfg(target_os = "windows")]
 #[path = "../../../windows/src/ocr.rs"]
 mod windows;
@@ -125,6 +125,17 @@ pub fn clipboard() -> Result<ClipboardInput> {
     return windows::clipboard();
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     Err("请使用 Ctrl / ⌘ V 粘贴图片或题目文字".into())
+}
+pub fn write_clipboard(text: &str) -> Result<()> {
+    if text.len() > 1_000_000 {
+        return Err("复制内容超过 1 MB".into());
+    }
+    #[cfg(target_os = "macos")]
+    return mac::write_clipboard(text);
+    #[cfg(target_os = "windows")]
+    return windows::write_clipboard(text);
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    Err("当前平台不支持系统剪贴板".into())
 }
 
 pub fn cancel_capture() {

@@ -48,7 +48,8 @@ async function loadService(readResource, extra = {}) {
   const source = await readFile(new URL('services/bank.ts', base), 'utf8');
   const {outputText} = ts.transpileModule(source, {compilerOptions: {module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020}});
   const exports = {};
-  vm.runInNewContext(outputText, {exports, require: name => name.endsWith('/manifest') ? {bundledManifest: manifest} : name.endsWith('/compact') ? compact : core,
+  const intake = await import('../shared/intake.ts');
+  vm.runInNewContext(outputText, {exports, require: name => name.endsWith('/manifest') ? {bundledManifest: manifest} : name.endsWith('/compact') ? compact : name.endsWith('/intake-store') ? {readLocal:async()=>({version:1,banks:[],entries:[],batches:[]})} : name.endsWith('/intake') ? intake : core,
     wx: {env: {USER_DATA_PATH: '/cache'}, getFileSystemManager: () => ({readFile: readResource, readCompressedFile: readCompressed(readResource)}), ...extra}, console: {error() {}, info() {}, warn() {}}, Error});
   return exports;
 }
@@ -200,7 +201,7 @@ async function loadPage(path, mocks = {}) {
   const selection = {in() {return this;}, select() {return this;}, selectAll() {return this;}, boundingClientRect() {return this;}, exec() {}};
   const wx = {createSelectorQuery: () => selection, navigateTo: () => {}, ...mocks};
   vm.runInNewContext(outputText, {
-    exports: {}, require: name => name.endsWith('/search') ? core : {loadBank: async () => ({bank: bank(), manifest})},
+    exports: {}, require: name => name.endsWith('/search') ? core : {loadBank: async () => ({bank: bank(), manifest}),listBanks:async()=>[{id:manifest.bank_id,name:manifest.name}],activeBankId:()=>manifest.bank_id,selectBank:()=>{},APP_VERSION:'0.2.7'},
     Page: options => { page = options; }, wx, setTimeout, clearTimeout, Error,
   });
   // WeChat instantiates pages by cloning free data. Tests must not accidentally

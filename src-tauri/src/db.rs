@@ -80,6 +80,7 @@ impl Store {
             tx.execute_batch("PRAGMA user_version=3;").map_err(err)?;
             tx.commit().map_err(err)?;
         }
+        crate::intake::initialize(&s.conn()?)?;
         Ok(s)
     }
     pub fn conn(&self) -> Result<Connection> {
@@ -429,6 +430,7 @@ impl Store {
             .map_err(err)?;
         tx.execute("DELETE FROM imports WHERE bank_id=?1", [id])
             .map_err(err)?;
+        crate::intake::restore_snapshot(&tx, id)?;
         tx.commit().map_err(err)
     }
     pub fn reindex(&self) -> Result<()> {
@@ -564,6 +566,7 @@ pub fn snapshot(c: &Connection, bank: &Bank) -> Result<()> {
         })
         .collect::<Result<_>>()?;
     c.execute("INSERT OR REPLACE INTO snapshots(bank_id,bank,questions,expected_version) VALUES(?1,?2,?3,0)",params![bank.id,serde_json::to_string(bank).map_err(err)?,serde_json::to_string(&all).map_err(err)?]).map_err(err)?;
+    crate::intake::snapshot(c, &bank.id)?;
     Ok(())
 }
 pub fn clear_bank(c: &Connection, id: &str) -> Result<()> {

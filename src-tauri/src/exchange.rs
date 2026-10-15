@@ -372,7 +372,11 @@ pub fn preview(store: &Store, path: &Path, target: &str) -> Result<Pending> {
             }
         }
         if let Some(m) = &manifest {
-            removed = old.keys().filter(|k| !seen.contains(*k)).count();
+            let local_ids = crate::intake::local_question_ids(&store.conn()?, &b.id)?;
+            removed = old
+                .keys()
+                .filter(|k| !seen.contains(*k) && !local_ids.contains(*k))
+                .count();
             let current_hash = hash(&jsonl(&store.questions(&b.id)?)?);
             if m.release_version == b.version && m.release_id == current_hash {
                 action = "已存在，跳过重复导入".into();
@@ -463,11 +467,19 @@ pub fn commit(store: &Store, p: &Pending) -> Result<String> {
         db::snapshot(&tx, &bank)?;
     }
     if let Some(m) = &p.manifest {
+        let additions = if actual.is_some() {
+            crate::intake::preserve_additions(&tx, &id, &p.questions)?
+        } else {
+            vec![]
+        };
         if actual.is_some() {
             db::clear_bank(&tx, &id)?;
         }
         tx.execute("INSERT INTO banks VALUES(?1,?2,1,?3,?4,?5,'离线发布包') ON CONFLICT(id) DO UPDATE SET name=excluded.name,read_only=1,version=excluded.version,updated_at=excluded.updated_at,content_hash=excluded.content_hash",params![id,m.name,m.release_version,m.published_at,m.release_id]).map_err(err)?;
         for q in &p.questions {
+            db::insert(&tx, &id, q)?;
+        }
+        for q in &additions {
             db::insert(&tx, &id, q)?;
         }
     } else {

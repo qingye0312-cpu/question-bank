@@ -1,12 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "题库",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "identifier": "local.questionbank.desktop",
   "build": {
-    "beforeDevCommand": "node scripts/prepare-ocr.mjs && node node_modules/vite/bin/vite.js --host 127.0.0.1",
+    "beforeDevCommand": "node scripts/sync-client-assets.mjs && node scripts/prepare-ocr.mjs && node node_modules/vite/bin/vite.js --host 127.0.0.1",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "node scripts/prepare-ocr.mjs && node node_modules/typescript/bin/tsc --noEmit && node node_modules/vite/bin/vite.js build",
+    "beforeBuildCommand": "node scripts/sync-client-assets.mjs && node scripts/prepare-ocr.mjs && node node_modules/typescript/bin/tsc --noEmit && node node_modules/vite/bin/vite.js build",
     "frontendDist": "../dist"
   },
   "app": {

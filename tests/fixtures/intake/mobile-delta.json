@@ -1,0 +1,10 @@
+{
+  "format": "qbank-delta-1",
+  "bank_id": "00000000-0000-4000-8000-000000000004",
+  "name": "跨端测试题库",
+  "batch_id": "00000000-0000-4000-8000-000000000005",
+  "created_at": "2026-10-15T00:00:00Z",
+  "question_count": 1,
+  "payload": "{\"schema_version\":\"1.0\",\"question_id\":\"00000000-0000-4000-8000-000000000001\",\"base_revision\":1,\"type\":\"single\",\"stem\":\"此 API 返回什么？\",\"options\":[{\"key\":\"A\",\"content\":\"中文 🧪\",\"option_id\":\"00000000-0000-4000-8000-000000000002\"},{\"key\":\"B\",\"content\":\"字符串 \\\"A\\\"\",\"option_id\":\"00000000-0000-4000-8000-000000000003\"}],\"answer\":[\"B\"],\"bank\":\"跨端测试题库\",\"external_id\":\"\",\"chapter\":\"\",\"tags\":[],\"explanation\":\"测试作答依据。\",\"status\":\"unreviewed\",\"difficulty\":\"\",\"applicable_version\":\"\",\"source_note\":\"大模型作答 · 测试模型 / test-1\",\"issues\":[],\"sources\":[{\"kind\":\"model_reply\",\"model\":{\"name\":\"测试模型\",\"version\":\"test-1\",\"version_source\":\"user\"},\"answer_origin\":\"inferred\",\"warnings\":[],\"recorded_at\":\"2026-10-15T00:00:00Z\"}],\"attachments\":[]}\n",
+  "sha256": "40f46a6810014b2af9bbd286dc0a2a2ed5216d0c086d7cec6105e63d9cdeeb5f"
+}

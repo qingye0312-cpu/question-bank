@@ -16,7 +16,7 @@ Page({
       if (this.question) this.showQuestion();
     });
     try {
-      const {bank} = await loadBank();
+      const {bank} = await loadBank(params.bank);
       const q = bank.question(Number(params.row));
       if (q.question_id !== params.id) throw new Error('题目身份不一致，请返回列表重新打开');
       this.question = q;
