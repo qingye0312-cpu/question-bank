@@ -44,30 +44,30 @@
   "packOptions": {
     "ignore": [
       {
-        "type": "file",
-        "value": "data/manifest.json"
+        "value": "data/manifest.json",
+        "type": "file"
       },
       {
-        "type": "file",
-        "value": "data/index.json"
+        "value": "data/index.json",
+        "type": "file"
       },
       {
-        "type": "file",
-        "value": "data/questions.json"
+        "value": "data/questions.json",
+        "type": "file"
       },
       {
-        "type": "folder",
-        "value": "pages/logs"
+        "value": "pages/logs",
+        "type": "folder"
       },
       {
-        "type": "folder",
-        "value": "utils"
+        "value": "utils",
+        "type": "folder"
       }
     ],
     "include": [
       {
-        "type": "file",
-        "value": "data/compact.br"
+        "value": "data/compact.br",
+        "type": "file"
       }
     ]
   },
