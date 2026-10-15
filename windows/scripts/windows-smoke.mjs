@@ -14,6 +14,9 @@ const output = path.join(root, 'artifacts', `windows-smoke-${stamp}`);
 const data = path.join(output, '测试数据 data');
 const files = path.join(output, '中文路径 files');
 await fs.mkdir(files, {recursive: true});
+// Start from an empty directory instead of the repository root.
+const launchDirectory = path.join(output, '空工作目录');
+await fs.mkdir(launchDirectory);
 const modulePath = process.env.QBANK_PLAYWRIGHT_MODULE;
 const {chromium} = await import(modulePath ? pathToFileURL(modulePath).href : 'playwright');
 const report = {at: new Date().toISOString(), executable, output, checks: [], errors: [], requests: []};
@@ -56,7 +59,7 @@ async function freePort() {
 }
 async function launch() {
   const port = await freePort();
-  app = spawn(executable, [], {cwd: root, windowsHide: true, env: {...process.env,
+  app = spawn(executable, [], {cwd: launchDirectory, windowsHide: true, env: {...process.env,
     QBANK_DATA_DIR: data,
     WEBVIEW2_USER_DATA_FOLDER: path.join(output, 'webview-profile'),
     // External network fails closed; Tauri's local protocol/IPC remain available.

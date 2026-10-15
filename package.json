@@ -11,6 +11,7 @@
     "dev": "node scripts/prepare-ocr.mjs && vite --host 127.0.0.1",
     "build": "node scripts/prepare-ocr.mjs && tsc --noEmit && vite build",
     "tauri": "node scripts/tauri.mjs",
+    "build:windows:portable": "powershell -NoProfile -ExecutionPolicy Bypass -File windows/scripts/build-portable.ps1",
     "test:platforms": "node --test tests/platform-build.test.mjs",
     "test:ui": "node --test tests/search-presentation.test.mjs tests/ocr-client.test.mjs",
     "prepare:miniprogram": "node tools/mobile-index/build.mjs",
