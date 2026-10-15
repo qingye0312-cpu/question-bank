@@ -10,6 +10,8 @@ Tauri 2 + React + Rust / SQLite 桌面题库。数据保存在本机，搜索、
 
 Windows x64 使用 `交付/题库_0.2.6_x64-setup.exe`，包含 WebView2 离线安装器，默认安装到当前用户目录。安装包尚未签名。Windows 的构建、运行、性能与待人工验收项见 [Windows 验证报告](windows/docs/Windows验证报告.md)。Mac 本机交付使用 `交付/题库.app`（Apple Silicon，临时签名，尚未完成开发者签名与公证）。首次启动带有 914 题的「HarmonyOS 初级认证」发布题库。
 
+Windows 也可使用单文件免安装版 `交付/题库_0.2.6_x64-portable.exe`，复制后双击运行，无需安装题库程序。题库、模板及离线 OCR 资源均嵌入 EXE；需要电脑已有 Microsoft Edge WebView2 Runtime。数据仍保存到 `%APPDATA%\local.questionbank.desktop\`，与安装版共用，不保存在 EXE 内。换电脑时需要另行导出题库或备份数据；不要同时打开安装版和免安装版。构建及本轮实测见 [Windows 单文件免安装版](windows/docs/单文件免安装版.md)。
+
 `交付/` 是本机生成目录，不随 Git 克隆；从源码接手时请按下方开发命令构建。
 
 - 两种模式统一搜索题干、选项、标签、章节和编号，不检索解析。空格分隔的词同时匹配；双引号表示连续短语。题干和选项中的命中词使用相同的多色高亮。极速模式遇到句尾命中时向前补足原文，不接回题干；多个词相距较远时用“…”连接命中片段，先保留全部搜索词，再填充上下文。极长搜索词超出整行宽度时可在题目区域横向滚动查看。`⌘K` / `Ctrl+K` 聚焦搜索。旧版题库首次打开会自动更新搜索索引，解析内容仍保留并可查看、导出。
@@ -50,6 +52,7 @@ pnpm install --frozen-lockfile
 pnpm tauri dev
 pnpm tauri build --bundles app       # macOS
 pnpm tauri build --bundles nsis      # Windows，须在 Windows 上执行
+pnpm build:windows:portable         # Windows x64，生成单个免安装 EXE
 cargo test --manifest-path src-tauri/Cargo.toml --test core
 cargo test --manifest-path src-tauri/Cargo.toml --test ocr
 pnpm test:ui                       # Node.js 22.18+
