@@ -1,24 +1,35 @@
 import {LocalBank, VirtualList, Segment, queryTerms, snippet, answerText, typeNames} from '../../core/search';
 import {loadBank} from '../../services/bank';
 
+const HEADER_COLLAPSED_KEY = 'qbank-search-header-collapsed-v1';
+// Allow the 220 ms layout transition to finish before the final measurement.
+const HEADER_LAYOUT_DELAY = 260;
+
 type Row = {id: number; questionId: string; number: string; kind: string; answer: string; segments: Segment[]};
 Page({
   data: {
     query: '', bankName: '正在打开题库', version: 1, total: 0, count: 0,
     ready: false, loading: true, error: '', rows: [] as Row[],
-    before: 0, after: 0, scrollTop: 0,
+    before: 0, after: 0, scrollTop: 0, headerCollapsed: false,
   },
   bank: undefined as LocalBank | undefined,
   ids: [] as number[], terms: [] as string[], layout: null as VirtualList | null,
   request: 0, renderEpoch: 0, start: -1, end: -1, scrollPosition: 0,
   viewport: 700, scrollTimer: undefined as number | undefined, alive: true,
+  headerTimer: undefined as number | undefined,
   // Page() deep-clones free data; construct class instances after that clone.
-  onLoad(): Promise<void> { this.layout = new VirtualList(0); return this.initialize(); },
+  onLoad(): Promise<void> {
+    this.layout = new VirtualList(0);
+    try { this.setData({headerCollapsed: wx.getStorageSync(HEADER_COLLAPSED_KEY) === true}); }
+    catch { /* A failed preference read must not prevent local search. */ }
+    return this.initialize();
+  },
   onReady() { this.measureViewport(); },
   onResize() { this.measureViewport(); this.layout = new VirtualList(this.ids.length); this.renderRows(true); },
   onUnload() {
     this.alive = false; this.request++; this.renderEpoch++; this.bank?.cancel();
     if (this.scrollTimer !== undefined) clearTimeout(this.scrollTimer);
+    if (this.headerTimer !== undefined) clearTimeout(this.headerTimer);
   },
   async initialize(): Promise<void> {
     this.setData({loading: true, error: ''});
@@ -26,16 +37,33 @@ Page({
       const {bank, manifest} = await loadBank();
       if (!this.alive) return;
       this.bank = bank;
-      this.setData({ready: true, bankName: manifest.name, version: manifest.release_version, total: manifest.question_count});
+      this.setData({ready: true, bankName: manifest.name, version: manifest.release_version, total: manifest.question_count}, () => this.measureViewport());
       await this.runSearch(this.data.query);
     } catch (error) {
       if (this.alive) this.setData({loading: false, error: error instanceof Error ? error.message : '题库加载失败，请重试'});
     }
   },
   measureViewport() {
+    if (!this.alive) return;
     wx.createSelectorQuery().in(this).select('.results').boundingClientRect(rect => {
-      if (rect && !Array.isArray(rect) && rect.height) { this.viewport = rect.height; this.renderRows(true); }
+      if (this.alive && rect && !Array.isArray(rect) && rect.height) { this.viewport = rect.height; this.renderRows(true); }
     }).exec();
+  },
+  onToggleHeader() {
+    const headerCollapsed = !this.data.headerCollapsed;
+    if (this.headerTimer !== undefined) clearTimeout(this.headerTimer);
+    this.setData({headerCollapsed}, () => {
+      if (!this.alive) return;
+      // Keep the query, measured row heights and scroll position when folding.
+      this.measureViewport();
+      if (this.headerTimer !== undefined) clearTimeout(this.headerTimer);
+      this.headerTimer = setTimeout(() => {
+        this.headerTimer = undefined;
+        this.measureViewport();
+      }, HEADER_LAYOUT_DELAY);
+    });
+    try { wx.setStorageSync(HEADER_COLLAPSED_KEY, headerCollapsed); }
+    catch { /* The in-memory preference remains usable if storage is full. */ }
   },
   onInput(event: WechatMiniprogram.Input) {
     this.setData({query: event.detail.value});

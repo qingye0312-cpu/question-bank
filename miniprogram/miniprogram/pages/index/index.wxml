@@ -1,18 +1,32 @@
 <view class="screen">
-  <view class="header">
-    <view class="eyebrow">本地题库 · 文字搜题</view>
-    <view class="title">{{bankName}}</view>
-    <view class="bank-meta muted">{{ready ? total + ' 道题 · 内置版本 ' + version + ' · 无需下载' : '正在准备本地题库，首次启动生成索引'}}</view>
+  <view class="header {{headerCollapsed ? 'is-collapsed' : ''}}">
+    <view class="header-fold" aria-hidden="{{headerCollapsed}}">
+      <view class="header-fold-inner">
+        <view class="bank-summary">
+          <view class="eyebrow">本地题库 · 文字搜题</view>
+          <view class="title">{{bankName}}</view>
+          <view class="bank-meta muted">{{ready ? total + ' 道题 · 内置版本 ' + version + ' · 无需下载' : '正在准备本地题库，首次启动生成索引'}}</view>
+        </view>
+      </view>
+    </view>
     <view class="search-box">
       <text class="search-symbol">⌕</text>
       <input class="search-input" placeholder="输入关键词或粘贴题目" value="{{query}}" disabled="{{!ready}}" maxlength="-1" bindinput="onInput" confirm-type="search" />
       <button wx:if="{{query}}" class="clear" bindtap="onClear" aria-label="清空搜索">×</button>
+      <button class="header-toggle" bindtap="onToggleHeader" aria-label="{{headerCollapsed ? '展开搜索区' : '收起搜索区，只保留搜索框'}}" aria-expanded="{{!headerCollapsed}}" hover-class="header-toggle-hover">
+        <text>{{headerCollapsed ? '展开' : '收起'}}</text>
+        <view class="header-toggle-arrow" aria-hidden="true"></view>
+      </button>
     </view>
-    <view class="hint muted">空格分隔多个词，双引号搜索连续短语</view>
-  </view>
-  <view class="result-heading">
-    <text>{{loading ? '正在查找…' : query ? '找到 ' + count + ' 道题' : '全部题目 · ' + count}}</text>
-    <text class="muted">点击查看完整答案</text>
+    <view class="header-fold" aria-hidden="{{headerCollapsed}}">
+      <view class="header-fold-inner">
+        <view class="hint muted">空格分隔多个词，双引号搜索连续短语</view>
+        <view class="result-heading">
+          <text>{{loading ? '正在查找…' : query ? '找到 ' + count + ' 道题' : '全部题目 · ' + count}}</text>
+          <text class="muted">点击查看完整答案</text>
+        </view>
+      </view>
+    </view>
   </view>
   <scroll-view class="results" scroll-y scroll-top="{{scrollTop}}" bindscroll="onScroll" scroll-with-animation="{{false}}">
     <view wx:if="{{error}}" class="state">
