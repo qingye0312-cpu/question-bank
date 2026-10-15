@@ -17,6 +17,11 @@
     "serve:miniprogram": "node tools/mobile-index/server.mjs",
     "check:miniprogram": "node tools/mobile-index/build.mjs --check && tsc --noEmit -p miniprogram/tsconfig.json",
     "test:miniprogram": "node --test tests/miniprogram.test.mjs",
+    "feishu:prepare": "node tools/feishu/setup.mjs init",
+    "feishu:check": "node tools/feishu/setup.mjs doctor",
+    "feishu:plan": "node tools/feishu/setup.mjs plan",
+    "feishu:setup": "node tools/feishu/setup.mjs apply",
+    "test:feishu": "node --test tests/feishu-setup.test.mjs",
     "prepare:ocr": "node scripts/prepare-ocr.mjs"
   },
   "dependencies": {
