@@ -40,9 +40,17 @@ function loadConfig(env) {
     sessionSecret: env.QBANK_SESSION_SECRET || '', authVersion: env.QBANK_AUTH_VERSION || '1',
     uploadsEnabled: env.QBANK_UPLOAD_ENABLED === 'true' };
 }
+function authChecks(config) {
+  // Public diagnostics contain only fixed status labels, never environment values.
+  return {
+    WX_APP_ID: !config.appId ? 'missing' : /^wx[0-9a-f]{16}$/.test(config.appId) ? 'ok' : 'invalid',
+    WX_APP_SECRET: config.appSecret.trim() ? 'ok' : 'missing',
+    QBANK_SESSION_SECRET: !config.sessionSecret ? 'missing' : HASH.test(config.sessionSecret) ? 'ok' : 'invalid',
+    QBANK_BANKS: config.banks.length > 0 ? 'ok' : 'empty',
+  };
+}
 function authConfigured(config) {
-  return /^wx[0-9a-f]{16}$/.test(config.appId) && !!config.appSecret.trim()
-    && HASH.test(config.sessionSecret) && config.banks.length > 0;
+  return Object.values(authChecks(config)).every(status => status === 'ok');
 }
 function requireAuthConfig(config) {
   if (!authConfigured(config)) fail(503, 'AUTH_NOT_CONFIGURED', '登录服务尚未配置完成');
@@ -171,6 +179,7 @@ function createHandler({ env = () => process.env, store, exchangeCode, parseDelt
       }
       if (method === 'GET' && path === '/health') return respond(200, {
         service: 'qbank-auth', version: VERSION, auth_configured: authConfigured(config),
+        auth_checks: authChecks(config),
         uploads_enabled: config.uploadsEnabled, limits: LIMITS,
       });
       if (!['POST /v1/auth/wechat', 'GET /v1/me', 'POST /v1/uploads'].includes(`${method} ${path}`))

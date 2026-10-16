@@ -51,6 +51,35 @@ test('health works before secrets are configured; protected routes fail closed',
   assert.equal((await s.call('GET', '/v1/publish')).status, 404);
   assert.equal(s.writes(), 0);
 });
+test('health identifies missing or invalid settings without returning configuration values', async () => {
+  const cases = [
+    ['WX_APP_ID', undefined, 'missing'], ['WX_APP_ID', 'wrong-app-id', 'invalid'],
+    ['WX_APP_SECRET', undefined, 'missing'], ['WX_APP_SECRET', '  ', 'missing'],
+    ['QBANK_SESSION_SECRET', undefined, 'missing'], ['QBANK_SESSION_SECRET', 'a'.repeat(63), 'invalid'],
+    ['QBANK_SESSION_SECRET', 'A'.repeat(64), 'invalid'], ['QBANK_SESSION_SECRET', 'a'.repeat(64) + '\n', 'invalid'],
+    ['QBANK_BANKS', undefined, 'empty'], ['QBANK_BANKS', '[]', 'empty'],
+  ];
+  const ready = await setup().call('GET', '/health');
+  assert.equal(ready.data.auth_configured, true);
+  assert.deepEqual(ready.data.auth_checks, {
+    WX_APP_ID: 'ok', WX_APP_SECRET: 'ok', QBANK_SESSION_SECRET: 'ok', QBANK_BANKS: 'ok',
+  });
+  for (const [key, value, expected] of cases) {
+    const s = setup(); s.env.QBANK_DEVELOPERS = '{}';
+    if (value === undefined) delete s.env[key]; else s.env[key] = value;
+    const health = await s.call('GET', '/health');
+    assert.equal(health.status, 200);
+    assert.equal(health.data.auth_configured, false);
+    assert.equal(health.data.auth_checks[key], expected);
+    assert.equal((await s.call('POST', '/v1/auth/wechat', { code: 'developer-code' })).status, 503);
+    const serialized = JSON.stringify(health);
+    for (const privateValue of [envConfig().WX_APP_ID, envConfig().WX_APP_SECRET,
+      envConfig().QBANK_SESSION_SECRET, packet.bank_id, packet.name, developer]) {
+      assert.ok(!serialized.includes(privateValue));
+    }
+    assert.equal(s.writes(), 0);
+  }
+});
 test('only trusted WeChat identity matched against bank allowlist gets a session', async () => {
   const s = setup();
   const anonymous = await s.call('POST', '/v1/auth/wechat', { code: 'unknown-code' });
