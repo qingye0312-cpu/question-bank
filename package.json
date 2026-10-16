@@ -24,7 +24,9 @@
     "feishu:setup": "node tools/feishu/setup.mjs apply",
     "test:feishu": "node --test tests/feishu-setup.test.mjs",
     "prepare:ocr": "node scripts/prepare-ocr.mjs",
-    "test:intake": "node scripts/sync-client-assets.mjs --check && node --test tests/intake.test.mjs"
+    "test:intake": "node scripts/sync-client-assets.mjs --check && node --test tests/intake.test.mjs",
+    "build:cloud": "node scripts/build-cloud.mjs",
+    "test:cloud": "node --test tests/cloud-auth.test.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

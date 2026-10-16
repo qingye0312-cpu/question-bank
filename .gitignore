@@ -23,6 +23,7 @@ target/
 *.sqlite3-*
 *.qbank.zip
 *.qbank-delta.json
+*.qbank-upload.json
 
 # Original migration documents remain on this computer.
 # Standard import templates under templates/ are included in Git.
