@@ -485,6 +485,16 @@ pub fn run() {
             download_template,
             save_benchmark
         ])
-        .run(tauri::generate_context!())
-        .expect("题库启动失败");
+        .build(tauri::generate_context!())
+        .expect("题库启动失败")
+        .run(|app, event| {
+            // Finder and Dock reuse the running process on macOS, so they do
+            // not trigger the single-instance plugin's new-process callback.
+            #[cfg(target_os = "macos")]
+            if matches!(event, tauri::RunEvent::Reopen { .. }) {
+                desktop::focus(app);
+            }
+            #[cfg(not(target_os = "macos"))]
+            let _ = (app, event);
+        });
 }

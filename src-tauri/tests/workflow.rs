@@ -342,6 +342,20 @@ fn intake_metadata_is_preserved_and_invalid_metadata_never_saves() {
     assert_eq!(s.questions(&b).unwrap().len(), 1);
 }
 #[test]
+fn offline_build_has_a_valid_updater_plugin_configuration() {
+    let config: serde_json::Value =
+        serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+    let updater: tauri_plugin_updater::Config =
+        serde_json::from_value(config["plugins"]["updater"].clone())
+            .expect("the updater plugin must initialize even without a production update service");
+    assert!(updater.endpoints.is_empty());
+    assert!(updater.pubkey.is_empty());
+    assert!(!updater.dangerous_insecure_transport_protocol);
+    assert!(!updater.dangerous_accept_invalid_certs);
+    assert!(!updater.allow_downgrades);
+}
+
+#[test]
 fn software_updates_require_embedded_https_endpoint_and_a_public_signing_key() {
     use base64::{engine::general_purpose::STANDARD, Engine};
     use question_bank::updater::settings;
