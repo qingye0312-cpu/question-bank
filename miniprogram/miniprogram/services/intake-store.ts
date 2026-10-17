@@ -1,6 +1,7 @@
 import {IntakeQuestion, sha256, uuidFromBytes} from '../core/intake';
-export type LocalEntry={bankId:string;batchId:string;question:IntakeQuestion;createdAt:string;uploadStatus:'pending'|'uploaded_manual';exportedAt:string;sharedAt:string};
-export type LocalBatch={id:string;bankId:string;createdAt:string};
+import type {UploadReceipt} from '../core/upload';
+export type LocalEntry={bankId:string;batchId:string;question:IntakeQuestion;createdAt:string;uploadStatus:'pending'|'uploaded_manual'|'uploaded';exportedAt:string;sharedAt:string};
+export type LocalBatch={id:string;bankId:string;createdAt:string;sealedText?:string;upload?:{endpoint:string;text:string;receipt?:UploadReceipt}};
 export type LocalCatalog={id:string;name:string};
 export type IntakeStore={version:1;banks:LocalCatalog[];batches:LocalBatch[];entries:LocalEntry[]};
 let cached:Promise<IntakeStore>|undefined;
@@ -14,7 +15,7 @@ export function readLocal():Promise<IntakeStore>{
   if(data.version!==1||!Array.isArray(data.banks)||!Array.isArray(data.batches)||!Array.isArray(data.entries))throw new Error('本地新题记录格式无效');
   return data;
  }).catch(error=>{
-  if(/no such|not exist|ENOENT/i.test(error.errMsg||''))return {version:1,banks:[],batches:[],entries:[]} as IntakeStore;
+  if(/no such|not exist|not found|ENOENT/i.test(error.errMsg||''))return {version:1,banks:[],batches:[],entries:[]} as IntakeStore;
   cached=undefined;throw error instanceof Error?error:new Error(error.errMsg||'本地新题读取失败');
  });
  return cached;

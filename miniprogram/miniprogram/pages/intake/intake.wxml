@@ -3,6 +3,18 @@
  <button class="prompt-card" bindtap="onCopyPrompt">大模型输出规范模版 <text>复制提示词</text></button>
  <view class="muted hint">复制提示词给模型识题作答，再把整段 JSON 回复粘贴回来。不保存照片。</view>
  <view class="bank-tools"><picker range="{{banks}}" range-key="name" value="{{bankIndex}}" bindchange="onBankChange" disabled="{{busy}}"><view class="select">{{banks[bankIndex].name || '选择题库'}} ▾</view></picker><button bindtap="onCreateBank" disabled="{{busy}}">新建题库</button></view>
+ <view class="cloud-card">
+  <view class="preview-title">开发者上传</view>
+  <view class="muted hint">搜题、录题和导出无需登录。仅获授权的开发者可以上传新题，上传后仍需审核。</view>
+  <view wx:if="{{!cloudConfigured}}" class="hint">云端上传尚未配置，仍可在本机录题和分享增量包。</view>
+  <button wx:if="{{!loggedIn}}" id="developer-login" bindtap="onLogin" disabled="{{busy || !cloudConfigured}}">开发者微信登录</button>
+  <block wx:else>
+   <view class="hint">已登录 · 可上传：{{authorizedNames || '暂无授权题库'}}</view>
+   <view wx:if="{{!authorizedBank}}" class="hint">当前题库没有上传权限，本地录题和导出仍可使用。</view>
+   <view wx:if="{{!uploadsEnabled}}" class="hint">云端暂未开放上传。</view>
+   <button id="developer-logout" bindtap="onLogout" disabled="{{busy}}">退出开发者登录</button>
+  </block>
+ </view>
  <view class="section-heading"><text>模型回复</text><button bindtap="onPaste" disabled="{{busy}}">从剪贴板粘贴</button></view>
  <textarea class="reply-input" value="{{text}}" bindinput="onInput" maxlength="250000" disabled="{{busy}}" placeholder="粘贴一道题的 JSON 或完整 json 代码块" auto-height/>
  <button class="primary" bindtap="onParse" disabled="{{busy || !text}}">解析并比对题库</button>
@@ -19,8 +31,11 @@
  </view>
  <view class="section-heading"><text>录入批次</text><button bindtap="onNewBatch" disabled="{{busy || !batchId}}">新一批</button></view>
  <picker range="{{batches}}" range-key="label" value="{{batchIndex}}" bindchange="onBatchChange" disabled="{{busy}}"><view class="select">{{batches[batchIndex].label}} ▾</view></picker>
- <view class="muted hint">新题 {{entries.length}} 道。上传标记只在本机记录，飞书上传尚未接通。</view>
- <view wx:for="{{entries}}" wx:key="id" class="entry"><text class="full-text" selectable>{{item.stem}}</text><view class="hint">答案：{{item.answer}} · {{item.statusLabel}}</view><button size="mini" bindtap="onMark" data-id="{{item.id}}" disabled="{{busy}}">{{item.uploadStatus === 'pending' ? '标记已上传' : '改回待上传'}}</button></view>
+ <view class="muted hint">新题 {{entries.length}} 道。收到云端回执后才会显示“已上传 · 待审核”；导出和分享不等于上传。</view>
+ <view wx:if="{{uploadStarted}}" class="muted hint">本批次已提交，继续录题会自动开启新批次。上传未确认时请重试此批次。</view>
+ <view wx:for="{{entries}}" wx:key="id" class="entry"><text class="full-text" selectable>{{item.stem}}</text><view class="hint">答案：{{item.answer}} · {{item.statusLabel}}</view></view>
+ <view wx:if="{{receiptId}}" class="receipt"><view>云端回执 · 待审核</view><text selectable>{{receiptId}}</text><view class="muted hint">接收时间：{{acceptedAt}}</view></view>
+ <button id="upload-batch" class="primary" bindtap="onUpload" disabled="{{busy || !entries.length || !cloudConfigured || receiptId || uploadBlocked}}">{{receiptId ? '本批次已上传' : uploadStarted ? '重试上传本批次' : loggedIn ? '上传本批次新题' : '登录后上传本批次'}}</button>
  <button class="primary" bindtap="onExport" disabled="{{busy || !entries.length}}">保存本批次增量包</button>
  <button wx:if="{{filePath}}" class="share" bindtap="onShare" disabled="{{busy}}">转发增量包给微信好友</button>
  <button bindtap="onImport" disabled="{{busy}}">从微信聊天导入增量包</button>

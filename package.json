@@ -14,10 +14,10 @@
     "build:windows:portable": "powershell -NoProfile -ExecutionPolicy Bypass -File windows/scripts/build-portable.ps1",
     "test:platforms": "node --test tests/platform-build.test.mjs",
     "test:ui": "node --test tests/search-presentation.test.mjs tests/ocr-client.test.mjs",
-    "prepare:miniprogram": "node scripts/sync-client-assets.mjs && node tools/mobile-index/build.mjs",
+    "prepare:miniprogram": "node scripts/sync-client-assets.mjs && node scripts/build-miniprogram-vendor.mjs && node tools/mobile-index/build.mjs",
     "serve:miniprogram": "node tools/mobile-index/server.mjs",
-    "check:miniprogram": "node scripts/sync-client-assets.mjs --check && node tools/mobile-index/build.mjs --check && tsc --noEmit -p miniprogram/tsconfig.json",
-    "test:miniprogram": "node --test tests/miniprogram.test.mjs",
+    "check:miniprogram": "node scripts/sync-client-assets.mjs --check && node scripts/build-miniprogram-vendor.mjs --check && node tools/mobile-index/build.mjs --check && tsc --noEmit -p miniprogram/tsconfig.json",
+    "test:miniprogram": "node --test tests/miniprogram.test.mjs tests/miniprogram-cloud.test.mjs",
     "feishu:prepare": "node tools/feishu/setup.mjs init",
     "feishu:check": "node tools/feishu/setup.mjs doctor",
     "feishu:plan": "node tools/feishu/setup.mjs plan",
@@ -41,6 +41,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@vitejs/plugin-react": "^5",
+    "fflate": "0.8.3",
     "typescript": "^5.9",
     "vite": "^7"
   }

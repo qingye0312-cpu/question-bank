@@ -1,4 +1,6 @@
 .intake-page{padding:28rpx 32rpx 72rpx;padding-bottom:calc(48rpx + env(safe-area-inset-bottom));}
+.intake-page .primary[disabled]{background:#d7e5db;color:#375945;opacity:1}
+.cloud-card,.receipt{margin:20rpx 0;padding:24rpx;border-radius:16rpx;background:#e7eeea;border:1rpx solid #c8d8cd}.receipt text{display:block;overflow-wrap:anywhere;font-size:22rpx;line-height:1.7}.cloud-card button{margin-bottom:0}
 .heading{font-size:38rpx;font-weight:650;display:flex;justify-content:space-between;align-items:baseline;margin-bottom:24rpx}.heading text{font-size:22rpx;font-weight:400}
 button{font-size:25rpx;border-radius:14rpx;margin:18rpx 0;line-height:1.6;padding:18rpx;background:#e7eeea;color:#285a42}button[disabled]{opacity:.5}
 .prompt-card{text-align:left;display:flex;flex-wrap:wrap;justify-content:space-between;background:white;border:1rpx solid #c8d8cd;gap:12rpx}.prompt-card text{color:#246b4b;font-weight:600}
