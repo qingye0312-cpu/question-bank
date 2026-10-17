@@ -5,7 +5,7 @@
         <view class="bank-summary">
           <view class="eyebrow">本地题库 · 文字搜题 <text class="app-version">v{{appVersion}}</text></view>
           <picker range="{{banks}}" range-key="name" value="{{bankIndex}}" bindchange="onBankChange" disabled="{{loading}}"><view class="title">{{bankName}} <text class="bank-switch-hint">切换 ▾</text></view></picker>
-          <view class="bank-meta muted">{{ready ? total + ' 道题 · ' + bankLabel : '正在准备本地题库，首次启动生成索引'}}</view>
+          <view class="bank-meta muted" bindtap="onSync">{{syncing ? '正在核对云端版本…' : syncNotice}}</view><view class="bank-meta muted">{{ready ? total + ' 道题 · ' + bankLabel : '正在准备本地题库，首次启动生成索引'}}</view>
         </view>
       </view>
     </view>
@@ -43,7 +43,7 @@
       <view style="height: {{before}}px"></view>
       <view wx:for="{{rows}}" wx:key="questionId" class="result-row" data-id="{{item.id}}" bindtap="onOpen">
         <view class="card" role="button" aria-label="查看题目 {{item.number}}">
-          <view class="row-meta"><text class="type">{{item.kind}}</text><text class="muted">{{item.number}}</text></view>
+          <view class="row-meta"><text wx:if="{{item.layer}}" class="type">{{item.layer}}</text><text class="type">{{item.kind}}</text><text class="muted">{{item.number}}</text></view>
           <view class="snippet"><text wx:for="{{item.segments}}" wx:for-item="part" wx:for-index="partIndex" wx:key="partIndex" class="{{part.color >= 0 ? 'match-' + part.color : ''}}">{{part.text}}</text></view>
           <view class="answer-line"><text class="muted">答案</text><text class="answer">{{item.answer}}</text><text class="chevron">›</text></view>
         </view>

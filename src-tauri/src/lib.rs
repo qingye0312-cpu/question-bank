@@ -1,8 +1,13 @@
+pub mod backup;
+pub mod cloud;
 pub mod db;
+mod desktop;
 pub mod exchange;
+pub mod import_jobs;
 pub mod intake;
 pub mod model;
 pub mod ocr;
+pub mod updater;
 use db::{Query, Results, Store};
 use model::*;
 use std::{
@@ -14,11 +19,87 @@ use tauri::{Manager, State};
 
 struct AppState {
     store: Store,
-    pending: Mutex<HashMap<String, exchange::Pending>>,
     writes: Arc<Mutex<()>>,
+    controls: Mutex<HashMap<String, Arc<import_jobs::Control>>>,
 }
 async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T> + Send + 'static) -> Result<T> {
     tauri::async_runtime::spawn_blocking(f).await.map_err(err)?
+}
+#[tauri::command]
+async fn backup_database(s: State<'_, AppState>, path: String, restore: bool) -> Result<usize> {
+    if restore {
+        for control in s.controls.lock().map_err(err)?.values() {
+            control.cancel();
+        }
+    }
+    let d = s.store.clone();
+    let lock = s.writes.clone();
+    blocking(move || {
+        let _g = lock.lock().map_err(err)?;
+        if restore {
+            backup::restore(&d, &PathBuf::from(path))
+        } else {
+            backup::save(&d, &PathBuf::from(path))
+        }
+    })
+    .await
+}
+#[tauri::command]
+async fn cloud_request(
+    origin: String,
+    path: String,
+    body: Option<serde_json::Value>,
+    token: Option<String>,
+) -> Result<serde_json::Value> {
+    blocking(move || cloud::request(&origin, &path, body, token)).await
+}
+#[tauri::command]
+async fn cloud_transfer(
+    s: State<'_, AppState>,
+    batch_id: String,
+    endpoint: String,
+) -> Result<serde_json::Value> {
+    let d = s.store.clone();
+    let lock = s.writes.clone();
+    blocking(move || {
+        let _g = lock.lock().map_err(err)?;
+        cloud::transfer(&d, &batch_id, &endpoint)
+    })
+    .await
+}
+#[tauri::command]
+async fn cloud_receipt(
+    s: State<'_, AppState>,
+    batch_id: String,
+    receipt: serde_json::Value,
+) -> Result<()> {
+    let d = s.store.clone();
+    let lock = s.writes.clone();
+    blocking(move || {
+        let _g = lock.lock().map_err(err)?;
+        cloud::acknowledge(&d, &batch_id, receipt)
+    })
+    .await
+}
+#[tauri::command]
+async fn cloud_versions(s: State<'_, AppState>) -> Result<Vec<serde_json::Value>> {
+    let d = s.store.clone();
+    blocking(move || cloud::versions(&d)).await
+}
+#[tauri::command]
+async fn cloud_apply(s: State<'_, AppState>, payload: String, sha256: String) -> Result<()> {
+    let d = s.store.clone();
+    let lock = s.writes.clone();
+    blocking(move || {
+        let _g = lock.lock().map_err(err)?;
+        cloud::apply(&d, &payload, &sha256)
+    })
+    .await
+}
+#[tauri::command]
+async fn bank_questions(s: State<'_, AppState>, bank_id: String) -> Result<Vec<Question>> {
+    let d = s.store.clone();
+    blocking(move || cloud::formal_questions(&d, &bank_id)).await
 }
 #[tauri::command]
 async fn banks(s: State<'_, AppState>) -> Result<Vec<Bank>> {
@@ -61,12 +142,13 @@ async fn intake_save(
     bank_id: String,
     batch_id: String,
     text: String,
+    metadata: Option<intake::Metadata>,
 ) -> Result<intake::Saved> {
     let d = s.store.clone();
     let lock = s.writes.clone();
     blocking(move || {
         let _g = lock.lock().map_err(err)?;
-        intake::save(&d, &bank_id, &batch_id, &text)
+        intake::save_with_metadata(&d, &bank_id, &batch_id, &text, metadata.unwrap_or_default())
     })
     .await
 }
@@ -172,36 +254,82 @@ async fn fork_bank(s: State<'_, AppState>, bank_id: String) -> Result<String> {
     .await
 }
 #[tauri::command]
+fn import_status(
+    s: State<'_, AppState>,
+    job_id: String,
+    cancel: bool,
+) -> Result<serde_json::Value> {
+    let controls = s.controls.lock().map_err(err)?;
+    if let Some(control) = controls.get(&job_id) {
+        if cancel {
+            control.cancel();
+        }
+        return Ok(control.status());
+    }
+    Ok(serde_json::Value::Null)
+}
+#[tauri::command]
+async fn import_jobs_list(s: State<'_, AppState>) -> Result<Vec<serde_json::Value>> {
+    let d = s.store.clone();
+    blocking(move || import_jobs::list(&d)).await
+}
+#[tauri::command]
+async fn import_runs(s: State<'_, AppState>, bank_id: String) -> Result<Vec<serde_json::Value>> {
+    let d = s.store.clone();
+    blocking(move || import_jobs::history(&d, &bank_id)).await
+}
+#[tauri::command]
+async fn import_undo(s: State<'_, AppState>, run_id: String) -> Result<usize> {
+    let d = s.store.clone();
+    let lock = s.writes.clone();
+    blocking(move || {
+        let _g = lock.lock().map_err(err)?;
+        import_jobs::undo(&d, &run_id)
+    })
+    .await
+}
+#[tauri::command]
 async fn import_preview(
     s: State<'_, AppState>,
     path: String,
     bank_id: String,
+    job_id: String,
 ) -> Result<exchange::Preview> {
-    let d = s.store.clone();
-    let p = blocking(move || exchange::preview(&d, &PathBuf::from(path), &bank_id)).await?;
-    let result = p.preview.clone();
-    let mut pending = s.pending.lock().map_err(err)?;
-    pending.clear();
-    pending.insert(result.token.clone(), p);
-    Ok(result)
-}
-#[tauri::command]
-async fn import_commit(s: State<'_, AppState>, token: String) -> Result<String> {
-    let p = s
-        .pending
+    let control = Arc::new(import_jobs::Control::default());
+    s.controls
         .lock()
         .map_err(err)?
-        .get(&token)
-        .cloned()
-        .ok_or("预览已过期，请重新导入")?;
+        .insert(job_id.clone(), control.clone());
     let d = s.store.clone();
     let lock = s.writes.clone();
     let result = blocking(move || {
+        let p = exchange::preview_controlled(&d, &PathBuf::from(path), &bank_id, &control)?;
         let _g = lock.lock().map_err(err)?;
-        exchange::commit(&d, &p)
+        control.step("保存预览", p.questions.len(), p.questions.len())?;
+        import_jobs::save(&d, &p)?;
+        Ok(p.preview)
     })
     .await;
-    s.pending.lock().map_err(err)?.remove(&token);
+    s.controls.lock().map_err(err)?.remove(&job_id);
+    result
+}
+#[tauri::command]
+async fn import_commit(s: State<'_, AppState>, token: String) -> Result<String> {
+    let control = Arc::new(import_jobs::Control::default());
+    s.controls
+        .lock()
+        .map_err(err)?
+        .insert(token.clone(), control.clone());
+    let d = s.store.clone();
+    let lock = s.writes.clone();
+    let job = token.clone();
+    let result = blocking(move || {
+        let _g = lock.lock().map_err(err)?;
+        let p = import_jobs::load(&d, &job)?;
+        exchange::commit_controlled(&d, &p, &control)
+    })
+    .await;
+    s.controls.lock().map_err(err)?.remove(&token);
     result
 }
 #[tauri::command]
@@ -210,12 +338,13 @@ async fn export_bank(
     bank_id: String,
     path: String,
     format: String,
+    filter: Option<Query>,
 ) -> Result<usize> {
     let d = s.store.clone();
     let lock = s.writes.clone();
     blocking(move || {
         let _g = lock.lock().map_err(err)?;
-        exchange::export(&d, &bank_id, &PathBuf::from(path), &format)
+        exchange::export_filtered(&d, &bank_id, &PathBuf::from(path), &format, filter)
     })
     .await
 }
@@ -249,8 +378,8 @@ async fn rebuild_index(s: State<'_, AppState>) -> Result<()> {
     .await
 }
 #[tauri::command]
-fn app_info(s: State<'_, AppState>) -> serde_json::Value {
-    serde_json::json!({"version":env!("CARGO_PKG_VERSION"),"database":s.store.path,"platform":std::env::consts::OS,"arch":std::env::consts::ARCH,"benchmark_enabled":if std::env::var("QBANK_BENCHMARK").as_deref()==Ok("1"){"true"}else{"false"}})
+fn app_info(app: tauri::AppHandle, s: State<'_, AppState>) -> serde_json::Value {
+    serde_json::json!({"version":env!("CARGO_PKG_VERSION"),"global_shortcut":app.state::<desktop::Features>().shortcut,"tray":app.state::<desktop::Features>().tray.to_string(),"database":s.store.path,"platform":std::env::consts::OS,"arch":std::env::consts::ARCH,"benchmark_enabled":if std::env::var("QBANK_BENCHMARK").as_deref()==Ok("1"){"true"}else{"false"}})
 }
 #[tauri::command]
 async fn save_benchmark(s: State<'_, AppState>, report: serde_json::Value) -> Result<String> {
@@ -280,8 +409,25 @@ async fn download_template(path: String, format: String) -> Result<()> {
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
+            desktop::focus(app)
+        }))
+        .on_window_event(|w, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if w.app_handle()
+                    .try_state::<desktop::Features>()
+                    .is_some_and(|f| f.tray)
+                {
+                    api.prevent_close();
+                    let _ = w.hide();
+                }
+            }
+        })
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
+            let features = desktop::install(app);
+            app.manage(features);
             let dir = std::env::var_os("QBANK_DATA_DIR")
                 .map(PathBuf::from)
                 .unwrap_or(app.path().app_data_dir()?);
@@ -290,12 +436,21 @@ pub fn run() {
             store.seed().map_err(std::io::Error::other)?;
             app.manage(AppState {
                 store,
-                pending: Mutex::new(HashMap::new()),
+                controls: Mutex::new(HashMap::new()),
                 writes: Arc::new(Mutex::new(())),
             });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            updater::software_update_check,
+            updater::software_update_install,
+            backup_database,
+            cloud_request,
+            cloud_transfer,
+            cloud_receipt,
+            cloud_versions,
+            cloud_apply,
+            bank_questions,
             banks,
             search,
             ocr_image_file,
@@ -316,6 +471,10 @@ pub fn run() {
             save_question,
             delete_question,
             fork_bank,
+            import_status,
+            import_jobs_list,
+            import_runs,
+            import_undo,
             import_preview,
             import_commit,
             export_bank,

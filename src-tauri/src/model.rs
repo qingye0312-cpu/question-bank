@@ -78,6 +78,7 @@ pub struct Question {
     #[serde(default)]
     pub attachments: Vec<Value>,
     #[serde(default)]
+    #[serde(skip_serializing_if = "Value::is_null")]
     pub extensions: Value,
 }
 impl Question {

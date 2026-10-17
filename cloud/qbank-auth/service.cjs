@@ -36,7 +36,12 @@ function loadConfig(env) {
   const origins = envJSON(env, 'QBANK_ALLOWED_ORIGINS', '[]');
   if (!Array.isArray(origins) || origins.some(o => typeof o !== 'string'
     || !/^(https?:\/\/[^/\s]+|tauri:\/\/localhost)$/.test(o))) fail(503, 'CONFIG_INVALID', '跨域配置无效');
-  return { banks, developers, origins, appId: env.WX_APP_ID || '', appSecret: env.WX_APP_SECRET || '',
+  const maintainers = envJSON(env, 'QBANK_MAINTAINERS', '[]');
+  if (!Array.isArray(maintainers) || maintainers.length > 100 || maintainers.some(m => !exact(m,['id','key_sha256','grants'])
+    || !/^[A-Za-z0-9_-]{10,64}$/.test(m.id) || !HASH.test(m.key_sha256) || !object(m.grants)
+    || Object.entries(m.grants).some(([id,roles]) => !ids.has(id) || !Array.isArray(roles) || !roles.length || roles.some(r=>!['upload','review','publish'].includes(r))))
+    || new Set(maintainers.map(m=>m.id)).size!==maintainers.length) fail(503,'CONFIG_INVALID','桌面维护者配置无效');
+  return { banks, developers, origins, maintainers, syncEnabled: env.QBANK_SYNC_ENABLED === 'true', appId: env.WX_APP_ID || '', appSecret: env.WX_APP_SECRET || '',
     sessionSecret: env.QBANK_SESSION_SECRET || '', authVersion: env.QBANK_AUTH_VERSION || '1',
     uploadsEnabled: env.QBANK_UPLOAD_ENABLED === 'true' };
 }
@@ -73,15 +78,20 @@ function verify(token, config, now) {
   let payload;
   try { payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')); }
   catch { fail(401, 'SESSION_INVALID', '登录已失效，请重新登录'); }
-  if (!object(payload) || !OPENID.test(payload.sub) || payload.aud !== 'qbank-upload-v1'
+  if (!object(payload) || !OPENID.test(payload.sub) || !['qbank-upload-v1','qbank-desktop-v1'].includes(payload.aud)
     || payload.app_id !== config.appId || payload.auth_version !== config.authVersion
     || !Number.isSafeInteger(payload.exp) || !Number.isSafeInteger(payload.iat)
     || payload.exp <= now || payload.iat > now + 30 || payload.exp - payload.iat !== LIMITS.sessionSeconds)
     fail(401, 'SESSION_EXPIRED', '登录已失效，请重新登录');
+  if(payload.aud === 'qbank-desktop-v1') {
+    const maintainer=config.maintainers.find(m=>`d_${m.id}`===payload.sub && m.key_sha256===payload.key_version);
+    if(!maintainer)fail(403,'MAINTAINER_REVOKED','维护者授权已撤销，请联系管理员');
+    return {openid:payload.sub,banks:Object.keys(maintainer.grants),grants:maintainer.grants,desktop:true};
+  }
   // Permissions are re-read on every request. The token never carries trusted roles.
   const banks = Object.hasOwn(config.developers, payload.sub) ? config.developers[payload.sub] : [];
   if (!banks.length) fail(403, 'DEVELOPER_NOT_ALLOWED', '此微信用户尚未获得上传授权');
-  return { openid: payload.sub, banks };
+  return { openid: payload.sub, banks, grants:Object.fromEntries(banks.map(id=>[id,['upload']])),desktop:false };
 }
 function strictBase64(text, maxBytes) {
   if (typeof text !== 'string' || !text.length || text.length > Math.ceil(maxBytes / 3) * 4
@@ -149,7 +159,8 @@ function receipt(record) {
     status: record.status, accepted_at: record.accepted_at };
 }
 
-function createHandler({ env = () => process.env, store, exchangeCode, parseDelta, parseModelReply, clock = Date.now }) {
+function createHandler({ env = () => process.env, store, exchangeCode, parseDelta, parseModelReply, validateStandardQuestion, clock = Date.now }) {
+  const workflow = require('./workflow.cjs').createWorkflow({store,validateStandardQuestion,clock});
   const rate = new Map();
   function throttle(key, maximum) {
     const minute = Math.floor(clock() / 60000);
@@ -180,14 +191,28 @@ function createHandler({ env = () => process.env, store, exchangeCode, parseDelt
       if (method === 'GET' && path === '/health') return respond(200, {
         service: 'qbank-auth', version: VERSION, auth_configured: authConfigured(config),
         auth_checks: authChecks(config),
-        uploads_enabled: config.uploadsEnabled, limits: LIMITS,
+        uploads_enabled: config.uploadsEnabled, sync_enabled: config.syncEnabled, limits: LIMITS,
       });
-      if (!['POST /v1/auth/wechat', 'GET /v1/me', 'POST /v1/uploads'].includes(`${method} ${path}`))
+      const publicResult = await workflow.read(method,path,config);
+      if(publicResult !== undefined)return respond(200,publicResult);
+      const workflowRoute = /^\/v1\/banks\/[0-9a-f-]{36}\/(review|publish|seed|candidates)$/.test(path||'');
+      if (!workflowRoute && !['POST /v1/auth/desktop', 'POST /v1/auth/wechat', 'GET /v1/me', 'POST /v1/uploads'].includes(`${method} ${path}`))
         fail(404, 'NOT_FOUND', '接口不存在');
       requireAuthConfig(config);
       const now = Math.floor(clock() / 1000);
       if (method === 'POST' && headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json')
         fail(415, 'JSON_REQUIRED', '请使用 application/json');
+      if (path === '/v1/auth/desktop') {
+        throttle('login:all',100);throttle(`desktop:${String(headers['x-scf-remote-addr']||'unknown').slice(0,100)}`,10);
+        const body=jsonBody(event,1024);
+        if(!exact(body,['key']) || typeof body.key!=='string' || !HASH.test(body.key))fail(401,'KEY_INVALID','维护密钥无效');
+        const digest=Buffer.from(sha256(body.key),'hex');
+        const maintainer=config.maintainers.find(m=>timingSafeEqual(Buffer.from(m.key_sha256,'hex'),digest));
+        if(!maintainer)fail(401,'KEY_INVALID','维护密钥无效或已撤销');
+        return respond(200,{access_token:sign({sub:`d_${maintainer.id}`,aud:'qbank-desktop-v1',app_id:config.appId,
+          auth_version:config.authVersion,key_version:maintainer.key_sha256,iat:now,exp:now+LIMITS.sessionSeconds},config),
+          expires_in:LIMITS.sessionSeconds,banks:config.banks.filter(b=>Object.hasOwn(maintainer.grants,b.bank_id)),grants:maintainer.grants});
+      }
       if (path === '/v1/auth/wechat') {
         throttle('login:all', 100);
         throttle(`login:${String(headers['x-scf-remote-addr'] || 'unknown').slice(0, 100)}`, 10);
@@ -207,11 +232,12 @@ function createHandler({ env = () => process.env, store, exchangeCode, parseDelt
       const auth = verify(typeof headers.authorization === 'string' && headers.authorization.startsWith('Bearer ')
         ? headers.authorization.slice(7) : null, config, now);
       if (path === '/v1/me') return respond(200, { openid: auth.openid, banks: config.banks.filter(b => auth.banks.includes(b.bank_id)),
-        permissions: ['upload'], uploads_enabled: config.uploadsEnabled });
+        permissions: [...new Set(Object.values(auth.grants).flat())], grants:auth.grants, uploads_enabled: config.uploadsEnabled });
+      if(workflowRoute)return respond(200,await workflow.write(method,path,method==='POST'?jsonBody(event,LIMITS.expandedBytes):undefined,config,auth));
       if (!config.uploadsEnabled) fail(503, 'UPLOAD_DISABLED', '上传服务尚未启用，本地题目仍然保留');
       throttle(`upload:${auth.openid}`, 20);
       const { delta, envelope } = decodeUpload(jsonBody(event, LIMITS.requestBytes), parseDelta, parseModelReply);
-      if (!auth.banks.includes(delta.bank_id)) fail(403, 'BANK_FORBIDDEN', '没有此题库的上传权限');
+      if (!auth.grants[delta.bank_id]?.includes('upload')) fail(403, 'BANK_FORBIDDEN', '没有此题库的上传权限');
       if (config.banks.find(b => b.bank_id === delta.bank_id)?.name !== delta.name)
         fail(422, 'BANK_NAME_MISMATCH', '题库名称与云端目录不一致，请先同步题库信息');
       const key = `inbox/${delta.bank_id}/${delta.batch_id}.json`;
@@ -226,6 +252,7 @@ function createHandler({ env = () => process.env, store, exchangeCode, parseDelt
         fail(502, 'STORAGE_UNAVAILABLE', '云端记录无效，请联系维护者');
       if (accepted.record.sha256 !== record.sha256 || accepted.record.bank_id !== delta.bank_id || accepted.record.batch_id !== delta.batch_id)
         fail(409, 'BATCH_CONFLICT', '此批次已提交不同内容，请使用新批次提交修改');
+      if(config.syncEnabled)await workflow.register(config,accepted.record,delta);
       return respond(accepted.created ? 201 : 200, { receipt: receipt(accepted.record), duplicate: !accepted.created });
     } catch (error) {
       if (error instanceof HttpError) return respond(error.status, { error: { code: error.code, message: error.message,

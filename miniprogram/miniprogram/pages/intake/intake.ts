@@ -1,4 +1,6 @@
-import {activeBankId,listBanks,selectBank,createBank,loadBank} from '../../services/bank';
+import {activeBankId,listBanks,selectBank,createBank,loadBank,invalidateBank} from '../../services/bank';
+import {cachedSnapshot,syncBank} from '../../services/sync';
+import {reviewStates} from '../../core/sync';
 import {readLocal,updateLocal} from '../../services/intake-store';
 import {compareReply,saveReply,exportBatch,importDelta} from '../../services/intake';
 import {cloud} from '../../services/cloud';
@@ -6,7 +8,7 @@ import {uploadBatch} from '../../services/cloud-intake';
 import {copyPrompt} from '../../services/prompt';
 import {APP_VERSION} from '../../generated/client-assets';
 import {answerText} from '../../core/search';
-import type {ModelReply} from '../../core/intake';
+import {parseModelReply,reorderOptions,changeQuestionType,editedReplyText,intakeMetadata,type ModelReply} from '../../core/intake';
 type BatchRow={id:string;label:string};
 type EntryRow={id:string;stem:string;answer:string;uploadStatus:string;statusLabel:string};
 type ShareAPI={shareFileMessage?:(o:{filePath:string;fileName:string;success:()=>void;fail:(e:{errMsg:string})=>void})=>void};
@@ -15,11 +17,11 @@ function localTime(value:string){const d=new Date(value);if(!Number.isFinite(d.g
 Page({
  data:{appVersion:APP_VERSION,banks:[] as {id:string;name:string}[],bankIndex:0,bankId:'',text:'',
   batches:[{id:'',label:'本次新批次'}] as BatchRow[],batchIndex:0,batchId:'',entries:[] as EntryRow[],
-  reply:null as ModelReply|null,status:'',answer:'',existingAnswers:[] as string[],busy:false,error:'',notice:'',filePath:'',fileName:'',
+  metadata:intakeMetadata(),tagsText:'',difficulties:['未设置','简单','中等','困难'],difficultyIndex:0,boolSelected:false,original:'',types:['单选','多选','判断'],typeIndex:0,versionSources:['平台提供','用户提供','未知'],sourceIndex:0,editOptions:[] as {key:string;content:string;correct:boolean}[],warningsText:'',reply:null as ModelReply|null,status:'',answer:'',existingAnswers:[] as string[],busy:false,error:'',notice:'',filePath:'',fileName:'',
   cloudConfigured:false,loggedIn:false,authorizedBank:false,uploadsEnabled:false,uploadBlocked:false,authorizedNames:'',uploadStarted:false,receiptId:'',acceptedAt:''},
  alive:true,locked:false,
  async onLoad(params:Record<string,string|undefined>){this.setData({bankId:params.bank||activeBankId()});await this.run(()=>this.refresh());},
- onShow(){this.refreshAuth()},
+ onShow(){this.refreshAuth();if(this.data.banks.length)void this.run(()=>this.refresh());},
  onUnload(){this.alive=false},
  async run(action:()=>Promise<void>){
   if(this.locked)return;this.locked=true;this.setData({busy:true,error:'',notice:''});
@@ -32,8 +34,11 @@ Page({
   const batches=[{id:'',label:'本次新批次'},...data.batches.filter(b=>b.bankId===bankId).slice().reverse().map(b=>({id:b.id,label:`${localTime(b.createdAt)} · ${data.entries.filter(e=>e.batchId===b.id).length} 题`}))];
   const batchId=batches.some(b=>b.id===this.data.batchId)?this.data.batchId:'';
   const upload=data.batches.find(b=>b.id===batchId)?.upload;
+  const reviews=reviewStates((await cachedSnapshot(bankId))?.snapshot||null);if(!this.alive)return;
   const entries=data.entries.filter(e=>e.bankId===bankId&&e.batchId===batchId).map(e=>({id:e.question.question_id,stem:e.question.stem,answer:answerText(e.question),uploadStatus:e.uploadStatus,
-   statusLabel:(e.uploadStatus==='uploaded'&&upload?.receipt?'已上传 · 待审核':e.uploadStatus==='uploaded_manual'?'历史手动标记 · 云端未确认':upload?'上传待确认，可重试':'待上传')+(e.exportedAt?' · 已导出':'')+(e.sharedAt?' · 已调用转发':'')}));
+   statusLabel:(e.uploadStatus==='uploaded'&&upload?.receipt?'已上传':e.uploadStatus==='uploaded_manual'?'历史手动标记 · 云端未确认':upload?'上传待确认，可重试':'待上传')+
+    (reviews.get(e.question.question_id)==='merged'?' · 云端已合并':reviews.get(e.question.question_id)==='rejected'?' · 云端已驳回':reviews.get(e.question.question_id)==='pending'?' · 待审核':e.uploadStatus==='uploaded'?' · 审核状态未同步':'')+
+    (e.exportedAt?' · 已导出':'')+(e.sharedAt?' · 已调用转发':'')}));
   this.setData({banks,bankId,bankIndex:banks.findIndex(b=>b.id===bankId),batches,batchId,batchIndex:batches.findIndex(b=>b.id===batchId),entries,
    uploadStarted:!!upload,receiptId:upload?.receipt?.submission_id||'',acceptedAt:upload?.receipt?localTime(upload.receipt.accepted_at):''});this.refreshAuth();
  },
@@ -43,12 +48,36 @@ Page({
  onLogin(){void this.run(async()=>{await cloud.login();if(this.alive)this.setData({notice:'开发者身份已验证，可上传获授权题库的新题。'});})},
  onLogout(){if(this.data.busy)return;cloud.logout();this.refreshAuth();this.setData({notice:'已退出开发者登录，本地题目和云端回执仍保留。'});},
  onUpload(){const bankId=this.data.bankId,batchId=this.data.batchId;void this.run(async()=>{
-  try{const result=await uploadBatch(bankId,batchId);if(this.alive)this.setData({notice:result.duplicate?'云端已保存此批次，原回执已确认。题目等待审核。':'本批次已上传并取得回执，题目等待审核。'});}
+  try{const result=await uploadBatch(bankId,batchId);if(this.alive)this.setData({notice:result.duplicate?'云端已保存此批次，原回执已确认，可更新审核状态。':'本批次已上传并取得回执，可更新审核状态。'});}
   finally{await this.refresh();}
  });},
  onCopyPrompt(){copyPrompt()},
+ onSyncReview(){void this.run(async()=>{const id=this.data.bankId;await syncBank(id);invalidateBank(id);await this.refresh();if(this.alive)this.setData({notice:'审核状态已按最新云快照核对，原上传回执保留。'});});},
  onInput(event:WechatMiniprogram.Input){this.setData({text:event.detail.value,reply:null,status:'',notice:''})},
- onPaste(){if(this.data.busy)return;wx.getClipboardData({success:r=>{if(this.alive)this.setData({text:r.data,reply:null,status:'',notice:''})},fail:()=>this.setData({error:'无法读取剪贴板，请长按输入框粘贴'})})},
+ onPaste(){if(this.data.busy)return;wx.getClipboardData({success:r=>{if(this.alive){this.setData({text:r.data,reply:null,status:'',notice:''});this.onParse();}},fail:()=>this.setData({error:'无法读取剪贴板，请长按输入框粘贴'})})},
+ setDraft(reply:ModelReply,changed=true){this.setData({reply,boolSelected:typeof reply.answer==='boolean',typeIndex:['single','multiple','true_false'].indexOf(reply.type),sourceIndex:['platform','user','unknown'].indexOf(reply.model.version_source),
+  editOptions:reply.options.map(o=>({...o,correct:Array.isArray(reply.answer)&&reply.answer.includes(o.key)})),warningsText:reply.warnings.join('\n'),
+  ...(changed?{text:editedReplyText(reply,this.data.original),status:'',existingAnswers:[],notice:'内容已修改，保存时将重新校验并比对。'}:{})});},
+ onMetadata(e:WechatMiniprogram.Input){if(this.data.busy)return;const field=e.currentTarget.dataset.field,value=e.detail.value;
+  if(field==='tags')this.setData({tagsText:value,metadata:{...this.data.metadata,tags:value.split('|')}});
+  else if(['chapter','applicable_version','external_id'].includes(field))this.setData({metadata:{...this.data.metadata,[field]:value}});
+ },
+ onDifficulty(e:WechatMiniprogram.PickerChange){const i=Number(e.detail.value);this.setData({difficultyIndex:i,metadata:{...this.data.metadata,difficulty:(['','easy','medium','hard'] as const)[i]}});},
+ onField(e:WechatMiniprogram.Input){const r=this.data.reply;if(!r||this.data.busy)return;const field=e.currentTarget.dataset.field,value=e.detail.value;
+  if(field==='stem'||field==='explanation')this.setDraft({...r,[field]:value});
+  else if(field==='name'||field==='version')this.setDraft({...r,model:{...r.model,[field]:value}});
+  else if(field==='warnings')this.setDraft({...r,warnings:value.split('\n').filter(Boolean)});
+  else if(field==='option'){const options=r.options.map((o,i)=>i===Number(e.currentTarget.dataset.index)?{...o,content:value}:o);this.setDraft({...r,options});}
+ },
+ onType(e:WechatMiniprogram.PickerChange){if(this.data.reply)this.setDraft(changeQuestionType(this.data.reply,(['single','multiple','true_false'] as const)[Number(e.detail.value)]));},
+ onVersionSource(e:WechatMiniprogram.PickerChange){const r=this.data.reply;if(r)this.setDraft({...r,model:{...r.model,version_source:(['platform','user','unknown'] as const)[Number(e.detail.value)]}});},
+ onAnswer(e:WechatMiniprogram.CheckboxGroupChange){const r=this.data.reply;if(r){let answer=e.detail.value;if(r.type==='single')answer=answer.slice(-1);this.setDraft({...r,answer});}},
+ onBool(e:WechatMiniprogram.PickerChange){if(this.data.reply)this.setDraft({...this.data.reply,answer:Number(e.detail.value)===0});},
+ onOption(e:WechatMiniprogram.TouchEvent){const r=this.data.reply;if(!r||this.data.busy)return;const i=Number(e.currentTarget.dataset.index),action=e.currentTarget.dataset.action;
+  if(action==='add'){if(r.options.length<8)this.setDraft({...r,options:[...r.options,{key:'ABCDEFGH'[r.options.length],content:''}]});return;}
+  const order=r.options.map((_,n)=>n);if(action==='remove')order.splice(i,1);else {const j=i+(action==='up'?-1:1);if(j<0||j>=order.length)return;[order[i],order[j]]=[order[j],order[i]];}
+  this.setDraft(reorderOptions(r,order));
+ },
  onBankChange(event:WechatMiniprogram.PickerChange){
   if(this.data.busy)return;const bank=this.data.banks[Number(event.detail.value)];if(!bank)return;
   this.setData({bankId:bank.id,batchId:'',reply:null,status:'',filePath:'',fileName:''});selectBank(bank.id);void this.run(()=>this.refresh());
@@ -64,18 +93,19 @@ Page({
  },
  onNewBatch(){if(this.data.busy)return;this.setData({batchId:'',filePath:'',fileName:''});void this.run(()=>this.refresh())},
  onParse(){void this.run(async()=>{
+  const parsed=parseModelReply(this.data.text);this.setData({original:this.data.text});this.setDraft(parsed,false);
   const result=await compareReply(this.data.bankId,this.data.text);if(!this.alive)return;
   this.setData({reply:result.reply,status:result.status,answer:Array.isArray(result.reply.answer)?result.reply.answer.join(' · '):result.reply.answer?'正确':'错误',
    existingAnswers:result.matches.map(q=>`${answerText(q)}${q.options.length?'（'+q.options.map(o=>o.key+'. '+o.content).join('；')+'）':''}`),notice:''});
  })},
  onSave(){void this.run(async()=>{
-  const result=await saveReply(this.data.bankId,this.data.batchId,this.data.text);if(!this.alive)return;
-  if(result.added)this.setData({batchId:result.batchId,text:'',reply:null,status:'',filePath:'',fileName:'',notice:(this.data.batchId&&result.batchId!==this.data.batchId?'原批次已导出、提交或达到 100 题，已开启新批次。':'')+'已保存新题，可继续粘贴下一道题。上传状态：待上传。'});
+  const result=await saveReply(this.data.bankId,this.data.batchId,this.data.text,this.data.metadata);if(!this.alive)return;
+  if(result.added)this.setData({metadata:{...this.data.metadata,external_id:''},batchId:result.batchId,text:'',reply:null,status:'',filePath:'',fileName:'',notice:(this.data.batchId&&result.batchId!==this.data.batchId?'原批次已导出、提交或达到 100 题，已开启新批次。':'')+'已保存新题，可继续粘贴下一道题。上传状态：待上传。'});
   else this.setData({reply:null,status:'',notice:'题库已有此题，没有重复录入。请重新比对查看。'});
   await this.refresh();
  })},
  onExport(){void this.run(async()=>{
-  const file=await exportBatch(this.data.batchId);if(!this.alive)return;
+  const file=await exportBatch(this.data.batchId,true);if(!this.alive)return;
   this.setData({...file,notice:'增量包已保存。点击下方按钮转发给微信好友；桌面端可直接拖入导入。'});await this.refresh();
  })},
  onShare(){
@@ -96,7 +126,7 @@ Page({
   wx.chooseMessageFile({count:1,type:'file',extension:['json'],success:r=>{
    const f=r.tempFiles[0];if(!f)return;
    void this.run(async()=>{
-    if(!f.name.toLowerCase().endsWith('.json'))throw new Error('请选择 .qbank-delta.json 增量题库包');
+    if(!f.name.toLowerCase().endsWith('.json'))throw new Error('请选择 .qbank-delta.json 或 .qbank-upload.json 增量题库包');
     if(f.size>32*1024*1024)throw new Error('增量包超过 32 MB，请拆分后导入');
     const text=await new Promise<string>((resolve,reject)=>wx.getFileSystemManager().readFile({filePath:f.path,encoding:'utf8',success:x=>resolve(x.data as string),fail:reject}));
     const result=await importDelta(text);selectBank(result.bankId);await loadBank(result.bankId);

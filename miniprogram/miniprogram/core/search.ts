@@ -115,6 +115,7 @@ export class LocalBank {
     }
     return q;
   }
+  fork(): LocalBank {return new LocalBank(this.lines.slice(),{...this.index,postings:{...this.index.postings}});}
   cancel(): void { this.generation++; }
   get count(): number { return this.lines.length; }
   append(questions: Question[]): void {

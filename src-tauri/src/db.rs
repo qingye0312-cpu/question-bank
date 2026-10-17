@@ -13,6 +13,7 @@ pub struct Store {
 #[derive(Serialize)]
 pub struct Hit {
     pub rowid: i64,
+    pub layer: String,
     pub bank_id: String,
     pub bank_name: String,
     pub question: Question,
@@ -29,6 +30,18 @@ pub struct Query {
     pub status: String,
     #[serde(default)]
     pub after_rowid: i64,
+    #[serde(default)]
+    pub chapter: String,
+    #[serde(default)]
+    pub tag: String,
+    #[serde(default)]
+    pub difficulty: String,
+    #[serde(default)]
+    pub applicable_version: String,
+    #[serde(default)]
+    pub layer: String,
+    #[serde(default)]
+    pub sort: String,
     #[serde(default)]
     pub trash: bool,
 }
@@ -51,8 +64,11 @@ impl Store {
             .conn()?
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .map_err(err)?;
-        if version > 3 {
+        if version > 4 {
             return Err("数据库来自更高版本的程序，请更新程序后打开".into());
+        }
+        if version > 0 && version < 4 {
+            crate::backup::automatic(&s, "migration")?;
         }
         s.conn()?.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;
           CREATE TABLE IF NOT EXISTS banks(id TEXT PRIMARY KEY,name TEXT NOT NULL,read_only INTEGER NOT NULL,version INTEGER NOT NULL,updated_at TEXT NOT NULL,content_hash TEXT NOT NULL DEFAULT '',provenance TEXT NOT NULL DEFAULT '');
@@ -81,6 +97,11 @@ impl Store {
             tx.commit().map_err(err)?;
         }
         crate::intake::initialize(&s.conn()?)?;
+        crate::cloud::initialize(&s.conn()?)?;
+        crate::import_jobs::initialize(&s.conn()?)?;
+        s.conn()?
+            .execute_batch("PRAGMA user_version=4;")
+            .map_err(err)?;
         Ok(s)
     }
     pub fn conn(&self) -> Result<Connection> {
@@ -153,8 +174,10 @@ impl Store {
         questions(&self.conn()?, id)
     }
     pub fn search(&self, q: &Query) -> Result<Results> {
+        self.search_conn(&self.conn()?, q)
+    }
+    pub fn search_conn(&self, c: &Connection, q: &Query) -> Result<Results> {
         let started = Instant::now();
-        let c = self.conn()?;
         let terms = query_terms(&normalize(&q.text));
         if terms.len() > 12 || q.text.chars().count() > 300 {
             return Err("搜索词过长，请缩短到 300 字、12 个词以内".into());
@@ -232,9 +255,9 @@ impl Store {
         let mut values: Vec<rusqlite::types::Value> = Vec::new();
         let mut sql = if let Some((table, expr)) = groups.first() {
             values.push(expr.clone().into());
-            format!("SELECT q.rowid,q.bank_id,b.name,q.data FROM {table} CROSS JOIN questions q ON q.rowid={table}.rowid JOIN banks b ON b.id=q.bank_id WHERE {table} MATCH ? AND q.deleted=?")
+            format!("SELECT q.rowid,q.bank_id,b.name,q.data,COALESCE((SELECT layer FROM question_layers l WHERE l.bank_id=q.bank_id AND l.question_id=q.id),(SELECT 'draft' FROM intake_entries e WHERE e.bank_id=q.bank_id AND e.question_id=q.id),'formal') FROM {table} CROSS JOIN questions q ON q.rowid={table}.rowid JOIN banks b ON b.id=q.bank_id WHERE {table} MATCH ? AND q.deleted=?")
         } else {
-            "SELECT q.rowid,q.bank_id,b.name,q.data FROM questions q JOIN banks b ON b.id=q.bank_id WHERE q.deleted=?".into()
+            "SELECT q.rowid,q.bank_id,b.name,q.data,COALESCE((SELECT layer FROM question_layers l WHERE l.bank_id=q.bank_id AND l.question_id=q.id),(SELECT 'draft' FROM intake_entries e WHERE e.bank_id=q.bank_id AND e.question_id=q.id),'formal') FROM questions q JOIN banks b ON b.id=q.bank_id WHERE q.deleted=?".into()
         };
         values.push((q.trash as i64).into());
         for (col, val) in [
@@ -247,6 +270,24 @@ impl Store {
                 values.push(val.clone().into());
             }
         }
+        for (field, value) in [
+            ("chapter", &q.chapter),
+            ("difficulty", &q.difficulty),
+            ("applicable_version", &q.applicable_version),
+        ] {
+            if !value.is_empty() {
+                sql.push_str(&format!(" AND json_extract(q.data,'$.{field}')=?"));
+                values.push(value.clone().into());
+            }
+        }
+        if !q.tag.is_empty() {
+            sql.push_str(" AND EXISTS(SELECT 1 FROM json_each(q.data,'$.tags') WHERE value=?)");
+            values.push(q.tag.clone().into());
+        }
+        if !q.layer.is_empty() {
+            sql.push_str(" AND COALESCE((SELECT layer FROM question_layers l WHERE l.bank_id=q.bank_id AND l.question_id=q.id),(SELECT 'draft' FROM intake_entries e WHERE e.bank_id=q.bank_id AND e.question_id=q.id),'formal')=?");
+            values.push(q.layer.clone().into());
+        }
         for (table, expr) in groups.iter().skip(1) {
             sql.push_str(&format!(" AND EXISTS(SELECT 1 FROM {table} WHERE {table}.rowid=q.rowid AND {table} MATCH ?)"));
             values.push(expr.clone().into());
@@ -256,10 +297,16 @@ impl Store {
             .map(|(t, _)| format!("{t}.rowid"))
             .unwrap_or("q.rowid".into());
         if q.after_rowid > 0 {
-            sql.push_str(&format!(" AND {order}>?"));
+            sql.push_str(&format!(
+                " AND {order}{}?",
+                if q.sort == "newest" { "<" } else { ">" }
+            ));
             values.push(q.after_rowid.into());
         }
-        sql.push_str(&format!(" ORDER BY {order} LIMIT 51"));
+        sql.push_str(&format!(
+            " ORDER BY {order} {} LIMIT 51",
+            if q.sort == "newest" { "DESC" } else { "ASC" }
+        ));
         let mut st = c.prepare(&sql).map_err(err)?;
         let rows = st
             .query_map(rusqlite::params_from_iter(values), |r| {
@@ -268,16 +315,18 @@ impl Store {
                     r.get::<_, String>(1)?,
                     r.get::<_, String>(2)?,
                     r.get::<_, String>(3)?,
+                    r.get::<_, String>(4)?,
                 ))
             })
             .map_err(err)?;
         let mut items = Vec::new();
         for r in rows {
-            let (rowid, bank_id, bank_name, data) = r.map_err(err)?;
+            let (rowid, bank_id, bank_name, data, layer) = r.map_err(err)?;
             items.push(Hit {
                 rowid,
                 bank_id,
                 bank_name,
+                layer,
                 question: serde_json::from_str(&data).map_err(err)?,
             });
         }
@@ -299,6 +348,10 @@ impl Store {
         q.bank = bank.name;
         let mut c = self.conn()?;
         let tx = c.transaction().map_err(err)?;
+        let frozen:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM intake_entries e JOIN intake_transfers t ON t.batch_id=e.batch_id WHERE e.bank_id=?1 AND e.question_id=?2)",params![bank_id,q.question_id],|r|r.get(0)).map_err(err)?;
+        if frozen {
+            return Err("本题所在批次已导出或提交，请通过新的录题批次提交修改".into());
+        }
         let old: Option<(i64, String)> = tx
             .query_row(
                 "SELECT rowid,data FROM questions WHERE bank_id=?1 AND id=?2 AND deleted=0",
@@ -330,6 +383,15 @@ impl Store {
         } else {
             insert(&tx, bank_id, &q)?;
         }
+        tx.execute(
+            "UPDATE intake_originals SET data=?1 WHERE bank_id=?2 AND question_id=?3",
+            params![
+                serde_json::to_string(&q).map_err(err)?,
+                bank_id,
+                q.question_id
+            ],
+        )
+        .map_err(err)?;
         touch(&tx, bank_id)?;
         tx.commit().map_err(err)?;
         Ok(q.question_id)
@@ -342,6 +404,15 @@ impl Store {
             return Err("发布题库只读，请先建立可编辑副本".into());
         }
         let q: Question = serde_json::from_str(&data).map_err(err)?;
+        let frozen:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM intake_entries e JOIN intake_transfers t ON t.batch_id=e.batch_id WHERE e.bank_id=?1 AND e.question_id=?2)",params![bank_id,q.question_id],|r|r.get(0)).map_err(err)?;
+        if frozen {
+            return Err("本题所在批次已导出或提交，保留原题以便重试和核对回执".into());
+        }
+        tx.execute(
+            "UPDATE intake_originals SET deleted=?1 WHERE bank_id=?2 AND question_id=?3",
+            params![!restore, bank_id, q.question_id],
+        )
+        .map_err(err)?;
         record(
             &tx,
             &bank_id,
@@ -402,6 +473,16 @@ impl Store {
     pub fn rollback(&self, id: &str) -> Result<()> {
         let mut c = self.conn()?;
         let tx = c.transaction().map_err(err)?;
+        if tx
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM cloud_snapshots WHERE bank_id=?1)",
+                [id],
+                |r| r.get::<_, bool>(0),
+            )
+            .map_err(err)?
+        {
+            return Err("云端题库请通过审核发布维护；本机回退会破坏同步修订，已阻止".into());
+        }
         let (b, d, expected): (String, String, i64) = tx
             .query_row(
                 "SELECT bank,questions,expected_version FROM snapshots WHERE bank_id=?1",

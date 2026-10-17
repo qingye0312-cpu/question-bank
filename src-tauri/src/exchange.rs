@@ -57,7 +57,7 @@ pub struct PackageFile {
     pub sha256: String,
     pub size: u64,
 }
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Preview {
     pub token: String,
     pub filename: String,
@@ -73,7 +73,7 @@ pub struct Preview {
     pub changed: usize,
     pub removed: usize,
 }
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Pending {
     pub preview: Preview,
     pub questions: Vec<Question>,
@@ -270,7 +270,17 @@ fn read_package(bytes: &[u8], errors: &mut Vec<String>) -> Result<(Manifest, Vec
 }
 
 pub fn preview(store: &Store, path: &Path, target: &str) -> Result<Pending> {
+    preview_controlled(store, path, target, &crate::import_jobs::Control::default())
+}
+pub fn preview_controlled(
+    store: &Store,
+    path: &Path,
+    target: &str,
+    control: &crate::import_jobs::Control,
+) -> Result<Pending> {
+    control.step("读取文件", 0, 1)?;
     let bytes = read_file(path)?;
+    control.step("解析文件", 0, 1)?;
     let fingerprint = hash(&bytes);
     let filename = path
         .file_name()
@@ -294,7 +304,11 @@ pub fn preview(store: &Store, path: &Path, target: &str) -> Result<Pending> {
         return Err("请选择标准 .xlsx、.docx、.jsonl 或 .qbank.zip 文件".into());
     };
     let mut seen = HashSet::new();
+    let count = qs.len();
     for (i, q) in qs.iter_mut().enumerate() {
+        if i % 100 == 0 {
+            control.step("校验题目", i, count)?;
+        }
         if manifest.is_some() && q.question_id.is_empty() {
             errors.push(format!("第 {} 题缺少系统 ID", i + 1));
         }
@@ -351,6 +365,21 @@ pub fn preview(store: &Store, path: &Path, target: &str) -> Result<Pending> {
     let mut changed = 0;
     let mut removed = 0;
     if let Some(b) = &existing {
+        if manifest.is_some()
+            && store
+                .conn()?
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM cloud_snapshots WHERE bank_id=?1)",
+                    [&b.id],
+                    |r| r.get::<_, bool>(0),
+                )
+                .map_err(err)?
+        {
+            errors.push(
+                "本题库已由云端维护，请在云端发布新版或建立独立副本；不能用离线全量包覆盖同步状态"
+                    .into(),
+            );
+        }
         let old: HashMap<String, Question> = store
             .questions(&b.id)?
             .into_iter()
@@ -431,6 +460,7 @@ pub fn preview(store: &Store, path: &Path, target: &str) -> Result<Pending> {
         changed,
         removed,
     };
+    control.step("预览就绪", count, count)?;
     Ok(Pending {
         preview: p,
         questions: qs,
@@ -442,10 +472,22 @@ pub fn preview(store: &Store, path: &Path, target: &str) -> Result<Pending> {
 }
 
 pub fn commit(store: &Store, p: &Pending) -> Result<String> {
+    commit_controlled(store, p, &crate::import_jobs::Control::default())
+}
+pub fn commit_controlled(
+    store: &Store,
+    p: &Pending,
+    control: &crate::import_jobs::Control,
+) -> Result<String> {
+    control.step("准备导入", 0, p.questions.len())?;
     if !p.preview.errors.is_empty() {
         return Err("导入校验尚未通过".into());
     }
     if p.preview.action == "已存在，跳过重复导入" {
+        store
+            .conn()?
+            .execute("DELETE FROM import_jobs WHERE token=?1", [&p.preview.token])
+            .map_err(err)?;
         return Ok(p.target.clone());
     }
     let id = if p.target.is_empty() {
@@ -462,6 +504,7 @@ pub fn commit(store: &Store, p: &Pending) -> Result<String> {
     if actual != p.target_version {
         return Err("题库在预览后发生变化，请重新导入预览".into());
     }
+    let before = crate::import_jobs::rows(&tx, &id)?;
     if actual.is_some() {
         let bank = db::get_bank(&tx, &id)?;
         db::snapshot(&tx, &bank)?;
@@ -476,7 +519,10 @@ pub fn commit(store: &Store, p: &Pending) -> Result<String> {
             db::clear_bank(&tx, &id)?;
         }
         tx.execute("INSERT INTO banks VALUES(?1,?2,1,?3,?4,?5,'离线发布包') ON CONFLICT(id) DO UPDATE SET name=excluded.name,read_only=1,version=excluded.version,updated_at=excluded.updated_at,content_hash=excluded.content_hash",params![id,m.name,m.release_version,m.published_at,m.release_id]).map_err(err)?;
-        for q in &p.questions {
+        for (i, q) in p.questions.iter().enumerate() {
+            if i % 100 == 0 {
+                control.step("写入题目与索引", i, p.questions.len())?;
+            }
             db::insert(&tx, &id, q)?;
         }
         for q in &additions {
@@ -490,7 +536,10 @@ pub fn commit(store: &Store, p: &Pending) -> Result<String> {
             )
             .map_err(err)?;
         }
-        for original in &p.questions {
+        for (i, original) in p.questions.iter().enumerate() {
+            if i % 100 == 0 {
+                control.step("写入题目与索引", i, p.questions.len())?;
+            }
             let mut q = original.clone();
             q.bank = p.preview.name.clone();
             let old: Option<(i64, String)> = tx
@@ -511,6 +560,10 @@ pub fn commit(store: &Store, p: &Pending) -> Result<String> {
                 {
                     continue;
                 }
+                let frozen:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM intake_entries e JOIN intake_transfers t ON t.batch_id=e.batch_id WHERE e.bank_id=?1 AND e.question_id=?2)",params![id,q.question_id],|r|r.get(0)).map_err(err)?;
+                if frozen {
+                    return Err("本题已导出或提交，不能用文件修改原批次".into());
+                }
                 db::record(&tx, &id, &previous, "文件导入更新")?;
                 q.base_revision += 1;
                 db::remove_index(&tx, rowid)?;
@@ -518,6 +571,11 @@ pub fn commit(store: &Store, p: &Pending) -> Result<String> {
                     .map_err(err)?;
             }
             db::insert(&tx, &id, &q)?;
+            tx.execute(
+                "UPDATE intake_originals SET data=?1,deleted=0 WHERE bank_id=?2 AND question_id=?3",
+                params![serde_json::to_string(&q).map_err(err)?, id, q.question_id],
+            )
+            .map_err(err)?;
         }
         if actual.is_some() {
             db::touch(&tx, &id)?;
@@ -529,19 +587,58 @@ pub fn commit(store: &Store, p: &Pending) -> Result<String> {
     )
     .map_err(err)?;
     tx.execute("UPDATE snapshots SET expected_version=(SELECT version FROM banks WHERE id=?1) WHERE bank_id=?1",[&id]).map_err(err)?;
+    control.step("保存撤回记录", p.questions.len(), p.questions.len())?;
+    crate::import_jobs::record(&tx, &id, &p.preview.filename, &p.fingerprint, &before)?;
+    tx.execute("DELETE FROM import_jobs WHERE token=?1", [&p.preview.token])
+        .map_err(err)?;
+    control.step("提交事务", p.questions.len(), p.questions.len())?;
     tx.commit().map_err(err)?;
     Ok(id)
 }
 
 pub fn export(store: &Store, id: &str, path: &Path, format: &str) -> Result<usize> {
+    export_filtered(store, id, path, format, None)
+}
+pub fn export_filtered(
+    store: &Store,
+    id: &str,
+    path: &Path,
+    format: &str,
+    filter: Option<db::Query>,
+) -> Result<usize> {
     let c = store.conn()?;
     c.execute_batch("BEGIN DEFERRED").map_err(err)?;
-    let qs = db::questions(&c, id)?;
+    let qs = if let Some(mut query) = filter {
+        if format == "package" {
+            return Err(
+                "离线发布包必须包含完整题库，请选择 Word、Excel 或 JSONL 导出筛选结果".into(),
+            );
+        }
+        query.bank_id = id.into();
+        query.trash = false;
+        query.after_rowid = 0;
+        let mut found = vec![];
+        loop {
+            let result = store.search_conn(&c, &query)?;
+            if result.items.is_empty() {
+                break;
+            }
+            query.after_rowid = result.items.last().unwrap().rowid;
+            found.extend(result.items.into_iter().map(|h| h.question));
+            if !result.has_more {
+                break;
+            }
+        }
+        found
+    } else {
+        db::questions(&c, id)?
+    };
     let bank = db::get_bank(&c, id)?;
     let bytes = match format {
         "package" => package_bytes(&bank, &qs)?,
         "jsonl" => jsonl(&qs)?,
         "docx" => write_docx(&bank.name, &qs)?,
+        "docx-study" | "docx-exam" | "docx-answers" => write_print_docx(&bank.name, &qs, format)?,
         "xlsx" => write_xlsx(&bank.name, &qs)?,
         _ => return Err("未知导出格式".into()),
     };
@@ -868,6 +965,68 @@ pub fn write_docx(name: &str, qs: &[Question]) -> Result<Vec<u8>> {
     for q in qs {
         body.push_str(&table(&fields(q)));
     }
+    docx_body(&body)
+}
+pub fn write_print_docx(name: &str, qs: &[Question], mode: &str) -> Result<Vec<u8>> {
+    if !["docx-study", "docx-exam", "docx-answers"].contains(&mode) {
+        return Err("未知 Word 模式".into());
+    }
+    let paragraph = |text: &str| {
+        format!("<w:p><w:pPr><w:spacing w:after=\"160\"/></w:pPr><w:r><w:t xml:space=\"preserve\">{}</w:t></w:r></w:p>",escape(text).replace('\n',"</w:t><w:br/><w:t xml:space=\"preserve\">"))
+    };
+    let label = match mode {
+        "docx-exam" => "试卷",
+        "docx-answers" => "参考答案",
+        _ => "学习资料",
+    };
+    let mut body = paragraph(&format!("{name} · {label}"));
+    for (i, q) in qs.iter().enumerate() {
+        let answer = match &q.answer {
+            Value::Bool(b) => {
+                if *b {
+                    "正确".into()
+                } else {
+                    "错误".into()
+                }
+            }
+            Value::Array(a) => a
+                .iter()
+                .filter_map(|v| v.as_str())
+                .collect::<Vec<_>>()
+                .join("、"),
+            _ => "尚未确定".into(),
+        };
+        if mode != "docx-answers" {
+            body.push_str(&paragraph(&format!("{}. {}", i + 1, q.stem)));
+            for o in &q.options {
+                body.push_str(&paragraph(&format!("{}. {}", o.key, o.content)));
+            }
+        }
+        if mode == "docx-exam" {
+            body.push_str(&paragraph("作答：________________"));
+        } else {
+            body.push_str(&paragraph(&format!(
+                "{}答案：{}{}",
+                if mode == "docx-answers" {
+                    format!("{}. ", i + 1)
+                } else {
+                    String::new()
+                },
+                answer,
+                if q.status != "verified" {
+                    "（待核实）"
+                } else {
+                    ""
+                }
+            )));
+            if mode == "docx-study" && !q.explanation.is_empty() {
+                body.push_str(&paragraph(&format!("解析：{}", q.explanation)));
+            }
+        }
+    }
+    docx_body(&body)
+}
+fn docx_body(body: &str) -> Result<Vec<u8>> {
     let doc=format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?><w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:body>{body}<w:sectPr><w:pgSz w:w=\"11906\" w:h=\"16838\"/><w:pgMar w:top=\"1000\" w:right=\"1000\" w:bottom=\"1000\" w:left=\"1000\"/></w:sectPr></w:body></w:document>");
     let mut z = ZipWriter::new(Cursor::new(Vec::new()));
     for (n,s) in [("[Content_Types].xml","<?xml version=\"1.0\"?><Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/><Override PartName=\"/word/document.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml\"/></Types>"),("_rels/.rels","<?xml version=\"1.0\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"word/document.xml\"/></Relationships>"),("word/document.xml",doc.as_str())]{z.start_file(n,SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated)).map_err(err)?;z.write_all(s.as_bytes()).map_err(err)?;}

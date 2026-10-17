@@ -1,5 +1,6 @@
 import {LocalBank, VirtualList, Segment, queryTerms, snippet, answerText, typeNames} from '../../core/search';
-import {loadBank,listBanks,activeBankId,selectBank} from '../../services/bank';
+import {loadBank,listBanks,activeBankId,selectBank,invalidateBank} from '../../services/bank';
+import {refreshCatalog,syncBank} from '../../services/sync';
 import {copyPrompt} from '../../services/prompt';
 import {APP_VERSION} from '../../generated/client-assets';
 
@@ -7,11 +8,11 @@ const HEADER_COLLAPSED_KEY = 'qbank-search-header-collapsed-v1';
 // Allow the 220 ms layout transition to finish before the final measurement.
 const HEADER_LAYOUT_DELAY = 260;
 
-type Row = {id: number; questionId: string; number: string; kind: string; answer: string; segments: Segment[]};
+type Row = {id: number; questionId: string; number: string; kind: string; layer:string; answer: string; segments: Segment[]};
 Page({
   data: {
     query: '', bankName: '正在打开题库', version: 1, total: 0, count: 0,
-    ready: false, loading: true, error: '', rows: [] as Row[],
+    syncNotice:'',syncing:false,ready: false, loading: true, error: '', rows: [] as Row[],
     before: 0, after: 0, scrollTop: 0, headerCollapsed: false,
     appVersion:APP_VERSION,bankId:'',banks:[] as {id:string;name:string}[],bankIndex:0,bankLabel:'内置题库',
   },
@@ -25,9 +26,9 @@ Page({
     this.layout = new VirtualList(0);
     try { this.setData({headerCollapsed: wx.getStorageSync(HEADER_COLLAPSED_KEY) === true}); }
     catch { /* A failed preference read must not prevent local search. */ }
-    return this.initialize();
+    return this.initialize().then(()=>{void this.syncCloud();});
   },
-  onShow(){if(this.data.ready&&!this.data.loading)void this.initialize();},
+  onShow(){if(this.data.ready&&!this.data.loading)void this.initialize().then(()=>this.syncCloud());},
   onReady() { this.measureViewport(); },
   onResize() { this.measureViewport(); this.layout = new VirtualList(this.ids.length); this.renderRows(true); },
   onUnload() {
@@ -44,7 +45,7 @@ Page({
       const {bank, manifest} = await loadBank(id);
       if (!this.alive||epoch!==this.loadEpoch) return;
       selectBank(id);
-      this.setData({banks,bankId:id,bankIndex:banks.findIndex(b=>b.id===id),bankLabel:manifest.release_id==='local'?'本地题库':'内置题库 + 本地新题'});
+      this.setData({banks,bankId:id,bankIndex:banks.findIndex(b=>b.id===id),bankLabel:manifest.release_id==='local'?'本地题库':'正式题库 + 待审核题 + 本地新题'});
       this.bank = bank;
       this.setData({ready: true, bankName: manifest.name, version: manifest.release_version, total: manifest.question_count}, () => this.measureViewport());
       await this.runSearch(this.data.query);
@@ -52,6 +53,15 @@ Page({
       if (this.alive&&epoch===this.loadEpoch) this.setData({loading: false, error: error instanceof Error ? error.message : '题库加载失败，请重试'});
     }
   },
+  async syncCloud(){
+    if(this.data.syncing||!this.alive)return;this.setData({syncing:true});const id=this.data.bankId;
+    try{await refreshCatalog();const changed=await syncBank(id);if(!this.alive)return;
+      const banks=await listBanks();this.setData({banks,bankIndex:banks.findIndex(b=>b.id===this.data.bankId),syncNotice:'云端版本已核对'});
+      if(changed){invalidateBank(id);if(this.data.bankId===id)await this.initialize();}
+    }catch(e){if(this.alive)this.setData({syncNotice:e instanceof Error?e.message:'同步暂未完成，本地题库仍可使用'});}
+    finally{if(this.alive){this.setData({syncing:false});if(this.data.bankId!==id)void this.syncCloud();}}
+  },
+  onSync(){void this.syncCloud();},
   measureViewport() {
     if (!this.alive) return;
     wx.createSelectorQuery().in(this).select('.results').boundingClientRect(rect => {
@@ -76,7 +86,7 @@ Page({
   },
   onCopyPrompt(){copyPrompt()},
   onIntake(){wx.navigateTo({url:`/pages/intake/intake?bank=${this.data.bankId||activeBankId()}`})},
-  onBankChange(event:WechatMiniprogram.PickerChange){const b=this.data.banks[Number(event.detail.value)];if(!b)return;selectBank(b.id);void this.initialize()},
+  onBankChange(event:WechatMiniprogram.PickerChange){const b=this.data.banks[Number(event.detail.value)];if(!b)return;selectBank(b.id);void this.initialize().then(()=>this.syncCloud())},
   onInput(event: WechatMiniprogram.Input) {
     this.setData({query: event.detail.value});
     void this.runSearch(event.detail.value);
@@ -119,7 +129,7 @@ Page({
     this.start = range.start; this.end = range.end;
     const rows = this.ids.slice(range.start, range.end).map(id => {
       const q = this.bank!.question(id);
-      return {id, questionId: q.question_id, number: q.external_id, kind: typeNames[q.type],
+      return {id, questionId: q.question_id, number: q.external_id, kind: typeNames[q.type],layer:q.cloud_layer==='pending'?'待审核':q.cloud_layer==='draft'?'本地新题':'',
         answer: answerText(q), segments: snippet(q, this.terms)};
     });
     this.setData({rows, before: range.before, after: range.after}, () => {

@@ -4,7 +4,7 @@ const COS = require('cos-nodejs-sdk-v5');
 const { createHandler } = require('./service.cjs');
 const { createCosStore, createWechatExchange } = require('./adapters.cjs');
 // Generated from shared/intake.ts by scripts/build-cloud.mjs; included in the deploy ZIP.
-const { parseDelta, parseModelReply } = require('./intake.cjs');
+const { parseDelta, validateStandardQuestion,parseModelReply } = require('./intake.cjs');
 
 const store = createCosStore({ clientFactory: env => {
   if (!env.TENCENTCLOUD_SECRETID || !env.TENCENTCLOUD_SECRETKEY || !env.TENCENTCLOUD_SESSIONTOKEN)
@@ -14,4 +14,4 @@ const store = createCosStore({ clientFactory: env => {
     AutoSwitchHost: false, UploadCheckContentMd5: true });
 } });
 
-exports.main_handler = createHandler({ store, exchangeCode: createWechatExchange(), parseDelta, parseModelReply });
+exports.main_handler = createHandler({ store, exchangeCode: createWechatExchange(), parseDelta, validateStandardQuestion,parseModelReply });

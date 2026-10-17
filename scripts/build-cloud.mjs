@@ -11,7 +11,7 @@ const output = path.join(root, 'artifacts/cloud/qbank-auth');
 const require = createRequire(path.join(source, 'package.json'));
 const sdk = path.dirname(require.resolve('cos-nodejs-sdk-v5/package.json'));
 await fs.mkdir(output, { recursive: true });
-for (const name of ['index.js', 'service.cjs', 'adapters.cjs', 'package.json'])
+for (const name of ['index.js', 'service.cjs', 'adapters.cjs', 'workflow.cjs', 'package.json'])
   await fs.copyFile(path.join(source, name), path.join(output, name));
 await fs.writeFile(path.join(output, 'intake.cjs'), ts.transpileModule(await fs.readFile(path.join(root, 'shared/intake.ts'), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
@@ -49,7 +49,7 @@ await fs.rm(path.join(output, 'node_modules'), { recursive: true, force: true })
 await copyDependency(sdk);
 const zip = path.join(root, 'artifacts/cloud/qbank-auth-0.2.7.zip');
 await fs.rm(zip, { force: true });
-const result = spawnSync('zip', ['-q', '-r', zip, 'index.js', 'service.cjs', 'adapters.cjs', 'intake.cjs', 'package.json', 'node_modules'], {
+const result = spawnSync('zip', ['-q', '-r', zip, 'index.js', 'service.cjs', 'adapters.cjs', 'workflow.cjs', 'intake.cjs', 'package.json', 'node_modules'], {
   cwd: output, encoding: 'utf8',
 });
 if (result.status !== 0) throw new Error(result.stderr || '请安装 zip 命令后重新构建');

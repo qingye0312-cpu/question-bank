@@ -2,8 +2,8 @@ import {LocalBank, SearchIndex, buildPostingsFromLines} from '../core/search';
 import {CompactBank, decodeCompact, decodeUtf8} from '../core/compact';
 import { bundledManifest } from '../data/manifest';
 import {readLocal,updateLocal,createIds} from './intake-store';
-import {identityKey} from '../core/intake';
-import type {Question} from '../core/search';
+import {cachedSnapshot,cloudCatalog,restoreCatalog} from './sync';
+import {combineLayers,type SyncQuestion} from '../core/sync';
 
 export type Manifest = {
   schema_version: string; bank_id: string; name: string; release_id: string;
@@ -89,6 +89,7 @@ async function loadEmbedded(): Promise<BankBundle> {
 
 const ACTIVE_BANK_KEY='qbank-active-bank-v1';
 let selected='';
+let catalogReady:Promise<void>|undefined;
 const banks=new Map<string,Promise<BankBundle>>();
 export function activeBankId():string {
   if(!selected){try{selected=wx.getStorageSync(ACTIVE_BANK_KEY)||''}catch{/* Keep the bundled bank available. */}}
@@ -96,8 +97,9 @@ export function activeBankId():string {
 }
 export function selectBank(id:string):void {selected=id;try{wx.setStorageSync(ACTIVE_BANK_KEY,id)}catch{/* Current session still switches. */}}
 export async function listBanks():Promise<{id:string;name:string}[]> {
-  const local=await readLocal();
-  return [{id:bundledManifest.bank_id,name:bundledManifest.name},...local.banks.filter(b=>b.id!==bundledManifest.bank_id)];
+  if(!catalogReady)catalogReady=restoreCatalog();await catalogReady;
+  const local=await readLocal(),all=[{id:bundledManifest.bank_id,name:bundledManifest.name},...local.banks,...cloudCatalog().map(b=>({id:b.bank_id,name:b.name}))];
+  return [...new Map(all.map(b=>[b.id,b])).values()];
 }
 export function invalidateBank(id:string):void {banks.delete(id);}
 export async function createBank(name:string):Promise<string>{
@@ -106,26 +108,28 @@ export async function createBank(name:string):Promise<string>{
   await updateLocal(data=>{data.banks.push({id,name})});selectBank(id);return id;
 }
 export function loadBank(id=activeBankId()):Promise<BankBundle>{
-  const cached=banks.get(id);if(cached)return cached;
+  const cached=banks.get(id);if(cached){banks.delete(id);banks.set(id,cached);return cached;}
   const result=(async()=>{
     const local=await readLocal();let bundle:BankBundle;
     if(id===bundledManifest.bank_id){
       if(!pending)pending=loadEmbedded().catch(error=>{pending=undefined;throw error});
-      bundle=await pending;
+      const embedded=await pending;bundle={...embedded,bank:embedded.bank.fork()};
     }else{
-      const info=local.banks.find(b=>b.id===id);if(!info)throw new Error('题库不存在，请切换其他题库');
+      const info=local.banks.find(b=>b.id===id)||cloudCatalog().map(b=>({id:b.bank_id,name:b.name})).find(b=>b.id===id);if(!info)throw new Error('题库不存在，请切换其他题库');
       bundle={manifest:{schema_version:'1.0',bank_id:id,name:info.name,release_id:'local',release_version:1,question_count:0},
         bank:new LocalBank([],{schema_version:'qbank-index-1',release_id:'local',question_count:0,postings:Object.create(null)})};
     }
-    const identities=new Set<string>(),ids=new Set<string>();
-    for(let row=0;row<bundle.bank.count;row++){const q=bundle.bank.question(row);identities.add(identityKey(q));ids.add(q.question_id);}
-    const additions:Question[]=[];
-    for(const e of local.entries.filter(e=>e.bankId===id)){
-      const key=identityKey(e.question);if(identities.has(key)||ids.has(e.question.question_id))continue;
-      identities.add(key);ids.add(e.question.question_id);additions.push(e.question);
+    const cached=await cachedSnapshot(id);
+    if(cached?.snapshot.formal){
+      const lines=cached.snapshot.formal.map(q=>JSON.stringify({...q,cloud_layer:'formal'}));
+      bundle={manifest:{schema_version:'1.0',bank_id:id,name:cached.manifest.name,release_id:cached.manifest.sha256,release_version:cached.manifest.release_version,question_count:lines.length},
+        bank:new LocalBank(lines,{schema_version:'qbank-index-1',release_id:cached.manifest.sha256,question_count:lines.length,postings:await buildPostingsFromLines(lines)})};
     }
-    bundle.bank.append(additions);
+    const formal=Array.from({length:bundle.bank.count},(_,i)=>bundle.bank.question(i)) as unknown as SyncQuestion[];
+    const merged=combineLayers(formal,cached?.snapshot.pending||[],local.entries.filter(e=>e.bankId===id).map(e=>e.question));
+    bundle.bank.append(merged.filter(q=>q.cloud_layer!=='formal'));
+
     return {bank:bundle.bank,manifest:{...bundle.manifest,question_count:bundle.bank.count}};
   })().catch(error=>{banks.delete(id);throw error});
-  banks.set(id,result);return result;
+  banks.set(id,result);while(banks.size>3){const first=banks.keys().next().value!;banks.delete(first);}return result;
 }

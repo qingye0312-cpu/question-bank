@@ -140,7 +140,7 @@ export function SpeedResults({bankId, query, revision, fontScale, previewEnabled
         const isPreview = previewEnabled && preview?.hit.rowid === hit.rowid;
         return <div className="speed-row" role="row" aria-rowindex={start + index + 1} key={hit.rowid} data-result-index={start + index} data-preview={isPreview || undefined} aria-describedby={isPreview ? previewId : undefined} tabIndex={previewEnabled ? 0 : undefined} onFocus={event => { const row = event.currentTarget, rect = row.getBoundingClientRect(); openPreview(hit, row, {x: rect.left + rect.width / 2, y: rect.top + rect.height / 2}); }} onBlur={() => setPreview(null)} style={{top: (start + index) * rowHeight, height: rowHeight}}>
           <SpeedQuestion question={hit.question} query={query} line={line} previewEnabled={previewEnabled}/>
-          <span className="speed-answer" role="cell">{answerText(hit.question)}</span>
+          <span className="speed-answer" role="cell">{answerText(hit.question)}{hit.layer==='pending'&&<small className="pending-label">待审核</small>}{hit.layer==='draft'&&<small className="pending-label">本地新题</small>}</span>
         </div>;
       })}
     </div>

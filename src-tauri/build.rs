@@ -2,6 +2,8 @@
 mod mac;
 
 fn main() {
+    println!("cargo:rerun-if-env-changed=QBANK_UPDATER_ENDPOINT");
+    println!("cargo:rerun-if-env-changed=QBANK_UPDATER_PUBLIC_KEY");
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let platform_config = match target_os.as_str() {
         "macos" => Some((

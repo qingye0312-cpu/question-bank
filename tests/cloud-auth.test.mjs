@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import { createRequire } from 'node:module';
-import { parseDelta, parseModelReply } from '../shared/intake.ts';
+import { parseDelta, validateStandardQuestion,parseModelReply } from '../shared/intake.ts';
 import { encodeUpload } from '../tools/cloud/encode-upload.mjs';
 
 const require = createRequire(import.meta.url);
@@ -27,7 +27,7 @@ function setup(options = {}) {
   } };
   const handler = createHandler({ env: () => env, clock: () => time, store,
     exchangeCode: async ({ code }) => ({ openid: code === 'developer-code' ? developer : guest, session_key: 'never-return' }),
-    parseDelta, parseModelReply, ...options });
+    parseDelta, validateStandardQuestion,parseModelReply, ...options });
   const call = async (method, path, body, token, extra = {}) => {
     const response = await handler({ httpMethod: method, path,
       headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(extra.headers || {}) },

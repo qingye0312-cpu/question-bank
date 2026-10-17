@@ -6,7 +6,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 import ts from 'typescript';
 import {fileURLToPath} from 'node:url';
-import {parseModelReply,toQuestion,identityKey,sameAnswer,deltaPackage,parseDelta,sha256,uuidFromBytes} from '../shared/intake.ts';
+import {parseModelReply,toQuestion,identityKey,sameAnswer,deltaPackage,parseDelta,sha256,uuidFromBytes,intakeMetadata} from '../shared/intake.ts';
 const reply={format:'qbank-photo-question-1',type:'single',stem:'此 API 返回什么？',options:[{key:'A',content:'中文 🧪'},{key:'B',content:'字符串 "A"'}],answer:['B'],answer_origin:'inferred',explanation:'测试作答依据。',model:{name:'测试模型',version:'test-1',version_source:'user'},warnings:[]};
 const id=()=>uuidFromBytes(randomBytes(16));
 test('copyable single JSON reply validates independently and rejects incomplete answers/photos',()=>{
@@ -40,11 +40,11 @@ function mobile(disk=new Map()){
    writeFile:o=>broken?o.fail({errMsg:'disk full'}):(disk.set(o.filePath,o.data),o.success()),
    rename:o=>{disk.set(o.newPath,disk.get(o.oldPath));disk.delete(o.oldPath);o.success()}})};
  function load(relative){
-  const filename=path.resolve(root,relative.endsWith('.ts')?relative:relative+'.ts');
+  const absolute=path.resolve(root,relative);const filename=fs.existsSync(absolute+'.js')?absolute+'.js':relative.endsWith('.ts')?absolute:absolute+'.ts';
   if(modules.has(filename))return modules.get(filename);
-  const exports={};modules.set(filename,exports);
+  const exports={},module={exports};modules.set(filename,exports);
   const source=ts.transpileModule(fs.readFileSync(filename,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2020,module:ts.ModuleKind.CommonJS}}).outputText;
-  vm.runInNewContext(source,{exports,require:name=>load(path.resolve(path.dirname(filename),name)),wx,console,Uint8Array,Int32Array,setTimeout,clearTimeout,Date,Promise,Map,Set});return exports;
+  vm.runInNewContext(source,{exports,module,require:name=>load(path.resolve(path.dirname(filename),name)),wx,console,Uint8Array,Uint16Array,Uint32Array,Int32Array,ArrayBuffer,DataView,setTimeout,clearTimeout,Date,Promise,Map,Set});return module.exports;
  }
  return {load,disk,breakDisk:()=>{broken=true}};
 }
@@ -68,4 +68,19 @@ test('mobile local intake persists batches, isolates banks, imports idempotently
 test('cross-platform fixture is the shared mobile export format',()=>{
  const fixture=fs.readFileSync(new URL('fixtures/intake/mobile-delta.json',import.meta.url),'utf8');
  assert.equal(parseDelta(fixture).questions[0].sources[0].model.version,'test-1');
+});
+
+test('manual metadata survives mobile persistence and compressed exchange without changing model attribution',async()=>{
+ const env=mobile(),banks=env.load('services/bank'),service=env.load('services/intake');
+ const bank=await banks.createBank('补充字段');
+ const metadata=intakeMetadata({chapter:'组件',tags:['UI',' UI ','ArkTS'],difficulty:'hard',applicable_version:'API 12',external_id:'X-1'});
+ assert.deepEqual(metadata.tags,['UI','ArkTS']);
+ const result=await service.saveReply(bank,'',JSON.stringify(reply),metadata);
+ const out=await service.exportBatch(result.batchId,true);
+ const decoded=env.load('core/upload').unpackUpload(env.disk.get(out.filePath));
+ const q=parseDelta(decoded).questions[0];for(const key of Object.keys(metadata))assert.deepEqual(q[key],metadata[key]);
+ assert.equal(q.sources[0].model.version,reply.model.version);
+ assert.throws(()=>intakeMetadata({difficulty:'invalid'}));
+ await assert.rejects(service.saveReply(bank,'',JSON.stringify({...reply,stem:'坏元数据'}),{tags:['x'.repeat(101)]}));
+ assert.equal((await banks.loadBank(bank)).bank.count,1);
 });

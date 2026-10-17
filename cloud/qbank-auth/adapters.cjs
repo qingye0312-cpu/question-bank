@@ -1,9 +1,38 @@
 'use strict';
 
-const { HttpError, LIMITS } = require('./service.cjs');
+const { HttpError, LIMITS, sha256 } = require('./service.cjs');
 
 function createCosStore({ clientFactory, env = () => process.env }) {
   return {
+    async readState(bankId) {
+      const settings=env(), Bucket=settings.COS_RELEASE_BUCKET, Region=settings.COS_REGION;
+      if(!/^[a-z0-9-]+-\d+$/.test(Bucket||'')||!/^[0-9a-f-]{36}$/.test(bankId))throw new Error('Invalid release configuration');
+      const cos=clientFactory(settings), Prefix=`states/${bankId}/`;
+      const list=await cos.getBucket({Bucket,Region,Prefix,MaxKeys:1});
+      const Key=list.Contents?.[0]?.Key;if(!Key)return null;
+      if(!new RegExp(`^states/${bankId}/[0-9]{12}\\.json$`).test(Key))throw new Error('Invalid state key');
+      const data=await cos.getObject({Bucket,Region,Key,Range:'bytes=0-8388608'});
+      const bytes=Buffer.from(data.Body);if(bytes.length>8388608)throw new Error('State too large');
+      const wrapper=JSON.parse(bytes.toString('utf8'));
+      if(typeof wrapper.payload!=='string'||sha256(wrapper.payload)!==wrapper.sha256)throw new Error('Invalid state checksum');
+      const state=JSON.parse(wrapper.payload);
+      if(state.format!=='qbank-state-1'||state.bank_id!==bankId||!Number.isSafeInteger(state.revision)||state.revision<1
+        ||Key!==`states/${bankId}/${String(999999999999-state.revision).padStart(12,'0')}.json`)throw new Error('Invalid state identity');
+      return state;
+    },
+    async createState(state) {
+      const settings=env(),Bucket=settings.COS_RELEASE_BUCKET,Region=settings.COS_REGION;
+      if(!/^[a-z0-9-]+-\d+$/.test(Bucket||'')||!/^[0-9a-f-]{36}$/.test(state.bank_id)
+        ||!Number.isSafeInteger(state.revision)||state.revision<1||state.revision>999999999998)throw new Error('Invalid state');
+      const cos=clientFactory(settings);
+      const versioning=await cos.getBucketVersioning({Bucket,Region});
+      if(!versioning.VersioningConfiguration||versioning.VersioningConfiguration.Status)throw new Error('State bucket versioning must never have been enabled');
+      const payload=JSON.stringify(state),Body=Buffer.from(JSON.stringify({payload,sha256:sha256(payload)}));
+      const Key=`states/${state.bank_id}/${String(999999999999-state.revision).padStart(12,'0')}.json`;
+      try {await cos.putObject({Bucket,Region,Key,Body,ContentLength:Body.length,ContentType:'application/json; charset=utf-8',
+        CacheControl:'no-store',Headers:{'x-cos-forbid-overwrite':'true'}});return true;}
+      catch(e){if(e.statusCode===409&&e.code==='FileAlreadyExists')return false;throw e;}
+    },
     async createSubmission(key, record) {
       const settings = env();
       const Bucket = settings.COS_INBOX_BUCKET, Region = settings.COS_REGION;

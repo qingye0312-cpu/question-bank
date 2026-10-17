@@ -288,6 +288,7 @@ pub fn find(store: &Store, bank_id: &str, text: &str) -> Result<Matches> {
         let (rowid, data) = row.map_err(err)?;
         let value = candidate(
             Hit {
+                layer: String::new(),
                 rowid,
                 bank_id: bank_id.into(),
                 bank_name: bank.name.clone(),
@@ -346,6 +347,7 @@ pub fn find(store: &Store, bank_id: &str, text: &str) -> Result<Matches> {
             .map_err(err)?;
         let value = candidate(
             Hit {
+                layer: String::new(),
                 rowid,
                 bank_id: bank_id.into(),
                 bank_name: bank.name.clone(),

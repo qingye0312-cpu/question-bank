@@ -1,0 +1,61 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+import ts from 'typescript';
+import * as sync from '../shared/sync.ts';
+import {sha256} from '../shared/intake.ts';
+
+const bank='ad50971f-66af-51c2-bb0e-dc798b03b369';
+const payload=JSON.stringify({format:'qbank-snapshot-1',bank_id:bank,name:'测试库',revision:1,release_version:1,updated_at:'2026-10-17T00:00:00Z',formal:[],pending:[],removed:[]});
+const wrapper={payload,sha256:sha256(payload)};
+const manifest={bank_id:bank,name:'测试库',revision:1,release_version:1,updated_at:'2026-10-17T00:00:00Z',minimum_client:'0.2.7',bytes:Buffer.byteLength(payload),sha256:wrapper.sha256};
+const pause=()=>{let resolve;const promise=new Promise(r=>{resolve=r;});return {promise,resolve};};
+function client(invoke){
+ const module={exports:{}},storage=new Map();
+ const source=fs.readFileSync(new URL('../src/cloud-client.ts',import.meta.url),'utf8').replaceAll('import.meta.env','BUILD_ENV');
+ const compiled=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText;
+ vm.runInNewContext(compiled,{module,exports:module.exports,require:name=>name==='@tauri-apps/api/core'?{invoke}:sync,
+  BUILD_ENV:{DEV:false},localStorage:{getItem:k=>storage.get(k),setItem:(k,v)=>storage.set(k,v)},URL,Date,Map,Promise});
+ module.exports.setCloudOrigin('https://first.example');return module.exports;
+}
+test('desktop anonymous sync coalesces requests and rejects corrupt, rolled back or altered revisions before writing',async()=>{
+ let mode='ok',saved=[],versions=[];const calls=[];
+ const c=client(async(command,args)=>{
+  calls.push(command);if(command==='cloud_versions')return versions;
+  if(command==='cloud_apply'){saved.push(args);return;}
+  return {status:200,body:args.path.endsWith('/manifest')?manifest:mode==='corrupt'?{...wrapper,payload:payload+' '}:wrapper};
+ });
+ const a=c.syncDesktop(bank),b=c.syncDesktop(bank);assert.equal(a,b);assert.equal(await a,true);assert.equal(saved.length,1);
+ assert.equal(calls.filter(x=>x==='cloud_request').length,2);
+ versions=[{bank_id:bank,revision:1,sha256:wrapper.sha256}];assert.equal(await c.syncDesktop(bank),false);
+ versions=[{bank_id:bank,revision:2,sha256:wrapper.sha256}];await assert.rejects(c.syncDesktop(bank),/版本倒退/);
+ versions=[{bank_id:bank,revision:1,sha256:'0'.repeat(64)}];await assert.rejects(c.syncDesktop(bank),/同版本内容/);
+ versions=[];mode='corrupt';await assert.rejects(c.syncDesktop(bank),/摘要校验失败/);assert.equal(saved.length,1);
+});
+test('changing desktop service while a snapshot downloads cancels the old apply and does not block the new service',async()=>{
+ const downloading=pause(),response=pause();let applied=0;
+ const c=client(async(command,args)=>{
+  if(command==='cloud_versions')return [];
+  if(command==='cloud_apply'){applied++;return;}
+  if(args.path.endsWith('/manifest'))return {status:200,body:manifest};
+  if(args.origin==='https://first.example'){downloading.resolve();await response.promise;}
+  return {status:200,body:wrapper};
+ });
+ const old=c.syncDesktop(bank),rejected=assert.rejects(old,/服务地址已改变/);await downloading.promise;
+ c.setCloudOrigin('https://second.example');assert.equal(await c.syncDesktop(bank),true);
+ response.resolve();await rejected;assert.equal(applied,1);
+});
+test('desktop logout cancels an in-flight login and never restores its session',async()=>{
+ const requested=pause(),response=pause();let calls=0;
+ const c=client(async()=>{calls++;requested.resolve();await response.promise;return {status:200,body:{access_token:'v1.dGVzdA.c2lnbmF0dXJl',expires_in:900}};});
+ const login=c.cloudLogin('test-maintainer-secret'),rejected=assert.rejects(login,/登录响应无效/);
+ await requested.promise;c.cloudLogout();response.resolve();await rejected;
+ assert.equal(c.cloudAccess(),undefined);assert.equal(calls,1);
+});
+test('review history derives from snapshots while offline drafts and receipt states remain independent',()=>{
+ const snapshot=JSON.parse(payload);snapshot.removed=[{question_id:'first',status:'merged'},{question_id:'second',status:'rejected'}];
+ let states=sync.reviewStates(snapshot);assert.equal(states.get('first'),'merged');assert.equal(states.get('second'),'rejected');assert.equal(states.get('local-draft'),undefined);
+ snapshot.pending=[{question_id:'second'}];states=sync.reviewStates(snapshot);assert.equal(states.get('second'),'pending');
+ assert.equal(sync.reviewStates(null).size,0);
+});

@@ -276,7 +276,7 @@ fn old_indexes_upgrade_once_including_recycle_bin_without_changing_questions() {
                 .unwrap()
                 .query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
                 .unwrap(),
-            3
+            4
         );
         for trash in [false, true] {
             for text in ["霜", "雾露", "银河系"] {

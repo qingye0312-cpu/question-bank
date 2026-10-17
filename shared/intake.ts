@@ -14,7 +14,40 @@ export type IntakeQuestion = {
   applicable_version: string; source_note: string; issues: string[];
   sources: Record<string, unknown>[]; attachments: unknown[];
 };
+export type IntakeMetadata = {chapter:string;tags:string[];difficulty:''|'easy'|'medium'|'hard';applicable_version:string;external_id:string};
+export function intakeMetadata(value:Partial<IntakeMetadata>={}):IntakeMetadata {
+ const metadata={chapter:'',tags:[],difficulty:'',applicable_version:'',external_id:'',...value};
+ if(Object.keys(metadata).some(k=>!['chapter','tags','difficulty','applicable_version','external_id'].includes(k))
+  ||!['chapter','applicable_version','external_id'].every(k=>typeof metadata[k as keyof IntakeMetadata]==='string'&&(metadata[k as keyof IntakeMetadata] as string).length<=1000)
+  ||!['','easy','medium','hard'].includes(metadata.difficulty)||!Array.isArray(metadata.tags)||metadata.tags.length>50
+  ||metadata.tags.some(t=>typeof t!=='string'||t.length>100))throw Error('章节、标签或难度等补充信息无效');
+ return {...metadata,tags:[...new Set(metadata.tags.map(t=>t.trim()).filter(Boolean))]} as IntakeMetadata;
+}
 type Comparable = {type: string; stem: string; options: {key: string; content: string}[]; answer: string[] | boolean | null};
+// Released historical questions may deliberately retain an unresolved answer.
+// New submissions never use that exception. This matches the desktop importer.
+export function validateStandardQuestion(value:unknown,bank:string,legacy=false):void {
+ const q=value as Omit<IntakeQuestion,'answer'> & {answer:string[]|boolean|null;extensions?:unknown};
+ const uuid=/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
+ if(!q||q.schema_version!=='1.0'||!uuid.test(q.question_id)||q.bank!==bank||!Number.isSafeInteger(q.base_revision)||q.base_revision<1
+  ||Object.keys(q).some(k=>!['schema_version','question_id','base_revision','type','stem','options','answer','bank','external_id','chapter','tags','explanation','status','difficulty','applicable_version','source_note','issues','sources','attachments','extensions'].includes(k))
+  ||!['stem','external_id','chapter','explanation','difficulty','applicable_version','source_note'].every(k=>typeof q[k as keyof typeof q]==='string')
+  ||!q.stem.trim()||!['single','multiple','true_false'].includes(q.type)||!['unreviewed','needs_review','verified'].includes(q.status)
+  ||!['','easy','medium','hard'].includes(q.difficulty)||!Array.isArray(q.options)||q.options.length>26
+  ||q.options.some((o,i)=>!o||!uuid.test(o.option_id)||o.key!==String.fromCharCode(65+i)||typeof o.content!=='string'||!o.content.trim()||Object.keys(o).some(k=>!['key','content','option_id'].includes(k)))
+  ||new Set(q.options.map(o=>o.option_id)).size!==q.options.length||!Array.isArray(q.tags)||q.tags.some(v=>typeof v!=='string')
+  ||!Array.isArray(q.issues)||q.issues.some(v=>typeof v!=='string')||!Array.isArray(q.sources)||q.sources.some(v=>!object(v))
+  ||!Array.isArray(q.attachments)||q.attachments.length||q.extensions!=null)throw Error('题目结构或身份无效');
+ if(legacy&&q.status==='needs_review'){
+  if(q.type==='true_false'){if(q.options.length||!(typeof q.answer==='boolean'||q.answer===null&&q.sources.length))throw Error('历史判断题无效');}
+  else if(!(q.answer===null&&q.sources.length)){
+   if(!Array.isArray(q.answer)||new Set(q.answer).size!==q.answer.length||q.answer.some(k=>!q.options.some(o=>o.key===k)))throw Error('历史选择题答案无效');
+  }
+  return;
+ }
+ parseModelReply(JSON.stringify({format:'qbank-photo-question-1',type:q.type,stem:q.stem,options:q.options.map(o=>({key:o.key,content:o.content})),answer:q.answer,
+  answer_origin:'inferred',explanation:q.explanation,model:{name:'未知',version:'未知',version_source:'unknown'},warnings:[]}));
+}
 const clean = (text: string) => text.replace(/\r\n?/g, '\n').trim();
 function object(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -59,6 +92,27 @@ export function parseModelReply(input: string): ModelReply {
   if ([value.stem, ...value.options.map(o => o.content)].some(s => s.includes('【看不清】'))) throw new Error('题目仍有看不清的内容，请补全后再录入');
   return value as ModelReply;
 }
+// Keep answer identity when options move; deleting an answer leaves it unset so
+// the ordinary validator requires the user to make an explicit new choice.
+export function reorderOptions(reply: ModelReply, order: number[]): ModelReply {
+  const selected = new Set(Array.isArray(reply.answer) ? reply.answer : []);
+  const options = order.map((old, i) => ({key:'ABCDEFGH'[i], content:reply.options[old].content}));
+  const answer = order.flatMap((old, i) => selected.has(reply.options[old].key) ? ['ABCDEFGH'[i]] : []);
+  return {...reply, options, answer};
+}
+export function changeQuestionType(reply: ModelReply, type: ModelReply['type']): ModelReply {
+  if(type === reply.type)return reply;
+  return {...reply,type,options:type==='true_false'?[]:reply.options.length?reply.options:[{key:'A',content:''},{key:'B',content:''}],
+    answer:[]};
+}
+export const MANUAL_REVIEW_NOTE = '录入者已人工修改，请复核答案；模型信息仅记录原始作答来源。';
+export function editedReplyText(reply: ModelReply, original: string): string {
+  const before = parseModelReply(original);
+  const warnings = reply.warnings.filter(w=>w!==MANUAL_REVIEW_NOTE);
+  const cleanReply = {...reply,warnings};
+  if(JSON.stringify(cleanReply)!==JSON.stringify(before))warnings.push(MANUAL_REVIEW_NOTE);
+  return JSON.stringify({...reply,warnings},null,2);
+}
 export function identityKey(q: Comparable): string {
   const options = q.options.map(o => clean(o.content));
   // Repeated option text cannot be remapped unambiguously: retain its order.
@@ -77,7 +131,7 @@ export function toQuestion(reply: ModelReply, bank: string, id: () => string, at
   return {schema_version:'1.0', question_id:id(), base_revision:1, type:reply.type, stem:reply.stem,
     options:reply.options.map(o => ({...o, option_id:id()})), answer:reply.answer, bank, external_id:'',
     chapter:'', tags:[], explanation:reply.explanation, status:'unreviewed', difficulty:'', applicable_version:'',
-    source_note:`大模型作答 · ${reply.model.name} / ${reply.model.version}`, issues:reply.warnings,
+    source_note:`${reply.warnings.includes(MANUAL_REVIEW_NOTE)?'人工修改，原始模型':'大模型作答'} · ${reply.model.name} / ${reply.model.version}`, issues:reply.warnings,
     sources:[{kind:'model_reply', model:reply.model, answer_origin:reply.answer_origin, warnings:reply.warnings, recorded_at:at}], attachments:[]};
 }
 export function uuidFromBytes(bytes: Uint8Array): string {

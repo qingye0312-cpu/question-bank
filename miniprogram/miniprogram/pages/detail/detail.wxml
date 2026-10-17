@@ -2,7 +2,7 @@
   <view wx:if="{{loading}}" class="muted">正在读取题目…</view>
   <view wx:elif="{{error}}" class="error">{{error}}</view>
   <block wx:else>
-    <view class="detail-meta muted">{{kind}} · {{number}}</view>
+    <view wx:if="{{layer}}" class="detail-meta">{{layer}}</view><view class="detail-meta muted">{{kind}} · {{number}}</view>
     <view class="paper">
       <view class="stem"><text user-select wx:for="{{stem}}" wx:key="index" class="{{item.color >= 0 ? 'match-' + item.color : ''}}">{{item.text}}</text></view>
       <view wx:for="{{options}}" wx:key="key" class="option {{item.correct ? 'correct-option' : ''}}">

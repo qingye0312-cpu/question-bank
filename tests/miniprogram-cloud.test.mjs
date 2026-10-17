@@ -6,9 +6,9 @@ import vm from 'node:vm';
 import {createRequire} from 'node:module';
 import {fileURLToPath} from 'node:url';
 import {randomBytes,randomUUID} from 'node:crypto';
-import {gunzipSync} from 'node:zlib';
+import {gunzipSync,gzipSync} from 'node:zlib';
 import ts from 'typescript';
-import {parseDelta,parseModelReply,deltaPackage,toQuestion} from '../shared/intake.ts';
+import {parseDelta,validateStandardQuestion,parseModelReply,deltaPackage,toQuestion,sha256} from '../shared/intake.ts';
 const require=createRequire(import.meta.url);
 const {createHandler,decodeUpload}=require('../cloud/qbank-auth/service.cjs');
 const root=fileURLToPath(new URL('../miniprogram/miniprogram/',import.meta.url));
@@ -16,11 +16,11 @@ const fixture=fs.readFileSync(new URL('fixtures/intake/mobile-delta.json',import
 const modelReply={format:'qbank-photo-question-1',type:'single',stem:'云端录题 🧪',options:[{key:'A',content:'中文'},{key:'B',content:'英文'}],answer:['A'],answer_origin:'inferred',explanation:'用于自动测试。',model:{name:'测试模型',version:'test-1',version_source:'user'},warnings:[]};
 
 function server(){
- const records=new Map(),env={WX_APP_ID:'wx22c8135ae81d3acc',WX_APP_SECRET:'only-for-test',QBANK_SESSION_SECRET:'a'.repeat(64),
+ const records=new Map(),states=new Map(),env={WX_APP_ID:'wx22c8135ae81d3acc',WX_APP_SECRET:'only-for-test',QBANK_SESSION_SECRET:'a'.repeat(64),
   QBANK_BANKS:'[]',QBANK_DEVELOPERS:'{}',QBANK_UPLOAD_ENABLED:'true'};
- const handle=createHandler({env:()=>env,parseDelta,parseModelReply,exchangeCode:async()=>({openid:'test-developer-openid'}),
-  store:{createSubmission:async(key,record)=>{const previous=records.get(key);if(previous)return {record:previous,created:false};records.set(key,record);return {record,created:true};}}});
- return {env,records,allow(bank_id,name){env.QBANK_BANKS=JSON.stringify([{bank_id,name}]);env.QBANK_DEVELOPERS=JSON.stringify({'test-developer-openid':[bank_id]});},handle};
+ const handle=createHandler({env:()=>env,parseDelta,validateStandardQuestion,parseModelReply,exchangeCode:async()=>({openid:'test-developer-openid'}),
+  store:{readState:async id=>states.get(id)||null,createState:async state=>{const old=states.get(state.bank_id);if(old&&old.revision>=state.revision)return false;states.set(state.bank_id,structuredClone(state));return true;},createSubmission:async(key,record)=>{const previous=records.get(key);if(previous)return {record:previous,created:false};records.set(key,record);return {record,created:true};}}});
+ return {env,records,states,allow(bank_id,name){env.QBANK_BANKS=JSON.stringify([{bank_id,name}]);env.QBANK_DEVELOPERS=JSON.stringify({'test-developer-openid':[bank_id]});},handle};
 }
 function mobile(s=server(),disk=new Map()){
  const modules=new Map(),calls=[],storage=new Map();let broken=false,mode='ok',environment='develop',capturedPage;
@@ -28,11 +28,11 @@ function mobile(s=server(),disk=new Map()){
   getStorageSync:k=>storage.get(k),setStorageSync:(k,v)=>storage.set(k,v),
   getRandomValues:o=>{const b=randomBytes(o.length);o.success({randomValues:b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength)});},
   login:o=>{calls.push('wx.login');o.success({code:'test-new-code'});},
-  request:o=>{const url=new URL(o.url);calls.push(url.pathname);
+  request:o=>{const url=new URL(o.url);calls.push(url.pathname);if(mode==='offline'){o.fail({errMsg:'offline'});return;}
     void s.handle({httpMethod:o.method,path:url.pathname,headers:o.header,body:o.data}).then(r=>{
       if(url.pathname==='/v1/uploads'&&mode==='lose-response'){mode='ok';o.fail({errMsg:'timeout'});return;}
       if(url.pathname==='/v1/uploads'&&mode==='disk-full')broken=true;
-      const data=JSON.parse(r.body);
+      const data=JSON.parse(r.body);if(mode==='corrupt'&&url.pathname.endsWith('/snapshot'))data.payload+=' ';
       if(url.pathname==='/v1/uploads'&&mode==='bad-receipt'&&data.receipt)data.receipt.bank_id=randomUUID();
       o.success({statusCode:r.statusCode,data});
     });},
@@ -47,7 +47,7 @@ function mobile(s=server(),disk=new Map()){
   const source=fs.readFileSync(filename,'utf8');
   const compiled=filename.endsWith('.ts')?ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2020,module:ts.ModuleKind.CommonJS}}).outputText:source;
   vm.runInNewContext(compiled,{exports:module.exports,module,require:name=>load(path.resolve(path.dirname(filename),name)),wx,
-   Page:page=>{capturedPage=page;},console,Uint8Array,Uint16Array,Uint32Array,Int32Array,ArrayBuffer,Date,setTimeout,clearTimeout,Promise,Map,Set});
+   Page:page=>{capturedPage=page;},console,Uint8Array,Uint16Array,Uint32Array,Int32Array,ArrayBuffer,DataView,Date,setTimeout,clearTimeout,Promise,Map,Set});
   return module.exports;
  }
  return {s,load,disk,calls,mode:value=>{mode=value;},diskBroken:value=>{broken=value;},environment:value=>{environment=value;},page:()=>capturedPage};
@@ -158,4 +158,28 @@ test('expired sessions reauthenticate only on an explicit action and logout canc
  await client.authorize(bank.bank_id,bank.name);assert.equal(logins,2);
  const cancelled=createCloudClient({origin:()=> 'https://test.invalid',login:()=>new Promise(r=>{release=r;}),request:async(_origin,p)=>({status:200,body:p.endsWith('wechat')?{access_token:token,openid:'user',expires_in:900,banks:[bank]}:{openid:'user',permissions:['upload'],uploads_enabled:true,banks:[bank]}})});
  const pending=cancelled.login();cancelled.logout();release('test-code');await assert.rejects(pending,/登录已取消/);assert.equal(cancelled.state().loggedIn,false);
+});
+
+test('compressed file import decodes Node gzip, validates CRC and rejects truncated, concatenated or oversized data',async()=>{
+ const m=mobile(),{unpackUpload}=m.load('core/upload');
+ const envelope={format:'qbank-upload-1',encoding:'gzip+base64',uncompressed_size:Buffer.byteLength(fixture),sha256:sha256(fixture),data:gzipSync(Buffer.from(fixture)).toString('base64')};
+ assert.equal(unpackUpload(JSON.stringify(envelope)),fixture);
+ assert.equal((await m.load('services/intake').importDelta(JSON.stringify(envelope))).added,1);
+ for(const data of [gzipSync(Buffer.from(fixture)).subarray(0,-1),Buffer.concat([gzipSync(Buffer.from(fixture)),gzipSync(Buffer.from('extra'))]),gzipSync(Buffer.alloc(4*1024*1024+1,65))])assert.throws(()=>unpackUpload(JSON.stringify({...envelope,data:data.toString('base64')})));
+ const corrupt=gzipSync(Buffer.from(fixture));corrupt[corrupt.length-8]^=1;assert.throws(()=>unpackUpload(JSON.stringify({...envelope,data:corrupt.toString('base64')})));
+ const exported=await m.load('services/intake').exportBatch(JSON.parse(fixture).batch_id,true);assert.equal(unpackUpload(m.disk.get(exported.filePath)),fixture);
+});
+
+test('anonymous sync updates pending layers, skips unchanged versions, survives corruption, disk full and offline reopening',async()=>{
+ const {m,banks,intake,bankId}=await setup(),sync=m.load('services/sync');m.s.env.QBANK_SYNC_ENABLED='true';
+ const q=toQuestion({...modelReply,stem:'远端候选'},'测试题库',randomUUID,new Date().toISOString());
+ const state={format:'qbank-state-1',bank_id:bankId,name:'测试题库',revision:1,release_version:1,formal:[],pending:[{id:'test',question:q,decision:'pending'}],resolved:[],batches:[],updated_at:new Date().toISOString()};m.s.states.set(bankId,state);
+ await sync.refreshCatalog();assert.equal(await sync.syncBank(bankId),true);banks.invalidateBank(bankId);assert.equal((await banks.loadBank(bankId)).bank.count,2);assert.ok(!m.calls.includes('wx.login'));
+ const downloads=()=>m.calls.filter(p=>p.endsWith('/snapshot')).length;const oldCount=downloads();assert.equal(await sync.syncBank(bankId),false);assert.equal(downloads(),oldCount);
+ state.revision=2;state.pending=[];state.resolved=[{id:'test',question_id:q.question_id,status:'rejected'}];
+ m.mode('corrupt');await assert.rejects(sync.syncBank(bankId));assert.equal((await sync.cachedSnapshot(bankId)).manifest.revision,1);
+ m.mode('ok');m.diskBroken(true);await assert.rejects(sync.syncBank(bankId));assert.equal((await sync.cachedSnapshot(bankId)).manifest.revision,1);
+ m.diskBroken(false);assert.equal(await sync.syncBank(bankId),true);banks.invalidateBank(bankId);assert.equal((await banks.loadBank(bankId)).bank.count,1);
+ const reopened=mobile(m.s,m.disk);reopened.mode('offline');await assert.rejects(reopened.load('services/sync').syncBank(bankId));assert.equal((await reopened.load('services/bank').loadBank(bankId)).bank.count,1);
+ const other=await banks.createBank('高级认证');await intake.saveReply(other,'',JSON.stringify({...modelReply,stem:'另一题库独立题'}));assert.equal((await banks.loadBank(other)).bank.count,1);assert.equal((await banks.loadBank(bankId)).bank.count,1);
 });

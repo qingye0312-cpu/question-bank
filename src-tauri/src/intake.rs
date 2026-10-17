@@ -12,6 +12,41 @@ use std::{
     path::Path,
 };
 
+#[derive(Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Metadata {
+    pub chapter: String,
+    pub tags: Vec<String>,
+    pub difficulty: String,
+    pub applicable_version: String,
+    pub external_id: String,
+}
+impl Metadata {
+    fn apply(self, q: &mut Question) -> Result<()> {
+        if [&self.chapter, &self.applicable_version, &self.external_id]
+            .iter()
+            .any(|s| s.chars().count() > 1000)
+            || !["", "easy", "medium", "hard"].contains(&self.difficulty.as_str())
+            || self.tags.len() > 50
+            || self.tags.iter().any(|s| s.chars().count() > 100)
+        {
+            return Err("章节、标签或难度等补充信息无效".into());
+        }
+        q.chapter = self.chapter;
+        let mut seen = HashSet::new();
+        q.tags = self
+            .tags
+            .into_iter()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty() && seen.insert(s.clone()))
+            .collect();
+        q.difficulty = self.difficulty;
+        q.applicable_version = self.applicable_version;
+        q.external_id = self.external_id;
+        q.validate(false)
+    }
+}
+
 pub fn initialize(c: &Connection) -> Result<()> {
     c.execute_batch("CREATE TABLE IF NOT EXISTS intake_batches(id TEXT PRIMARY KEY,bank_id TEXT NOT NULL REFERENCES banks(id),created_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS intake_entries(bank_id TEXT NOT NULL,question_id TEXT NOT NULL,batch_id TEXT NOT NULL REFERENCES intake_batches(id),created_at TEXT NOT NULL,upload_status TEXT NOT NULL DEFAULT 'pending',uploaded_at TEXT NOT NULL DEFAULT '',exported_at TEXT NOT NULL DEFAULT '',PRIMARY KEY(bank_id,question_id));
@@ -85,7 +120,7 @@ pub fn parse_reply(text: &str) -> Result<Question> {
         "type":r.kind.ok_or("题型未确定")?,"stem":r.stem,
         "options":r.options.into_iter().map(|o|json!({"key":o.key,"content":o.content})).collect::<Vec<_>>(),
         "answer":r.answer,"explanation":r.explanation,"issues":r.warnings,
-        "source_note":format!("大模型作答 · {} / {}",r.model.name,r.model.version),
+        "source_note":format!("{} · {} / {}",if r.warnings.iter().any(|w|w=="录入者已人工修改，请复核答案；模型信息仅记录原始作答来源。") {"人工修改，原始模型"} else {"大模型作答"},r.model.name,r.model.version),
         "sources":[{"kind":"model_reply","model":r.model,"answer_origin":r.answer_origin,"warnings":r.warnings,"recorded_at":now()}]
     })).map_err(err)?;
     q.validate(false)?;
@@ -153,7 +188,7 @@ pub struct Comparison {
     pub status: String,
     pub matches: Vec<Match>,
 }
-fn all_questions(c: &Connection, bank_id: &str) -> Result<Vec<(Question, bool)>> {
+pub(crate) fn all_questions(c: &Connection, bank_id: &str) -> Result<Vec<(Question, bool)>> {
     let mut s = c
         .prepare("SELECT data,deleted FROM questions WHERE bank_id=?1 ORDER BY rowid")
         .map_err(err)?;
@@ -231,6 +266,11 @@ fn add_batch(c: &Connection, id: &str, bank_id: &str) -> Result<()> {
 fn add_entry(c: &Connection, bank: &str, batch: &str, q: &Question) -> Result<()> {
     db::insert(c, bank, q)?;
     c.execute(
+        "INSERT OR REPLACE INTO intake_originals(bank_id,question_id,data) VALUES(?1,?2,?3)",
+        params![bank, q.question_id, serde_json::to_string(q).map_err(err)?],
+    )
+    .map_err(err)?;
+    c.execute(
         "INSERT INTO intake_entries(bank_id,question_id,batch_id,created_at) VALUES(?1,?2,?3,?4)",
         params![bank, q.question_id, batch, now()],
     )
@@ -238,6 +278,15 @@ fn add_entry(c: &Connection, bank: &str, batch: &str, q: &Question) -> Result<()
     Ok(())
 }
 pub fn save(store: &Store, bank_id: &str, batch_id: &str, text: &str) -> Result<Saved> {
+    save_with_metadata(store, bank_id, batch_id, text, Metadata::default())
+}
+pub fn save_with_metadata(
+    store: &Store,
+    bank_id: &str,
+    batch_id: &str,
+    text: &str,
+    metadata: Metadata,
+) -> Result<Saved> {
     let mut c = store.conn()?;
     let tx = c
         .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
@@ -245,6 +294,7 @@ pub fn save(store: &Store, bank_id: &str, batch_id: &str, text: &str) -> Result<
     let b = db::get_bank(&tx, bank_id)?;
     let mut q = parse_reply(text)?;
     q.bank = b.name;
+    metadata.apply(&mut q)?;
     let comparison = compare(&tx, bank_id, q)?;
     if comparison.status != "new" {
         return Ok(Saved {
@@ -253,7 +303,21 @@ pub fn save(store: &Store, bank_id: &str, batch_id: &str, text: &str) -> Result<
             added: false,
         });
     }
-    let batch = if batch_id.is_empty() {
+    let frozen:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM intake_transfers WHERE batch_id=?1) OR (SELECT COUNT(*) FROM intake_entries WHERE batch_id=?1)>=100",[batch_id],|r|r.get(0)).map_err(err)?;
+    if !batch_id.is_empty() {
+        let bank: Option<String> = tx
+            .query_row(
+                "SELECT bank_id FROM intake_batches WHERE id=?1",
+                [batch_id],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(err)?;
+        if bank.as_deref().is_some_and(|b| b != bank_id) {
+            return Err("该批次属于另一题库".into());
+        }
+    }
+    let batch = if batch_id.is_empty() || frozen {
         uid()
     } else {
         batch_id.into()
@@ -281,12 +345,13 @@ pub struct Batch {
 pub struct Entry {
     pub question: Question,
     pub upload_status: String,
+    pub review_status: String,
     pub uploaded_at: String,
     pub exported_at: String,
 }
 pub fn batches(store: &Store) -> Result<Vec<Batch>> {
     let c = store.conn()?;
-    let mut s=c.prepare("SELECT b.id,b.bank_id,k.name,b.created_at,COUNT(q.id),COALESCE(SUM(q.id IS NOT NULL AND e.upload_status='pending'),0) FROM intake_batches b JOIN banks k ON k.id=b.bank_id LEFT JOIN intake_entries e ON e.batch_id=b.id LEFT JOIN questions q ON q.bank_id=e.bank_id AND q.id=e.question_id AND q.deleted=0 GROUP BY b.id ORDER BY b.created_at DESC").map_err(err)?;
+    let mut s=c.prepare("SELECT b.id,b.bank_id,k.name,b.created_at,COUNT(e.question_id),COALESCE(SUM(e.question_id IS NOT NULL AND e.upload_status='pending'),0) FROM intake_batches b JOIN banks k ON k.id=b.bank_id LEFT JOIN intake_entries e ON e.batch_id=b.id LEFT JOIN questions q ON q.bank_id=e.bank_id AND q.id=e.question_id AND q.deleted=0 GROUP BY b.id ORDER BY b.created_at DESC").map_err(err)?;
     let rows = s
         .query_map([], |r| {
             Ok(Batch {
@@ -304,8 +369,28 @@ pub fn batches(store: &Store) -> Result<Vec<Batch>> {
 pub fn entries(store: &Store, batch_id: &str) -> Result<Vec<Entry>> {
     entries_conn(&store.conn()?, batch_id)
 }
-fn entries_conn(c: &Connection, batch_id: &str) -> Result<Vec<Entry>> {
-    let mut s=c.prepare("SELECT q.data,e.upload_status,e.uploaded_at,e.exported_at FROM intake_entries e JOIN questions q ON q.bank_id=e.bank_id AND q.id=e.question_id AND q.deleted=0 WHERE e.batch_id=?1 ORDER BY e.created_at,q.rowid").map_err(err)?;
+pub fn entries_conn(c: &Connection, batch_id: &str) -> Result<Vec<Entry>> {
+    let snapshot: Option<String> = c.query_row("SELECT s.payload FROM cloud_snapshots s JOIN intake_batches b ON b.bank_id=s.bank_id WHERE b.id=?1", [batch_id], |r| r.get(0)).optional().map_err(err)?;
+    let mut review_states = HashMap::new();
+    if let Some(raw) = snapshot {
+        let value: Value = serde_json::from_str(&raw).map_err(err)?;
+        if let Some(removed) = value["removed"].as_array() {
+            for r in removed {
+                if let (Some(id), Some(status)) = (r["question_id"].as_str(), r["status"].as_str())
+                {
+                    review_states.insert(id.to_string(), status.to_string());
+                }
+            }
+        }
+        if let Some(pending) = value["pending"].as_array() {
+            for q in pending {
+                if let Some(id) = q["question_id"].as_str() {
+                    review_states.insert(id.to_string(), "pending".into());
+                }
+            }
+        }
+    }
+    let mut s=c.prepare("SELECT COALESCE(o.data,q.data),e.upload_status,e.uploaded_at,e.exported_at FROM intake_entries e LEFT JOIN questions q ON q.bank_id=e.bank_id AND q.id=e.question_id LEFT JOIN intake_originals o ON o.bank_id=e.bank_id AND o.question_id=e.question_id WHERE e.batch_id=?1 AND COALESCE(o.deleted,q.deleted,0)=0 AND COALESCE(o.data,q.data) IS NOT NULL ORDER BY e.created_at,e.question_id").map_err(err)?;
     let rows = s
         .query_map([batch_id], |r| {
             Ok((
@@ -318,8 +403,13 @@ fn entries_conn(c: &Connection, batch_id: &str) -> Result<Vec<Entry>> {
         .map_err(err)?;
     rows.map(|r| {
         let (data, upload_status, uploaded_at, exported_at) = r.map_err(err)?;
+        let question: Question = serde_json::from_str(&data).map_err(err)?;
         Ok(Entry {
-            question: serde_json::from_str(&data).map_err(err)?,
+            review_status: review_states
+                .get(&question.question_id)
+                .cloned()
+                .unwrap_or_default(),
+            question,
             upload_status,
             uploaded_at,
             exported_at,
@@ -328,6 +418,10 @@ fn entries_conn(c: &Connection, batch_id: &str) -> Result<Vec<Entry>> {
     .collect()
 }
 pub fn mark_upload(store: &Store, bank_id: &str, question_id: &str, uploaded: bool) -> Result<()> {
+    let locked:bool=store.conn()?.query_row("SELECT EXISTS(SELECT 1 FROM intake_entries e JOIN intake_transfers t ON t.batch_id=e.batch_id WHERE e.bank_id=?1 AND e.question_id=?2 AND t.endpoint<>'')",params![bank_id,question_id],|r|r.get(0)).map_err(err)?;
+    if locked {
+        return Err("云端上传状态只能由回执确认".into());
+    }
     let n=store.conn()?.execute("UPDATE intake_entries SET upload_status=?1,uploaded_at=?2 WHERE bank_id=?3 AND question_id=?4",params![if uploaded{"uploaded_manual"}else{"pending"},if uploaded{now()}else{String::new()},bank_id,question_id]).map_err(err)?;
     if n != 1 {
         return Err("找不到这条本地录入记录".into());
@@ -347,47 +441,30 @@ pub struct Delta {
     pub sha256: String,
 }
 pub fn export(store: &Store, batch_id: &str, path: &Path) -> Result<usize> {
-    let mut c = store.conn()?;
-    let tx = c.transaction().map_err(err)?;
-    let bank_id: String = tx
-        .query_row(
-            "SELECT bank_id FROM intake_batches WHERE id=?1",
-            [batch_id],
-            |r| r.get(0),
+    let transfer = crate::cloud::transfer(store, batch_id, "")?;
+    let raw = transfer["raw"].as_str().ok_or("批次无效")?;
+    let delta: Delta = serde_json::from_str(raw).map_err(err)?;
+    let bytes = if path.to_string_lossy().ends_with(".qbank-upload.json") {
+        serde_json::to_vec_pretty(&crate::cloud::encode(raw)?).map_err(err)?
+    } else {
+        raw.as_bytes().to_vec()
+    };
+    exchange::atomic_write(path, &bytes)?;
+    store
+        .conn()?
+        .execute(
+            "UPDATE intake_entries SET exported_at=?1 WHERE batch_id=?2",
+            params![now(), batch_id],
         )
         .map_err(err)?;
-    let bank = db::get_bank(&tx, &bank_id)?;
-    let entries = entries_conn(&tx, batch_id)?;
-    if entries.is_empty() {
-        return Err("该批次没有可导出的新题".into());
-    }
-    let mut payload = String::new();
-    for entry in &entries {
-        entry.question.validate(false)?;
-        payload.push_str(&serde_json::to_string(&entry.question).map_err(err)?);
-        payload.push('\n');
-    }
-    let delta = Delta {
-        format: "qbank-delta-1".into(),
-        bank_id,
-        name: bank.name,
-        batch_id: batch_id.into(),
-        created_at: now(),
-        question_count: entries.len(),
-        sha256: hash(payload.as_bytes()),
-        payload,
-    };
-    exchange::atomic_write(path, &serde_json::to_vec_pretty(&delta).map_err(err)?)?;
-    tx.execute(
-        "UPDATE intake_entries SET exported_at=?1 WHERE batch_id=?2",
-        params![now(), batch_id],
-    )
-    .map_err(err)?;
-    tx.commit().map_err(err)?;
-    Ok(entries.len())
+    Ok(delta.question_count)
 }
+
 pub fn read_delta(path: &Path) -> Result<(Delta, Vec<Question>)> {
-    let bytes = exchange::read_file(path)?;
+    read_delta_bytes(&exchange::read_file(path)?)
+}
+fn read_delta_bytes(input: &[u8]) -> Result<(Delta, Vec<Question>)> {
+    let bytes = crate::cloud::decode(input)?;
     let delta: Delta =
         serde_json::from_slice(&bytes).map_err(|e| format!("增量包格式无效：{e}"))?;
     if delta.format != "qbank-delta-1"
@@ -431,7 +508,8 @@ pub struct Imported {
     pub batch_id: String,
 }
 pub fn import(store: &Store, path: &Path) -> Result<Imported> {
-    let (d, qs) = read_delta(path)?;
+    let source = exchange::read_file(path)?;
+    let (d, qs) = read_delta_bytes(&source)?;
     let mut c = store.conn()?;
     let tx = c
         .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
@@ -470,6 +548,7 @@ pub fn import(store: &Store, path: &Path) -> Result<Imported> {
         result.skipped = qs.len();
         return Ok(result);
     }
+    let before = crate::import_jobs::rows(&tx, &d.bank_id)?;
     let old = all_questions(&tx, &d.bank_id)?;
     let mut by_id: HashMap<String, Question> = old
         .iter()
@@ -479,7 +558,8 @@ pub fn import(store: &Store, path: &Path) -> Result<Imported> {
     for (q, _) in old {
         by_content.entry(identity(&q)).or_default().push(q);
     }
-    add_batch(&tx, &d.batch_id, &d.bank_id)?;
+    let total = qs.len();
+    let mut accepted = vec![];
     for mut q in qs {
         let key = identity(&q);
         let found = by_content.get(&key);
@@ -504,10 +584,38 @@ pub fn import(store: &Store, path: &Path) -> Result<Imported> {
         }
         q.bank = b.name.clone();
         q.prepare();
-        add_entry(&tx, &d.bank_id, &d.batch_id, &q)?;
+        accepted.push(q.clone());
         by_id.insert(q.question_id.clone(), q.clone());
         by_content.entry(key).or_default().push(q);
         result.added += 1;
+    }
+    if !accepted.is_empty() {
+        let batch_exists: bool = tx
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM intake_batches WHERE id=?1)",
+                [&d.batch_id],
+                |r| r.get(0),
+            )
+            .map_err(err)?;
+        let complete = !batch_exists && accepted.len() == total;
+        result.batch_id = if complete {
+            d.batch_id.clone()
+        } else {
+            uuid::Uuid::new_v4().to_string()
+        };
+        add_batch(&tx, &result.batch_id, &d.bank_id)?;
+        for q in &accepted {
+            add_entry(&tx, &d.bank_id, &result.batch_id, q)?;
+        }
+        // Preserve exact sender bytes for an intact import and future retries.
+        if complete && accepted.iter().all(|q| q.bank == d.name) {
+            let raw = String::from_utf8(crate::cloud::decode(&source)?).map_err(err)?;
+            tx.execute(
+                "INSERT INTO intake_transfers(batch_id,raw) VALUES(?1,?2)",
+                params![result.batch_id, raw],
+            )
+            .map_err(err)?;
+        }
     }
     // A conflicting package must remain retryable after the user corrects the bank.
     if result.conflicts == 0 {
@@ -521,6 +629,7 @@ pub fn import(store: &Store, path: &Path) -> Result<Imported> {
         db::touch(&tx, &d.bank_id)?;
         tx.execute("UPDATE snapshots SET expected_version=(SELECT version FROM banks WHERE id=?1) WHERE bank_id=?1",[&d.bank_id]).map_err(err)?;
     }
+    crate::import_jobs::record(&tx, &d.bank_id, "新题增量包", &d.sha256, &before)?;
     tx.commit().map_err(err)?;
     Ok(result)
 }
@@ -570,12 +679,13 @@ pub fn restore_snapshot(c: &Connection, bank_id: &str) -> Result<()> {
         c.execute("DELETE FROM intake_snapshots WHERE bank_id=?1", [bank_id])
             .map_err(err)?;
     }
+    c.execute("UPDATE intake_originals SET data=(SELECT q.data FROM questions q WHERE q.bank_id=intake_originals.bank_id AND q.id=intake_originals.question_id),deleted=(SELECT q.deleted FROM questions q WHERE q.bank_id=intake_originals.bank_id AND q.id=intake_originals.question_id) WHERE bank_id=?1 AND EXISTS(SELECT 1 FROM questions q WHERE q.bank_id=intake_originals.bank_id AND q.id=intake_originals.question_id) AND NOT EXISTS(SELECT 1 FROM intake_entries e JOIN intake_transfers t ON t.batch_id=e.batch_id WHERE e.bank_id=intake_originals.bank_id AND e.question_id=intake_originals.question_id)",[bank_id]).map_err(err)?;
     c.execute("DELETE FROM delta_imports WHERE bank_id=?1", [bank_id])
         .map_err(err)?;
     Ok(())
 }
 // Preserve local additions during a later full release. A publisher can absorb
-// an addition under another UUID; reattach its intake record to the published ID.
+// an addition under another UUID; keep its original intake identity and receipt.
 pub fn preserve_additions(
     c: &Connection,
     bank_id: &str,
@@ -593,7 +703,7 @@ pub fn preserve_additions(
             continue;
         }
         if let Some(published) = incoming_keys.get(&identity(&q)) {
-            c.execute("UPDATE OR IGNORE intake_entries SET question_id=?1 WHERE bank_id=?2 AND question_id=?3",params![published.question_id,bank_id,q.question_id]).map_err(err)?;
+            let _ = published; // Original draft and receipt remain under their original identity.
         } else {
             kept.push(q);
         }

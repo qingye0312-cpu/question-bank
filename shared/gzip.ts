@@ -1,2 +1,2 @@
-// Build only the synchronous gzip encoder needed by the Mini Program.
-export {gzipSync} from 'fflate';
+// Bounded streaming decompression is used for imported increment packages.
+export {gzipSync,Gunzip} from 'fflate';

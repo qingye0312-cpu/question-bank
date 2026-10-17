@@ -7,13 +7,14 @@ import type {Hit, Results} from './types';
 const kinds: Record<string, string> = {single: '单选', multiple: '多选', true_false: '判断'};
 type Props = {
   bankId: string; query: string; kind: string; trash: boolean; revision: number;
+  filters?:Record<string,string>;
   fontScale: number; active: Hit | null; keyboardEnabled: boolean;
   onSelect: (hit: Hit) => void;
   onResults: (result: Results, initial: boolean) => void;
 };
 
-export function DetailResults({bankId, query, kind, trash, revision, fontScale, active, keyboardEnabled, onSelect, onResults}: Props) {
-  const {items, more, loading, error, loadMore} = useQuestionResults({text: query, bank_id: bankId, kind, trash}, revision, onResults);
+export function DetailResults({filters={},bankId, query, kind, trash, revision, fontScale, active, keyboardEnabled, onSelect, onResults}: Props) {
+  const {items, more, loading, error, loadMore} = useQuestionResults({...filters,text: query, bank_id: bankId, kind, trash}, revision, onResults);
   const viewport = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [height, setHeight] = useState(600);
@@ -23,7 +24,7 @@ export function DetailResults({bankId, query, kind, trash, revision, fontScale, 
   useLayoutEffect(() => {
     setScrollTop(0);
     viewport.current?.scrollTo(0, 0);
-  }, [bankId, query, kind, trash, revision]);
+  }, [bankId, query, kind, trash, revision,JSON.stringify(filters)]);
   useLayoutEffect(() => {
     const element = viewport.current;
     if (!element) return;
@@ -66,7 +67,7 @@ export function DetailResults({bankId, query, kind, trash, revision, fontScale, 
           <button className={`result ${active?.rowid === hit.rowid ? 'active' : ''}`} aria-pressed={active?.rowid === hit.rowid} onClick={() => onSelect(hit)}>
             <div className="result-meta"><span className={`type-badge ${hit.question.type}`}>{kinds[hit.question.type]}</span><span>{hit.question.external_id || hit.question.question_id.slice(0, 8)}</span><ChevronRight size={13}/></div>
             <div className="result-stem"><SearchMark text={hit.question.stem} query={query}/></div>
-            <div className="result-bottom"><span>{hit.bank_name}</span>{hit.question.status === 'verified' && <CheckCircle2 size={13}/>}</div>
+            <div className="result-bottom"><span>{hit.bank_name}{hit.layer==='pending'?' · 待审核':hit.layer==='draft'?' · 本地新题':''}</span>{hit.question.status === 'verified' && <CheckCircle2 size={13}/>}</div>
           </button>
         </div>)}
       </div>

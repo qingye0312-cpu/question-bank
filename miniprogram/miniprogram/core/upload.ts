@@ -1,4 +1,4 @@
-import {gzipSync} from '../vendor/gzip';
+import {gzipSync,Gunzip} from '../vendor/gzip';
 import {parseDelta, sha256} from './intake';
 
 export type UploadEnvelope = {format:'qbank-upload-1'; encoding:'gzip+base64'; uncompressed_size:number; sha256:string; data:string};
@@ -53,4 +53,29 @@ export function verifyReceipt(value:unknown, expected:ReturnType<typeof prepareU
     throw new Error('云端回执与本批次不一致，未标记上传成功；请保留本地批次并重试');
   return {submission_id:r.submission_id,bank_id:r.bank_id,batch_id:r.batch_id,sha256:r.sha256,
     payload_sha256:r.payload_sha256,question_count:r.question_count,status:r.status,accepted_at:r.accepted_at};
+}
+
+// Do not trust the advertised size to bound decompression. Feed small chunks and
+// stop before accumulated output exceeds the protocol limit.
+export function unpackUpload(text:string):string {
+ if(text.length>UPLOAD_LIMITS.expandedBytes)throw Error('文件过大');
+ let v:any;try{v=JSON.parse(text)}catch{throw Error('文件不是有效 JSON')}
+ if(v.format!=='qbank-upload-1')return text;
+ if(v.encoding!=='gzip+base64'||!Number.isSafeInteger(v.uncompressed_size)||v.uncompressed_size<1||v.uncompressed_size>UPLOAD_LIMITS.expandedBytes
+  ||typeof v.data!=='string'||v.data.length>700000||v.data.length%4!==0||!/^[A-Za-z0-9+/]*={0,2}$/.test(v.data))throw Error('压缩包格式或大小无效');
+ const chars='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/',arr:number[]=[];
+ for(let i=0;i<v.data.length;i+=4){const n=(chars.indexOf(v.data[i])<<18)|(chars.indexOf(v.data[i+1])<<12)|((chars.indexOf(v.data[i+2])&63)<<6)|(chars.indexOf(v.data[i+3])&63);arr.push((n>>>16)&255);if(v.data[i+2]!=='=')arr.push((n>>>8)&255);if(v.data[i+3]!=='=')arr.push(n&255);}
+ const bytes=new Uint8Array(arr);if(bytes.length>UPLOAD_LIMITS.compressedBytes||bytes.length<18||base64(bytes)!==v.data)throw Error('Base64 格式或大小无效');
+ const chunks:Uint8Array[]=[];let size=0,done=false;
+ const stream=new Gunzip((chunk,final)=>{size+=chunk.length;if(size>v.uncompressed_size)throw Error('解压内容超过声明大小');chunks.push(chunk);done=final;});
+ stream.onmember=()=>{throw Error('不接受多个拼接的 gzip 数据流')};
+ try{for(let i=0;i<bytes.length;i+=1024)stream.push(bytes.subarray(i,i+1024),i+1024>=bytes.length);}catch{throw Error('压缩包损坏或解压超限')}
+ if(!done||size!==v.uncompressed_size)throw Error('解压大小不一致');
+ const raw=new Uint8Array(size);let at=0;for(const chunk of chunks){raw.set(chunk,at);at+=chunk.length;}
+ let crc=0xffffffff;for(const b of raw){crc^=b;for(let i=0;i<8;i++)crc=(crc>>>1)^((crc&1)?0xedb88320:0);}crc=(crc^0xffffffff)>>>0;
+ const tail=new DataView(bytes.buffer,bytes.length-8);if(tail.getUint32(0,true)!==crc||tail.getUint32(4,true)!==size)throw Error('gzip 校验失败');
+ // Percent decoding validates UTF-8 in WeChat environments without TextDecoder.
+ let encoded='';for(const b of raw)encoded+='%'+b.toString(16).padStart(2,'0');
+ let result:string;try{result=decodeURIComponent(encoded)}catch{throw Error('题库文字编码损坏')}
+ if(sha256(result)!==v.sha256)throw Error('压缩包摘要不一致');parseDelta(result);return result;
 }

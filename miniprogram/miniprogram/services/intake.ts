@@ -1,17 +1,18 @@
-import {parseModelReply,identityKey,sameAnswer,toQuestion,deltaPackage,parseDelta} from '../core/intake';
+import {parseModelReply,identityKey,sameAnswer,toQuestion,deltaPackage,parseDelta,intakeMetadata,type IntakeMetadata} from '../core/intake';
 import {loadBank,invalidateBank,listBanks} from './bank';
 import {readLocal,updateLocal,createIds} from './intake-store';
+import {prepareUpload,unpackUpload} from '../core/upload';
 import type {Question} from '../core/search';
 export async function compareReply(bankId:string,text:string){
  const reply=parseModelReply(text),{bank}=await loadBank(bankId),key=identityKey(reply),matches:Question[]=[];
  for(let i=0;i<bank.count;i++){const q=bank.question(i);if(identityKey(q)===key)matches.push(q);}
  return {reply,matches,status:!matches.length?'new':matches.every(q=>sameAnswer(q,reply))?'duplicate':'conflict'};
 }
-export async function saveReply(bankId:string,batchId:string,text:string){
+export async function saveReply(bankId:string,batchId:string,text:string,metadata:Partial<IntakeMetadata>={}){
  const comparison=await compareReply(bankId,text);
  if(comparison.status!=='new')return {comparison,batchId,added:false};
  const {manifest}=await loadBank(bankId),ids=await createIds(10),at=new Date().toISOString();
- const q=toQuestion(comparison.reply,manifest.name,ids,at);let batch=batchId||ids();
+ const q={...toQuestion(comparison.reply,manifest.name,ids,at),...intakeMetadata(metadata)};let batch=batchId||ids();
  const added=await updateLocal(data=>{
   if(data.entries.some(e=>e.bankId===bankId&&identityKey(e.question)===identityKey(q)))return false;
   let existing=data.batches.find(b=>b.id===batch);if(existing&&existing.bankId!==bankId)throw new Error('批次属于其他题库');
@@ -28,7 +29,7 @@ export async function markUpload(bankId:string,id:string,uploaded:boolean){
   if(data.batches.find(b=>b.id===e.batchId)?.upload)throw new Error('云端上传状态由回执确认，不能手动更改');
   e.uploadStatus=uploaded?'uploaded_manual':'pending'});
 }
-export async function exportBatch(batchId:string):Promise<{filePath:string;fileName:string}>{
+export async function exportBatch(batchId:string,compressed=false):Promise<{filePath:string;fileName:string}>{
  const data=await readLocal(),batch=data.batches.find(b=>b.id===batchId);if(!batch)throw new Error('请选择录入批次');
  const {manifest}=await loadBank(batch.bankId),at=new Date().toISOString();
  const payload=await updateLocal(next=>{
@@ -37,15 +38,16 @@ export async function exportBatch(batchId:string):Promise<{filePath:string;fileN
    next.entries.filter(e=>e.bankId===batch.bankId&&e.batchId===batchId).map(e=>e.question),current.createdAt);
   return current.sealedText;
  });
- const fileName=`${manifest.name.replace(/[\\/:*?"<>|]/g,'_')}_${batchId.slice(0,8)}.qbank-delta.json`;
+ const fileName=`${manifest.name.replace(/[\\/:*?"<>|]/g,'_')}_${batchId.slice(0,8)}.${compressed?'qbank-upload':'qbank-delta'}.json`;
  const filePath=`${wx.env.USER_DATA_PATH}/${fileName}`;
  const fs=wx.getFileSystemManager();
- await new Promise<void>((resolve,reject)=>fs.writeFile({filePath:filePath+'.tmp',data:payload,encoding:'utf8',success:()=>resolve(),fail:reject}));
+ await new Promise<void>((resolve,reject)=>fs.writeFile({filePath:filePath+'.tmp',data:compressed?JSON.stringify(prepareUpload(payload).envelope):payload,encoding:'utf8',success:()=>resolve(),fail:reject}));
  await new Promise<void>((resolve,reject)=>fs.rename({oldPath:filePath+'.tmp',newPath:filePath,success:()=>resolve(),fail:reject}));
  await updateLocal(next=>{for(const e of next.entries)if(e.batchId===batchId)e.exportedAt=at});
  return {filePath,fileName};
 }
 export async function importDelta(text:string){
+ text=unpackUpload(text);
  const {delta,questions}=parseDelta(text),at=new Date().toISOString(),ids=await createIds(1);
  const catalog=await listBanks();
  // A bundled bank may not yet have any local entries/catalog record.
