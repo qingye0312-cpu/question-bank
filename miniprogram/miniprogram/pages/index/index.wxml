@@ -20,8 +20,8 @@
     </view>
     <view class="header-fold" aria-hidden="{{headerCollapsed}}">
       <view class="header-fold-inner">
-        <view class="hint muted">空格分隔多个词，双引号搜索连续短语</view>
-        <view class="model-tools"><button bindtap="onCopyPrompt">大模型输出规范模版 · 复制</button><button bindtap="onIntake">录题 / 增量包</button></view>
+        <view class="hint muted"><text>空格分隔多个词，双引号搜索连续短语</text><button class="advanced-toggle" bindtap="onToggleAdvanced" aria-label="{{advancedOpen ? '收起高级功能' : '展开高级功能'}}" aria-expanded="{{advancedOpen}}" hover-class="advanced-toggle-hover">高级</button></view>
+        <view wx:if="{{advancedOpen}}" class="model-tools"><button bindtap="onCopyPrompt">大模型输出规范模版 · 复制</button><button bindtap="onIntake">录题 / 增量包</button></view>
         <view class="result-heading">
           <text>{{loading ? '正在查找…' : query ? '找到 ' + count + ' 道题' : '全部题目 · ' + count}}</text>
           <text class="muted">点击查看完整答案</text>

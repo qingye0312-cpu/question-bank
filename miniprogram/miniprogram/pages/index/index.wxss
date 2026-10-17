@@ -19,7 +19,9 @@ page { height: 100%; overflow: hidden; }
 .header-toggle-arrow { flex: none; width: 12rpx; height: 12rpx; border-top: 3rpx solid currentColor; border-right: 3rpx solid currentColor; transform: translateY(3rpx) rotate(-45deg); transition: transform 220ms ease; }
 .is-collapsed .header-toggle-arrow { transform: translateY(-3rpx) rotate(135deg); }
 .search-box .header-toggle-hover { opacity: .65; }
-.hint { font-size: 22rpx; margin-top: 14rpx; }
+.hint { display: flex; align-items: center; flex-wrap: wrap; gap: 12rpx; font-size: 22rpx; margin-top: 14rpx; }
+.hint .advanced-toggle { flex: none; width: auto; min-width: 0; margin: 0; padding: 0 4rpx; background: transparent; color: #377958; font-size: 22rpx; font-weight: 600; line-height: 1.5; border-radius: 4rpx; }
+.hint .advanced-toggle-hover { opacity: .65; }
 .result-heading { display: flex; justify-content: space-between; gap: 16rpx; padding-top: 36rpx; font-size: 23rpx; }
 .results { height: 0; flex: 1; min-height: 0; }
 .result-row { padding: 0 24rpx 16rpx; }
