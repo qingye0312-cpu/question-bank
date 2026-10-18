@@ -6,6 +6,7 @@ import path from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {spawn} from 'node:child_process';
 import net from 'node:net';
+import {gunzipSync} from 'node:zlib';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const executable = path.resolve(process.argv[2] || path.join(root, 'src-tauri/target/release/question-bank.exe'));
@@ -175,9 +176,20 @@ try {
     await page.keyboard.press('Escape');
     await page.locator('.question-preview').waitFor({state:'hidden'});
   });
+  await check('legacy largest font migrates to standard without losing display preferences', async () => {
+    await page.evaluate(()=>{
+      localStorage.setItem('question-bank.appearance.v1',JSON.stringify({fontSize:'xlarge',theme:'ocean',mode:'detail',speedPreview:true}));
+      localStorage.removeItem('question-bank.appearance.v2');
+    });
+    await stop(); await launch();
+    assert.equal(await page.locator('html').getAttribute('data-font-size'),'medium');
+    assert.equal(await page.locator('html').getAttribute('data-theme'),'ocean');
+    const migrated=await page.evaluate(()=>JSON.parse(localStorage.getItem('question-bank.appearance.v2')));
+    assert.equal(migrated.fontSize,'medium'); assert.equal(migrated.speedPreview,true);
+  });
   await check('four font sizes, six themes and saved layout preferences', async () => {
     await page.getByRole('button',{name:/^设置与维护/}).click();
-    for (const [label,id] of [['小','small'],['中默认','medium'],['大','large'],['超大','xlarge']]) {
+    for (const [label,id] of [['小','small'],['标准默认','medium'],['大','large'],['超大','xlarge']]) {
       await page.locator('.font-options button').filter({hasText:label}).first().click();
       await page.waitForFunction(id=>document.documentElement.dataset.fontSize===id,id);
     }
@@ -190,7 +202,7 @@ try {
     await page.getByRole('button',{name:'详细模式',exact:true}).click();
     await page.getByRole('button',{name:'收起侧栏',exact:true}).click();
     await page.getByRole('button',{name:'收起搜索区',exact:true}).click();
-    const saved = await page.evaluate(()=>JSON.parse(localStorage.getItem('question-bank.appearance.v1')));
+    const saved = await page.evaluate(()=>JSON.parse(localStorage.getItem('question-bank.appearance.v2')));
     assert.equal(saved.fontSize,'xlarge'); assert.equal(saved.theme,'night');
     assert.ok(saved.sidebarCollapsed && saved.searchCollapsed && saved.speedPreview);
     return saved;
@@ -370,36 +382,67 @@ try {
     assert.deepEqual(await invoke('software_update_check'), {configured:false});
     return info;
   });
-  await check('continuous intake edits answers and preserves pending questions and draft after restart', async () => {
+  await check('intake autosaves, edits, deletes and restores records, then retains incomplete drafts after restart', async () => {
     await page.getByRole('button',{name:'大模型录题',exact:true}).click();
     await page.getByLabel('录入题库').selectOption(seedBank.id);
     const reply = {format:'qbank-photo-question-1',type:'single',stem:'Windows 0.2.7 原生录题验证',options:[{key:'A',content:'第一个选项'},{key:'B',content:'正确选项'}],answer:['B'],answer_origin:'inferred',explanation:'隔离测试',model:{name:'Synthetic',version:'test',version_source:'user'},warnings:[]};
-    await page.getByLabel('模型原文',{exact:true}).fill(JSON.stringify(reply));
-    await page.locator('.intake-editor .model-editor textarea').first().waitFor();
+    await page.getByLabel('题目原文',{exact:true}).fill(JSON.stringify(reply));
+    await page.locator('.model-editor textarea').first().waitFor();
+    await page.getByLabel('B 选项操作',{exact:true}).click();
     await page.locator('.editable-option').nth(1).getByRole('button',{name:'上移',exact:true}).click();
     assert.equal(await page.getByRole('button',{name:'A 正确答案',exact:true}).getAttribute('aria-pressed'),'true');
-    await page.getByRole('button',{name:'保存本题，继续下一题',exact:true}).click();
-    await page.getByRole('heading',{name:'待上传 · 1 题',exact:true}).waitFor();
-    const batches = await invoke('intake_batches');
-    const batch = batches.find(b=>b.bank_id===seedBank.id);
-    assert.equal(batch.pending,1);
-    const entry = (await invoke('intake_entries',{batchId:batch.id}))[0];
-    assert.deepEqual(entry.question.answer,['A']);
-    assert.ok(entry.question.sources.some(s=>s.recorded_at));
-    reply.stem = 'Windows 尚未保存的草稿';
-    await page.getByLabel('模型原文',{exact:true}).fill(JSON.stringify(reply));
-    await page.waitForFunction(()=>document.querySelector('.intake-editor textarea')?.value==='Windows 尚未保存的草稿');
-    await page.getByRole('button',{name:'关闭录题窗口',exact:true}).click();
+    await page.getByRole('button',{name:'下一题',exact:true}).click();
+    let records = await invoke('draft_records',{bankId:seedBank.id});
+    assert.equal(records.length,1);
+    const original = records[0];
+    assert.deepEqual(original.question.answer,['A']);
+    assert.ok(original.recordedAt);
+    await page.getByRole('button',{name:/^录题记录/}).click();
+    await page.locator('.intake-record-card').getByRole('button',{name:'修改',exact:true}).click();
+    await page.locator('.model-editor textarea').first().fill('Windows 录题修改后验证');
+    await page.getByRole('button',{name:/^录题记录/}).click();
+    records = await invoke('draft_records',{bankId:seedBank.id});
+    assert.equal(records[0].reply.stem,'Windows 录题修改后验证');
+    assert.equal(records[0].recordedAt,original.recordedAt);
+    await page.locator('.intake-record-card').getByRole('button',{name:'删除',exact:true}).click();
+    await page.getByRole('button',{name:'上传 0 题',exact:true}).waitFor();
+    await page.getByRole('button',{name:'撤销删除',exact:true}).waitFor();
+    assert.equal((await search('Windows 录题修改后验证',seedBank.id)).items.length,0);
+    await page.getByRole('button',{name:'撤销删除',exact:true}).click();
+    await page.getByRole('button',{name:'上传 1 题',exact:true}).waitFor();
+    await page.getByRole('button',{name:'撤销删除',exact:true}).waitFor({state:'hidden'});
+    assert.equal((await search('Windows 录题修改后验证',seedBank.id)).items.length,1);
+    assert.equal((await invoke('draft_records',{bankId:seedBank.id}))[0].id,original.id);
+    await page.getByRole('button',{name:'下一题',exact:true}).click();
+    reply.stem = 'Windows 待补全草稿验证'; reply.answer=[];
+    await page.getByLabel('题目原文',{exact:true}).fill(JSON.stringify(reply));
+    await page.getByRole('button',{name:'返回题库',exact:true}).click();
     await stop(); await launch();
     await page.getByRole('button',{name:'大模型录题',exact:true}).click();
     await page.getByLabel('录入题库').selectOption(seedBank.id);
-    await page.waitForFunction(()=>document.querySelector('.intake-editor textarea')?.value==='Windows 尚未保存的草稿');
-    await page.getByRole('heading',{name:'待上传 · 1 题',exact:true}).waitFor();
+    await page.waitForFunction(()=>document.querySelector('.model-editor textarea')?.value==='Windows 待补全草稿验证');
+    records = await invoke('draft_records',{bankId:seedBank.id});
+    assert.equal(records.length,2); assert.ok(records[1].issues.length);
+    assert.equal((await search(reply.stem,seedBank.id)).items.length,0);
+    await page.getByRole('button',{name:'上传 2 题',exact:true}).click();
+    await page.getByRole('alert').filter({hasText:'还有待补全题目，请修改或删除后再统一上传。'}).waitFor();
+    assert.equal(await page.getByRole('heading',{name:'上传授权',exact:true}).count(),0);
+    await assert.rejects(invoke('draft_export',{bankId:seedBank.id,path:path.join(files,'不能导出.json')}));
+    await page.locator('.intake-record-card').getByRole('button',{name:'修改',exact:true}).click();
+    await page.getByRole('button',{name:'B 正确答案',exact:true}).click();
+    await page.getByRole('button',{name:/^录题记录/}).click();
+    const exported=path.join(files,'本次录题.qbank-upload.json');
+    assert.equal(await invoke('draft_export',{bankId:seedBank.id,path:exported}),2);
+    const envelope=JSON.parse(await fs.readFile(exported,'utf8'));
+    const delta=JSON.parse(gunzipSync(Buffer.from(envelope.data,'base64')));
+    assert.equal(delta.question_count,2);
+    assert.equal(delta.payload.trim().split('\n').length,2);
+    records=await invoke('draft_records',{bankId:seedBank.id});
+    assert.ok(records.every(r=>!r.submissionId&&!r.issues.length));
     await screenshot('intake-restart');
-    assert.equal((await invoke('intake_entries',{batchId:batch.id}))[0].upload_status,entry.upload_status);
     assert.deepEqual(await invoke('client_state',{key:'upload-queue',value:null}),null);
-    await page.getByRole('button',{name:'关闭录题窗口',exact:true}).click();
-    return {batchId:batch.id,answer:entry.question.answer,uploaded:false};
+    await page.getByRole('button',{name:'返回题库',exact:true}).click();
+    return {records:2,answer:original.question.answer,exported:2,uploaded:false};
   });
   await check('import preview survives process restart and selective undo restores the bank', async () => {
     const bankId=await invoke('create_bank',{name:'Windows 持久导入'});
