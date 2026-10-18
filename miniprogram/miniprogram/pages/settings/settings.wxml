@@ -1,0 +1,29 @@
+<view class="theme-page settings-page" style="{{themeStyle}}">
+  <view class="settings-heading">让题库更合眼</view>
+  <view class="settings-description muted">白天、黑夜分别选色，高亮与答案标记一起切换。</view>
+  <view class="settings-section">
+    <view class="section-title">显示模式</view>
+    <view class="theme-modes">
+      <button wx:for="{{modes}}" wx:key="id" class="theme-mode {{appearance.themeMode === item.id ? 'active' : ''}}" data-mode="{{item.id}}" bindtap="onMode" aria-label="{{item.label}}" aria-pressed="{{appearance.themeMode === item.id}}">{{item.label}}</button>
+    </view>
+    <view class="current-theme muted">{{themeStatus}}</view>
+  </view>
+  <view class="settings-section">
+    <view class="palette-tabs">
+      <button class="palette-tab {{editing === 'light' ? 'active' : ''}}" data-scheme="light" bindtap="onEditing" aria-pressed="{{editing === 'light'}}">白天颜色</button>
+      <button class="palette-tab {{editing === 'dark' ? 'active' : ''}}" data-scheme="dark" bindtap="onEditing" aria-pressed="{{editing === 'dark'}}">黑夜颜色</button>
+    </view>
+    <view class="theme-colors">
+      <button wx:for="{{themes}}" wx:key="id" class="color-choice {{selectedTheme === item.id ? 'active' : ''}}" data-id="{{item.id}}" bindtap="onColor" aria-label="{{item.label}}" aria-pressed="{{selectedTheme === item.id}}"><view class="swatch" style="background:{{editing === 'dark' ? item.dark : item.light}}"><text class="swatch-check" wx:if="{{selectedTheme === item.id}}">✓</text></view><text>{{item.label}}</text></button>
+    </view>
+    <view class="theme-preview" style="{{previewStyle}}">
+      <view class="preview-label">{{editing === 'light' ? '白天' : '黑夜'}}预览 · {{selectedLabel}}</view>
+      <view class="preview-question">找到<text class="match-0">问题</text>，也找到<text class="match-1">答案</text>。</view>
+      <view class="preview-answer">● A　正确答案</view>
+      <view class="preview-selected">选中状态</view>
+    </view>
+    <view class="settings-description muted">选色时整页同步预览，两套配色分别保存。退出设置后恢复所选显示模式；自动模式按当前系统主题切换。</view>
+  </view>
+  <button class="reset-theme" bindtap="onReset">恢复默认配色</button>
+  <view class="save-notice muted" aria-live="polite">{{saveNotice}}</view>
+</view>

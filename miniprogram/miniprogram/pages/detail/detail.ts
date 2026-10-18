@@ -1,9 +1,11 @@
+import {themePageData,showPageTheme,hidePageTheme} from '../../services/appearance';
 import {recordedTime,displayTime} from '../../core/intake';
 import {loadBank} from '../../services/bank';
 import {Question, Segment, queryTerms, highlight, answerText, typeNames} from '../../core/search';
 
 Page({
   data: {
+    ...themePageData(),
     layer:'',loading: true, error: '', number: '', kind: '', answer: '', explanation: '',
     stem: [] as Segment[], options: [] as {key: string; correct: boolean; segments: Segment[]}[],
     metadata: [] as {label: string; segments: Segment[]}[],
@@ -36,5 +38,7 @@ Page({
       stem: highlight(q.stem, terms), explanation: q.explanation,
       options: q.options.map(o => ({key: o.key, correct: Array.isArray(q.answer) && q.answer.includes(o.key), segments: highlight(o.content, terms)})), metadata});
   },
-  onUnload() { this.alive = false; },
+  onShow(){showPageTheme(this);},
+  onHide(){hidePageTheme(this);},
+  onUnload() { hidePageTheme(this); this.alive = false; },
 });

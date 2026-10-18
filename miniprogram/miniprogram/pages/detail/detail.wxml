@@ -1,4 +1,4 @@
-<view class="detail">
+<view class="theme-page detail" style="{{themeStyle}}">
   <view wx:if="{{loading}}" class="muted">正在读取题目…</view>
   <view wx:elif="{{error}}" class="error">{{error}}</view>
   <block wx:else>

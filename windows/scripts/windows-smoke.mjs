@@ -180,37 +180,40 @@ try {
     await page.evaluate(()=>{
       localStorage.setItem('question-bank.appearance.v1',JSON.stringify({fontSize:'xlarge',theme:'ocean',mode:'detail',speedPreview:true}));
       localStorage.removeItem('question-bank.appearance.v2');
+      localStorage.removeItem('question-bank.appearance.v3');
     });
     await stop(); await launch();
     assert.equal(await page.locator('html').getAttribute('data-font-size'),'medium');
     assert.equal(await page.locator('html').getAttribute('data-theme'),'ocean');
-    const migrated=await page.evaluate(()=>JSON.parse(localStorage.getItem('question-bank.appearance.v2')));
+    const migrated=await page.evaluate(()=>JSON.parse(localStorage.getItem('question-bank.appearance.v3')));
     assert.equal(migrated.fontSize,'medium'); assert.equal(migrated.speedPreview,true);
   });
-  await check('four font sizes, six themes and saved layout preferences', async () => {
+  await check('four font sizes, paired themes and saved layout preferences', async () => {
     await page.getByRole('button',{name:/^设置与维护/}).click();
     for (const [label,id] of [['小','small'],['标准默认','medium'],['大','large'],['超大','xlarge']]) {
       await page.locator('.font-options button').filter({hasText:label}).first().click();
       await page.waitForFunction(id=>document.documentElement.dataset.fontSize===id,id);
     }
-    for (const [label,id] of [['松绿','forest'],['海蓝','ocean'],['紫藤','violet'],['暖杏','amber'],['石墨','slate'],['深色','night']]) {
+    for (const [label,id] of [['海蓝','ocean'],['紫藤','violet'],['樱粉','pink'],['朱砂','red'],['暖杏','amber'],['秋金','yellow'],['松绿','forest'],['石墨','slate']]) {
       await page.locator('.theme-options').getByRole('button',{name:label,exact:true}).click();
       await page.waitForFunction(id=>document.documentElement.dataset.theme===id,id);
     }
+    await page.locator('.appearance-modes').getByRole('button',{name:'黑夜',exact:true}).click();
+    await page.waitForFunction(()=>document.documentElement.dataset.colorScheme==='dark');
     await screenshot('appearance');
     await page.keyboard.press('Escape');
     await page.getByRole('button',{name:'详细模式',exact:true}).click();
     await page.getByRole('button',{name:'收起侧栏',exact:true}).click();
     await page.getByRole('button',{name:'收起搜索区',exact:true}).click();
-    const saved = await page.evaluate(()=>JSON.parse(localStorage.getItem('question-bank.appearance.v2')));
-    assert.equal(saved.fontSize,'xlarge'); assert.equal(saved.theme,'night');
+    const saved = await page.evaluate(()=>JSON.parse(localStorage.getItem('question-bank.appearance.v3')));
+    assert.equal(saved.fontSize,'xlarge'); assert.equal(saved.themeMode,'dark'); assert.equal(saved.darkTheme,'forest');
     assert.ok(saved.sidebarCollapsed && saved.searchCollapsed && saved.speedPreview);
     return saved;
   });
   await check('real process restart retains SQLite data and UI preferences', async () => {
     await stop(); await launch();
     await page.getByRole('button',{name:'展开侧栏',exact:true}).waitFor();
-    assert.equal(await page.locator('html').getAttribute('data-theme'), 'night');
+    assert.equal(await page.locator('html').getAttribute('data-theme'), 'forest');
     assert.equal(await page.locator('html').getAttribute('data-font-size'), 'xlarge');
     assert.equal((await invoke('banks')).find(bank=>bank.id===seedBank.id).count, 914);
     await page.getByRole('button',{name:'展开侧栏',exact:true}).click();

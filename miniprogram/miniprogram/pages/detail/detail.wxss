@@ -1,13 +1,15 @@
 .detail { padding: 28rpx 26rpx 64rpx; padding-bottom: calc(64rpx + env(safe-area-inset-bottom)); }
 .detail-meta { margin: 0 8rpx 24rpx; font-size: 24rpx; }
-.paper { background: white; border: 1rpx solid #e0e7e1; border-radius: 20rpx; padding: 28rpx; }
+.paper { background:var(--surface); border: 1rpx solid var(--line); border-radius: 20rpx; padding: 28rpx; }
 .stem { font-size: 32rpx; line-height: 1.85; white-space: pre-wrap; word-break: break-all; }
-.option { margin-top: 24rpx; padding: 20rpx; border-radius: 12rpx; display: flex; background: #f6f8f6; line-height: 1.8; }
-.correct-option { background: #eaf4ec; }
+.option { margin-top: 24rpx; padding: 20rpx; border-radius: 12rpx; display: flex; background: var(--surface-soft); line-height: 1.8; }
+.correct-option { background: var(--correct-bg); }
 .option-key { flex: none; width: 44rpx; font-weight: 600; }
 .option-body { flex: 1; min-width: 0; white-space: pre-wrap; word-break: break-all; }
-.answer-card { background: #e6f0e8; border-radius: 20rpx; padding: 28rpx; margin-top: 24rpx; }
+.answer-card { background: var(--correct-bg); border-radius: 20rpx; padding: 28rpx; margin-top: 24rpx; }
 .label { font-size: 24rpx; margin-bottom: 12rpx; }
-.answer { color: #246b4b; font-size: 38rpx; font-weight: 600; }
+.answer { color: var(--correct); font-size: 38rpx; font-weight: 600; }
 .explanation { margin-top: 24rpx; white-space: pre-wrap; line-height: 1.8; word-break: break-all; }
 .metadata { padding: 28rpx 8rpx; font-size: 23rpx; line-height: 1.9; word-break: break-all; }
+
+.correct-option .option-key{color:var(--correct)}

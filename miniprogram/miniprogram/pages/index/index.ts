@@ -1,3 +1,4 @@
+import {themePageData,showPageTheme,hidePageTheme} from '../../services/appearance';
 import {LocalBank, VirtualList, Segment, queryTerms, snippet, answerText, typeNames} from '../../core/search';
 import {loadBank,listBanks,activeBankId,selectBank,invalidateBank,type BankSummary} from '../../services/bank';
 import {refreshCatalog,syncBank} from '../../services/sync';
@@ -11,6 +12,7 @@ const HEADER_LAYOUT_DELAY = 260;
 type Row = {id: number; questionId: string; number: string; kind: string; layer:string; answer: string; segments: Segment[]};
 Page({
   data: {
+    ...themePageData(),
     query: '', bankName: '正在打开题库', version: 1, total: 0, count: 0,
     syncNotice:'',syncing:false,ready: false, loading: true, error: '', rows: [] as Row[],
     before: 0, after: 0, scrollTop: 0, headerCollapsed: false, advancedOpen: false,
@@ -28,10 +30,12 @@ Page({
     catch { /* A failed preference read must not prevent local search. */ }
     return this.initialize().then(()=>{void this.syncCloud();});
   },
-  onShow(){if(this.data.ready&&!this.data.loading)void this.initialize().then(()=>this.syncCloud());},
+  onShow(){showPageTheme(this);if(this.data.ready&&!this.data.loading)void this.initialize().then(()=>this.syncCloud());},
   onReady() { this.measureViewport(); },
   onResize() { this.measureViewport(); this.layout = new VirtualList(this.ids.length); this.renderRows(true); },
+  onHide(){hidePageTheme(this);},
   onUnload() {
+    hidePageTheme(this);
     this.alive = false; this.request++; this.renderEpoch++; this.bank?.cancel();
     if (this.scrollTimer !== undefined) clearTimeout(this.scrollTimer);
     if (this.headerTimer !== undefined) clearTimeout(this.headerTimer);
@@ -87,6 +91,7 @@ Page({
   onToggleAdvanced() {
     this.setData({advancedOpen: !this.data.advancedOpen}, () => this.measureViewport());
   },
+  onAppearance(){wx.navigateTo({url:"/pages/settings/settings"});},
   onCopyPrompt(){copyPrompt()},
   onIntake(){wx.navigateTo({url:`/pages/intake/intake?bank=${this.data.bankId||activeBankId()}`})},
   onBankChange(event:WechatMiniprogram.PickerChange){const b=this.data.banks[Number(event.detail.value)];if(!b)return;selectBank(b.id);void this.initialize().then(()=>this.syncCloud())},

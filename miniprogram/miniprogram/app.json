@@ -2,15 +2,18 @@
   "pages": [
     "pages/index/index",
     "pages/detail/detail",
-    "pages/intake/intake"
+    "pages/intake/intake",
+    "pages/settings/settings"
   ],
   "window": {
-    "navigationBarTextStyle": "black",
+    "navigationBarTextStyle": "@front",
     "navigationBarTitleText": "题库",
-    "navigationBarBackgroundColor": "#f5f7f5",
-    "backgroundColor": "#f5f7f5"
+    "navigationBarBackgroundColor": "@navigation",
+    "backgroundColor": "@navigation"
   },
   "style": "v2",
   "renderer": "webview",
-  "lazyCodeLoading": "requiredComponents"
+  "lazyCodeLoading": "requiredComponents",
+  "darkmode": true,
+  "themeLocation": "theme.json"
 }

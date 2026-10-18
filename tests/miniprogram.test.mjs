@@ -257,7 +257,7 @@ async function loadPage(path, mocks = {}, searchCore = core) {
   const selection = {in() {return this;}, select() {return this;}, selectAll() {return this;}, boundingClientRect() {return this;}, exec() {}};
   const wx = {createSelectorQuery: () => selection, navigateTo: () => {}, ...mocks};
   vm.runInNewContext(outputText, {
-    exports: {}, require: name => name.endsWith('/search') ? searchCore : name.endsWith('/intake') ? intakeCore : {loadBank: async () => ({bank: bank(), manifest}),listBanks:async()=>[{id:manifest.bank_id,name:manifest.name}],activeBankId:()=>manifest.bank_id,selectBank:()=>{},APP_VERSION:'0.2.7'},
+    exports: {}, require: name => name.endsWith('/appearance') ? {themePageData:()=>({}),showPageTheme:()=>{},hidePageTheme:()=>{}} : name.endsWith('/search') ? searchCore : name.endsWith('/intake') ? intakeCore : {loadBank: async () => ({bank: bank(), manifest}),listBanks:async()=>[{id:manifest.bank_id,name:manifest.name}],activeBankId:()=>manifest.bank_id,selectBank:()=>{},APP_VERSION:'0.2.7'},
     Page: options => { page = options; }, wx, setTimeout, clearTimeout, Error,
   });
   // WeChat instantiates pages by cloning free data. Tests must not accidentally

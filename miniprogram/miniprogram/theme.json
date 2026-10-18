@@ -1,0 +1,10 @@
+{
+  "light": {
+    "navigation": "#fafbfb",
+    "front": "black"
+  },
+  "dark": {
+    "navigation": "#151e1c",
+    "front": "white"
+  }
+}

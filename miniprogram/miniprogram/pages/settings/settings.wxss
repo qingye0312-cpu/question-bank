@@ -1,0 +1,20 @@
+.settings-page { padding:36rpx 28rpx calc(48rpx + env(safe-area-inset-bottom)); }
+.settings-heading { font-size:42rpx; font-weight:650; }
+.settings-description { font-size:25rpx; line-height:1.75; margin:16rpx 0 0; }
+.settings-section { margin-top:36rpx; }
+.section-title { font-weight:600; font-size:28rpx; margin-bottom:18rpx; }
+.theme-modes,.palette-tabs { display:flex; gap:12rpx; }
+.theme-mode,.palette-tab { flex:1; padding:20rpx 8rpx; margin:0; border:2rpx solid var(--border); border-radius:16rpx; font-size:27rpx; line-height:1.4; background:var(--surface); color:var(--secondary); }
+.current-theme { font-size:24rpx; margin-top:18rpx; }
+.theme-colors { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:14rpx; margin-top:24rpx; }
+.theme-colors .color-choice { width:100%; min-width:0; margin:0; padding:18rpx 4rpx 12rpx; display:flex; flex-direction:column; align-items:center; gap:12rpx; line-height:1.4; font-size:24rpx; color:var(--ink); background:var(--surface); border:2rpx solid var(--border); border-radius:18rpx; }
+.theme-mode.active,.palette-tab.active,.theme-colors .color-choice.active { border-color:var(--accent); color:var(--accent); background:var(--tint); }
+.swatch { width:62rpx; height:62rpx; border-radius:50%; display:flex; align-items:center; justify-content:center; color:#fff; }
+.swatch-check { background:#142029; color:#fff; border:2rpx solid #fff; border-radius:50%; width:32rpx; height:32rpx; font-size:22rpx; line-height:30rpx; }
+.theme-preview { margin-top:28rpx; padding:28rpx; border-radius:22rpx; background:var(--page); color:var(--ink); border:2rpx solid var(--border); }
+.preview-label { color:var(--accent); font-size:24rpx; }
+.preview-question { font-size:32rpx; line-height:1.8; margin:20rpx 0; }
+.preview-answer { color:var(--correct); background:var(--correct-bg); border:2rpx solid var(--correct-border); padding:18rpx; border-radius:12rpx; }
+.preview-selected { margin-top:16rpx; background:var(--selected); color:var(--accent); padding:18rpx; border-radius:12rpx; font-size:26rpx; }
+.reset-theme { margin-top:36rpx; background:var(--surface); color:var(--secondary); border:2rpx solid var(--border); border-radius:16rpx; font-size:27rpx; }
+.save-notice { font-size:24rpx; text-align:center; margin-top:20rpx; min-height:36rpx; }
