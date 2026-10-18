@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
+import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import vm from 'node:vm';
 import ts from 'typescript';
@@ -29,6 +30,39 @@ function sampleBank(qs) {
 }
 const referenceText = q => desktopNormalize([q.stem, q.options.map(o => o.content).join('\n'),
   q.tags.join(' '), q.external_id, q.question_id, q.chapter].join('\n'));
+
+// Route regex literals through an older-engine constructor too: simply replacing
+// global RegExp would leave literals running on Node's newer Unicode engine.
+function androidSearchCore() {
+  const cache = new Map();
+  function AndroidRegExp(pattern, flags) {
+    if (/\\[pP]\{|\\u\{/.test(pattern)) throw new SyntaxError('Invalid regular expression: Invalid property name');
+    return new RegExp(pattern, flags);
+  }
+  function load(file) {
+    if (cache.has(file.href)) return cache.get(file.href);
+    const exports = {};
+    cache.set(file.href, exports);
+    const {outputText} = ts.transpileModule(readFileSync(file, 'utf8'), {
+      compilerOptions: {module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020},
+      transformers: {before: [context => {
+        const visit = node => {
+          if (ts.isRegularExpressionLiteral(node)) {
+            const end = node.text.lastIndexOf('/');
+            return context.factory.createNewExpression(context.factory.createIdentifier('RegExp'), undefined,
+              [node.text.slice(1, end), node.text.slice(end + 1)].map(s => context.factory.createStringLiteral(s)));
+          }
+          return ts.visitEachChild(node, visit, context);
+        };
+        return node => ts.visitNode(node, visit);
+      }]},
+    });
+    vm.runInNewContext(outputText, {exports, RegExp: AndroidRegExp, Intl: undefined, setTimeout,
+      require: name => load(new URL(name.endsWith('.js') ? name : `${name}.ts`, file))}, {filename: file.pathname});
+    return exports;
+  }
+  return load(new URL('core/search.ts', base));
+}
 
 test('generated content is deterministic, retains source metadata and matches desktop identity', async () => {
   const seed = JSON.parse(await readFile(new URL('../src-tauri/resources/seed.json', import.meta.url), 'utf8'));
@@ -179,6 +213,26 @@ test('snippets retain all distant matches and full original Unicode glyphs', () 
   assert.ok(spaced.some(s => s.color === 0 && s.text === 'DevEco  Studio'));
 });
 
+test('Android search highlighting needs neither Unicode regex extensions nor Intl.Segmenter', () => {
+  const android = androidSearchCore();
+  for (const [text, term, expected] of [
+    ['中文题目', '题目', '题目'], ['Ｆｏｏ', 'foo', 'Ｆｏｏ'], ['ﬃ', 'ffi', 'ﬃ'],
+    ['e\u0301', 'é', 'e\u0301'], ['x\u0301', 'x', 'x\u0301'], ['가', '가', '가'],
+    ['क\u093f', 'क', 'क\u093f'], ['x\u20dd', 'x', 'x\u20dd'],
+    ['a\u{1d165}', 'a', 'a\u{1d165}'], ['汉\u{e0100}', '汉', '汉\u{e0100}'],
+    ['☀\ufe0f', '☀', '☀\ufe0f'], ['👍🏽', '👍', '👍🏽'], ['👩🏽‍💻', '💻', '👩🏽‍💻'],
+  ]) {
+    const segments = android.highlight(`前${text}后`, [term]);
+    assert.equal(segments.map(s => s.text).join(''), `前${text}后`);
+    assert.equal(segments.filter(s => s.color === 0).map(s => s.text).join(''), expected);
+    assert.equal(android.highlight(text, []).map(s => s.text).join(''), text);
+  }
+  const q = fixture({stem: '前'.repeat(120) + '👩🏽‍💻 e\u0301' + '后'.repeat(120)});
+  const excerpt = android.snippet(q, ['💻', 'é']);
+  assert.equal(excerpt.filter(s => s.color === 0).map(s => s.text).join(''), '👩🏽‍💻');
+  assert.equal(excerpt.filter(s => s.color === 1).map(s => s.text).join(''), 'e\u0301');
+});
+
 test('variable-height windows bound rendered nodes and reach every row in both directions', () => {
   const layout = new core.VirtualList(914);
   const heights = questions.map((_, i) => 90 + i % 6 * 31);
@@ -196,14 +250,14 @@ test('variable-height windows bound rendered nodes and reach every row in both d
   assert.equal(layout.window(layout.offset(914) - 720, 720).end, 914);
 });
 
-async function loadPage(path, mocks = {}) {
+async function loadPage(path, mocks = {}, searchCore = core) {
   const source = await readFile(new URL(path, base), 'utf8');
   const {outputText} = ts.transpileModule(source, {compilerOptions: {module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020}});
   let page;
   const selection = {in() {return this;}, select() {return this;}, selectAll() {return this;}, boundingClientRect() {return this;}, exec() {}};
   const wx = {createSelectorQuery: () => selection, navigateTo: () => {}, ...mocks};
   vm.runInNewContext(outputText, {
-    exports: {}, require: name => name.endsWith('/search') ? core : name.endsWith('/intake') ? intakeCore : {loadBank: async () => ({bank: bank(), manifest}),listBanks:async()=>[{id:manifest.bank_id,name:manifest.name}],activeBankId:()=>manifest.bank_id,selectBank:()=>{},APP_VERSION:'0.2.7'},
+    exports: {}, require: name => name.endsWith('/search') ? searchCore : name.endsWith('/intake') ? intakeCore : {loadBank: async () => ({bank: bank(), manifest}),listBanks:async()=>[{id:manifest.bank_id,name:manifest.name}],activeBankId:()=>manifest.bank_id,selectBank:()=>{},APP_VERSION:'0.2.7'},
     Page: options => { page = options; }, wx, setTimeout, clearTimeout, Error,
   });
   // WeChat instantiates pages by cloning free data. Tests must not accidentally
@@ -250,5 +304,29 @@ test('detail retains complete stem/options/answer and highlights a query passed 
   assert.equal(page.data.stem.map(s => s.text).join(''), q.stem);
   assert.equal(page.data.options.length, q.options.length);
   assert.equal(page.data.answer, core.answerText(q));
+  page.onUnload();
+});
+
+test('Android opens question details with and without a search and renders matching list rows', async () => {
+  const android = androidSearchCore();
+  for (const query of ['', '天']) {
+    const page = await loadPage('pages/detail/detail.ts', {}, android);
+    page.getOpenerEventChannel = () => ({on: (_, handler) => handler({query})});
+    const id = (await bank().search(query))[0], q = questions[id];
+    await page.onLoad({row: String(id), id: q.question_id});
+    assert.equal(page.data.error, '');
+    assert.equal(page.data.loading, false);
+    assert.equal(page.data.stem.map(s => s.text).join(''), q.stem);
+    assert.deepEqual(page.data.options.map(o => o.segments.map(s => s.text).join('')), q.options.map(o => o.content));
+    assert.equal(page.data.answer, core.answerText(q));
+    if (query) assert.ok([...page.data.stem, ...page.data.options.flatMap(o => o.segments),
+      ...page.data.metadata.flatMap(m => m.segments)].some(s => s.color >= 0));
+    page.onUnload();
+  }
+  const page = await loadPage('pages/index/index.ts', {}, android);
+  await page.onLoad();
+  await page.runSearch('天');
+  assert.equal(page.data.error, '');
+  assert.ok(page.data.rows.length > 0);
   page.onUnload();
 });
