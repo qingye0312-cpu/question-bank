@@ -1176,3 +1176,13 @@ mark[data-term="11"] { background:var(--highlight-11); }
 .model-editor{border:0;padding:0;margin:20px 0;min-width:0}.model-editor label{margin:10px 0}.editable-option{border:1px solid var(--line,#dce4dd);padding:12px;margin:10px 0;border-radius:10px}.cloud-access{border:1px solid var(--line,#dce4dd);padding:16px;margin:16px 0;border-radius:12px}.cloud-bank{display:flex;align-items:center;gap:12px;padding:12px 0;flex-wrap:wrap}.cloud-bank span{color:var(--muted)}.candidate-list{max-height:280px;overflow:auto}.candidate-list>div{display:flex;align-items:center;border-bottom:1px solid #dce4dd;padding:8px;gap:12px}.candidate-list button{text-align:left;flex:1}.pending-label{display:block;font-size:10px;line-height:1.2;color:#8b5a19}.cloud-maintenance{max-height:92vh;overflow:auto} .cloud-maintenance input[type=checkbox],.model-editor input[type=checkbox]{width:auto;margin-right:8px}
 .advanced-filters{display:flex;gap:8px;padding:8px 24px;flex-wrap:wrap;border-bottom:1px solid var(--border)}
 .advanced-filters input,.advanced-filters select{min-width:110px;max-width:180px;flex:1;padding:7px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:inherit}
+/* The editable question is always the right-hand source of saved content. */
+.intake-columns{grid-template-columns:minmax(0,2fr) minmax(0,3fr);align-items:start}
+.intake-source{position:sticky;top:0}.intake-editor{min-width:0}.intake-batch{border-top:1px solid var(--line,#dce4dd);margin-top:24px;padding-top:16px}
+.answer-dot{font-size:24px;line-height:1;width:38px;min-width:38px;padding:4px;color:#567467;background:transparent;border:0;cursor:pointer}
+.editable-option{display:grid;grid-template-columns:38px minmax(0,1fr);align-items:start;gap:8px}.editable-option>label{margin:0}.editable-option .intake-actions{grid-column:2}
+.answer-selected{background:#e7f5eb!important;border-color:#23834f!important}.answer-selected .answer-dot,.answer-dot[aria-pressed=true]{color:#178348}
+.judgment-answers{display:flex;gap:16px}.judgment-answers button{display:flex;align-items:center;gap:12px;flex:1}
+@media(max-width:800px){.intake-columns{grid-template-columns:1fr}.intake-source{position:static}}
+
+.batch-confirm{margin-top:20px;padding:20px;background:var(--surface);border:1px solid var(--border);border-radius:12px}.batch-confirm article{padding:16px 0;border-bottom:1px solid var(--border);overflow-wrap:anywhere}.batch-confirm article p{white-space:pre-wrap}

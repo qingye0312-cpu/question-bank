@@ -67,7 +67,7 @@ export function DetailResults({filters={},bankId, query, kind, trash, revision, 
           <button className={`result ${active?.rowid === hit.rowid ? 'active' : ''}`} aria-pressed={active?.rowid === hit.rowid} onClick={() => onSelect(hit)}>
             <div className="result-meta"><span className={`type-badge ${hit.question.type}`}>{kinds[hit.question.type]}</span><span>{hit.question.external_id || hit.question.question_id.slice(0, 8)}</span><ChevronRight size={13}/></div>
             <div className="result-stem"><SearchMark text={hit.question.stem} query={query}/></div>
-            <div className="result-bottom"><span>{hit.bank_name}{hit.layer==='pending'?' · 待审核':hit.layer==='draft'?' · 本地新题':''}</span>{hit.question.status === 'verified' && <CheckCircle2 size={13}/>}</div>
+            <div className="result-bottom"><span>{hit.bank_name}{hit.layer==='pending'?(hit.question.status==='verified'?' · 待合并':' · 历史未确认'):hit.layer==='draft'?' · 本地新题':''}</span>{hit.question.status === 'verified' && <CheckCircle2 size={13}/>}</div>
           </button>
         </div>)}
       </div>

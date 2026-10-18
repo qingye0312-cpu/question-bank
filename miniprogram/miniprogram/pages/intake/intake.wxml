@@ -1,58 +1,39 @@
-<view class="intake-page">
- <view class="heading">大模型录题 <text class="muted">v{{appVersion}}</text></view>
- <button class="prompt-card" bindtap="onCopyPrompt">大模型输出规范模版 <text>复制提示词</text></button>
- <view class="muted hint">复制提示词给模型识题作答，再把整段 JSON 回复粘贴回来。不保存照片。</view>
- <view class="bank-tools"><picker range="{{banks}}" range-key="name" value="{{bankIndex}}" bindchange="onBankChange" disabled="{{busy}}"><view class="select">{{banks[bankIndex].name || '选择题库'}} ▾</view></picker><button bindtap="onCreateBank" disabled="{{busy}}">新建题库</button></view>
- <view class="cloud-card">
-  <view class="preview-title">开发者上传</view>
-  <view class="muted hint">搜题、录题和导出无需登录。仅获授权的开发者可以上传新题，上传后仍需审核。</view>
-  <view wx:if="{{!cloudConfigured}}" class="hint">云端上传尚未配置，仍可在本机录题和分享增量包。</view>
-  <button wx:if="{{!loggedIn}}" id="developer-login" bindtap="onLogin" disabled="{{busy || !cloudConfigured}}">开发者微信登录</button>
-  <block wx:else>
-   <view class="hint">已登录 · 可上传：{{authorizedNames || '暂无授权题库'}}</view>
-   <view wx:if="{{!authorizedBank}}" class="hint">当前题库没有上传权限，本地录题和导出仍可使用。</view>
-   <view wx:if="{{!uploadsEnabled}}" class="hint">云端暂未开放上传。</view>
-   <button id="developer-logout" bindtap="onLogout" disabled="{{busy}}">退出开发者登录</button>
-  </block>
+<view class="page">
+ <view class="title">连续录题</view><view class="hint">先录完多道题，再统一确认上传</view>
+ <picker range="{{banks}}" range-key="display_name" value="{{bankIndex}}" bindchange="onBankChange" disabled="{{busy}}"><view class="picker">题库：{{banks[bankIndex].display_name}} ▾</view></picker>
+ <view class="actions"><button bindtap="onCopyPrompt" disabled="{{busy}}">复制提示词</button><button type="primary" bindtap="onPaste" disabled="{{busy}}">粘贴题目</button></view>
+ <view class="actions"><button size="mini" bindtap="onManual" disabled="{{busy}}">手工录题</button><button wx:if="{{hasPrevious}}" size="mini" bindtap="onRestore" disabled="{{busy}}">恢复上份草稿</button></view>
+ <view wx:if="{{reply}}" class="editor">
+  <picker range="{{types}}" value="{{typeIndex}}" bindchange="onType" disabled="{{busy}}"><view class="picker">题型：{{types[typeIndex]}} ▾</view></picker>
+  <view class="hint">录入时间：{{editing ? recordedAt : '首次保存本题时记录'}}</view>
+  <view class="label">题目</view><textarea value="{{reply.stem}}" data-field="stem" bindinput="onField" auto-height maxlength="-1" disabled="{{busy}}"/>
+  <view wx:if="{{reply.type !== 'true_false'}}">
+   <view class="hint">点击圆点标记答案，再次点击取消</view>
+   <view wx:for="{{editOptions}}" wx:key="key" class="option {{item.correct ? 'selected' : ''}}">
+    <button class="dot" data-key="{{item.key}}" bindtap="onAnswer" disabled="{{busy}}" aria-label="{{item.key}} {{item.correct ? '已选为正确答案' : '未选'}}">{{item.correct ? '●' : '○'}}</button>
+    <view class="option-content"><view>{{item.key}}</view><textarea value="{{item.content}}" data-field="option" data-index="{{index}}" bindinput="onField" auto-height maxlength="-1" disabled="{{busy}}"/>
+     <view class="actions"><button size="mini" data-index="{{index}}" data-action="up" bindtap="onOption" disabled="{{busy || index === 0}}">上移</button><button size="mini" data-index="{{index}}" data-action="down" bindtap="onOption" disabled="{{busy || index === editOptions.length - 1}}">下移</button><button size="mini" data-index="{{index}}" data-action="remove" bindtap="onOption" disabled="{{busy || editOptions.length <= 2}}">删除</button></view>
+    </view>
+   </view><button size="mini" data-action="add" bindtap="onOption" disabled="{{busy || editOptions.length >= 8}}">添加选项</button>
+  </view>
+  <view wx:else class="actions judgment"><button class="{{boolSelected && reply.answer === true ? 'selected' : ''}}" data-value="true" bindtap="onBool" disabled="{{busy}}">{{boolSelected && reply.answer === true ? '●' : '○'}} 正确</button><button class="{{boolSelected && reply.answer === false ? 'selected' : ''}}" data-value="false" bindtap="onBool" disabled="{{busy}}">{{boolSelected && reply.answer === false ? '●' : '○'}} 错误</button></view>
+  <view class="label">解析</view><textarea value="{{reply.explanation}}" data-field="explanation" bindinput="onField" auto-height maxlength="-1" disabled="{{busy}}"/>
+  <view class="label">模型名称</view><input value="{{reply.model.name}}" data-field="name" bindinput="onField" disabled="{{busy}}"/><view class="label">模型版本</view><input value="{{reply.model.version}}" data-field="version" bindinput="onField" disabled="{{busy}}"/>
+  <picker range="{{versionSources}}" value="{{sourceIndex}}" bindchange="onVersionSource" disabled="{{busy}}"><view class="picker">版本来源：{{versionSources[sourceIndex]}} ▾</view></picker>
+  <view class="label">需核实的说明（每行一项）</view><textarea value="{{warningsText}}" data-field="warnings" bindinput="onField" auto-height maxlength="-1" disabled="{{busy}}"/>
+  <view class="label">更多信息</view><input placeholder="章节" value="{{metadata.chapter}}" data-field="chapter" bindinput="onMetadata" disabled="{{busy}}"/><input placeholder="标签，用 | 分隔" value="{{tagsText}}" data-field="tags" bindinput="onMetadata" disabled="{{busy}}"/>
+  <picker range="{{difficulties}}" value="{{difficultyIndex}}" bindchange="onDifficulty" disabled="{{busy}}"><view class="picker">难度：{{difficulties[difficultyIndex]}} ▾</view></picker>
+  <input placeholder="适用版本" value="{{metadata.applicable_version}}" data-field="applicable_version" bindinput="onMetadata" disabled="{{busy}}"/><input placeholder="外部编号" value="{{metadata.external_id}}" data-field="external_id" bindinput="onMetadata" disabled="{{busy}}"/>
+  <button type="primary" bindtap="onSave" disabled="{{busy}}">{{editing ? '保存修改' : '保存本题，继续下一题'}}</button><button bindtap="onClear" disabled="{{busy}}">收起草稿，查看整批</button>
  </view>
- <view class="section-heading"><text>模型回复</text><button bindtap="onPaste" disabled="{{busy}}">从剪贴板粘贴</button></view>
- <textarea class="reply-input" value="{{text}}" bindinput="onInput" maxlength="250000" disabled="{{busy}}" placeholder="粘贴一道题的 JSON 或完整 json 代码块" auto-height/>
- <button class="primary" bindtap="onParse" disabled="{{busy || !text}}">解析并比对题库</button>
- <view wx:if="{{reply}}" class="preview">
-  <view class="preview-title">{{!status ? '核实题目并编辑' : status === 'new' ? '新题，可以录入' : status === 'duplicate' ? '已有同题，答案一致' : '已有同题，答案需要核对'}}</view>
-  <picker range="{{types}}" value="{{typeIndex}}" bindchange="onType" disabled="{{busy}}"><view class="select">题型：{{types[typeIndex]}} ▾</view></picker>
-  <view class="field-label">题干</view><textarea class="edit-field" value="{{reply.stem}}" data-field="stem" bindinput="onField" maxlength="100000" auto-height disabled="{{busy}}"/>
-  <checkbox-group bindchange="onAnswer"><view wx:for="{{editOptions}}" wx:key="key" class="option">
-   <checkbox value="{{item.key}}" checked="{{item.correct}}" disabled="{{busy}}">{{item.key}} · 正确答案</checkbox>
-   <textarea class="edit-field" value="{{item.content}}" data-field="option" data-index="{{index}}" bindinput="onField" maxlength="100000" auto-height disabled="{{busy}}"/>
-   <view class="option-tools"><button data-action="up" data-index="{{index}}" bindtap="onOption" disabled="{{busy || index === 0}}">上移</button><button data-action="down" data-index="{{index}}" bindtap="onOption" disabled="{{busy || index === editOptions.length - 1}}">下移</button><button data-action="remove" data-index="{{index}}" bindtap="onOption" disabled="{{busy || editOptions.length <= 2}}">删除</button></view>
-  </view></checkbox-group>
-  <button wx:if="{{reply.type !== 'true_false'}}" data-action="add" bindtap="onOption" disabled="{{busy || editOptions.length >= 8}}">添加选项</button>
-  <picker wx:else range="{{['正确','错误']}}" value="{{reply.answer ? 0 : 1}}" bindchange="onBool" disabled="{{busy}}"><view class="select">答案：{{!boolSelected ? '请选择' : reply.answer ? '正确' : '错误'}} ▾</view></picker>
-  <view class="field-label">解析</view><textarea class="edit-field" value="{{reply.explanation}}" data-field="explanation" bindinput="onField" maxlength="100000" auto-height disabled="{{busy}}"/>
-  <view class="field-label">模型名称 / 版本</view><input class="edit-field" value="{{reply.model.name}}" data-field="name" bindinput="onField" disabled="{{busy}}"/><input class="edit-field" value="{{reply.model.version}}" data-field="version" bindinput="onField" disabled="{{busy}}"/>
-  <picker range="{{versionSources}}" value="{{sourceIndex}}" bindchange="onVersionSource" disabled="{{busy}}"><view class="select">版本来源：{{versionSources[sourceIndex]}} ▾</view></picker>
-  <view class="field-label">需复核的内容（每行一项）</view><textarea class="edit-field" value="{{warningsText}}" data-field="warnings" bindinput="onField" maxlength="10000" auto-height disabled="{{busy}}"/>
-  <view class="field-label">补充信息（可选）</view>
-  <input class="edit-field" placeholder="章节" value="{{metadata.chapter}}" data-field="chapter" bindinput="onMetadata" maxlength="1000" disabled="{{busy}}"/>
-  <input class="edit-field" placeholder="标签，用 | 分隔" value="{{tagsText}}" data-field="tags" bindinput="onMetadata" maxlength="5000" disabled="{{busy}}"/>
-  <picker range="{{difficulties}}" value="{{difficultyIndex}}" bindchange="onDifficulty" disabled="{{busy}}"><view class="select">难度：{{difficulties[difficultyIndex]}} ▾</view></picker>
-  <input class="edit-field" placeholder="适用版本" value="{{metadata.applicable_version}}" data-field="applicable_version" bindinput="onMetadata" maxlength="1000" disabled="{{busy}}"/>
-  <input class="edit-field" placeholder="外部编号" value="{{metadata.external_id}}" data-field="external_id" bindinput="onMetadata" maxlength="1000" disabled="{{busy}}"/>
-  <view wx:for="{{existingAnswers}}" wx:key="*this" class="hint">已有答案：{{item}}</view>
-  <view wx:if="{{status && status !== 'new'}}" class="muted hint">已按选项内容比对；保留现有题目，不加入本次新题。</view>
-  <button wx:if="{{!status || status === 'new'}}" class="primary" bindtap="onSave" disabled="{{busy}}">确认内容并保存新题</button>
+ <view wx:elif="{{text}}" class="hint">原文已保存在草稿中。识别失败可重新粘贴或手工录题。</view>
+ <view class="hint">{{saved}}</view><view class="error" wx:if="{{error}}">{{error}}</view><view class="notice" wx:if="{{notice}}">{{notice}}</view>
+ <view class="section"><view class="title">待上传 · {{entries.length}} 题</view><view class="hint">当前题库未上传的新题统一放在这里，全部录完后统一上传。</view>
+ <view wx:for="{{entries}}" wx:key="id" class="entry"><view>{{item.stem}}</view><view class="hint">答案：{{item.answer}} · 录入：{{item.recordedAt}}</view><view class="hint">{{item.statusLabel}}</view><button wx:if="{{item.editable}}" size="mini" bindtap="onEdit" data-id="{{item.id}}" disabled="{{busy}}">编辑本题</button></view>
+ <button type="primary" bindtap="onUpload" class="upload-all" disabled="{{busy || uploadBlocked || !entries.length}}">这一批录完了，统一上传</button>
+ <view wx:if="{{reviewRows.length && reviewBank === bankId}}" class="section"><view class="title">上传前核实全部 {{reviewRows.length}} 题</view><view wx:for="{{reviewRows}}" wx:key="id" class="entry"><view>{{index + 1}}. {{item.stem}}</view><view wx:for="{{item.options}}" wx:for-item="option" wx:key="key">{{option.key}}. {{option.content}}</view><view>正确答案：{{item.answer}}</view><view>解析：{{item.explanation}}</view><view class="hint">录入：{{item.recordedAt}}</view></view><button bindtap="onCancelReview" disabled="{{busy}}">返回修改</button><button type="primary" bindtap="onUpload" disabled="{{busy}}">已核实，确认上传这 {{reviewRows.length}} 题</button></view>
+ <view wx:for="{{jobLabels}}" wx:key="*this" class="hint">{{item}}</view>
  </view>
- <view class="section-heading"><text>录入批次</text><button bindtap="onNewBatch" disabled="{{busy || !batchId}}">新一批</button></view>
- <picker range="{{batches}}" range-key="label" value="{{batchIndex}}" bindchange="onBatchChange" disabled="{{busy}}"><view class="select">{{batches[batchIndex].label}} ▾</view></picker>
- <view class="muted hint">新题 {{entries.length}} 道。收到回执才显示“已上传”；审核结果按最近同步的云快照显示。导出和分享不等于上传。</view>
- <view wx:if="{{uploadStarted}}" class="muted hint">本批次已提交，继续录题会自动开启新批次。上传未确认时请重试此批次。</view>
- <view wx:for="{{entries}}" wx:key="id" class="entry"><text class="full-text" selectable>{{item.stem}}</text><view class="hint">答案：{{item.answer}} · {{item.statusLabel}}</view></view>
- <view wx:if="{{receiptId}}" class="receipt"><view>云端接收回执</view><text selectable>{{receiptId}}</text><view class="muted hint">接收时间：{{acceptedAt}}</view></view>
- <button bindtap="onSyncReview" disabled="{{busy || !entries.length || !cloudConfigured}}">更新云端审核状态</button>
- <button id="upload-batch" class="primary" bindtap="onUpload" disabled="{{busy || !entries.length || !cloudConfigured || receiptId || uploadBlocked}}">{{receiptId ? '本批次已上传' : uploadStarted ? '重试上传本批次' : loggedIn ? '上传本批次新题' : '登录后上传本批次'}}</button>
- <button class="primary" bindtap="onExport" disabled="{{busy || !entries.length}}">保存本批次增量包</button>
- <button wx:if="{{filePath}}" class="share" bindtap="onShare" disabled="{{busy}}">转发增量包给微信好友</button>
- <button bindtap="onImport" disabled="{{busy}}">从微信聊天导入增量包</button>
- <view wx:if="{{notice}}" class="notice">{{notice}}</view><view wx:if="{{error}}" class="error">{{error}}</view><view wx:if="{{busy}}" class="muted hint">正在处理…</view>
+ <view class="section"><view class="label">增量文件与历史记录</view><picker range="{{batches}}" range-key="label" value="{{batchIndex}}" bindchange="onBatchChange" disabled="{{busy}}"><view class="picker">导出记录：{{batches[batchIndex].label}} ▾</view></picker><view class="actions"><button bindtap="onExport" size="mini" disabled="{{busy || !batchId}}">导出所选增量文件</button><button wx:if="{{filePath}}" bindtap="onShare" size="mini" disabled="{{busy}}">转发给好友</button></view></view>
+ <view class="section"><view class="label">开发者与文件工具</view><view class="hint">日常搜题、录题无需登录。仅获授权开发者可上传。</view><view class="actions"><button wx:if="{{!loggedIn}}" bindtap="onLogin" disabled="{{busy || !cloudConfigured}}">开发者登录</button><button wx:else bindtap="onLogout" disabled="{{busy}}">退出登录</button><button bindtap="onSyncReview" disabled="{{busy}}">更新云端状态</button></view><view class="hint">{{authorizedNames}}</view><view class="actions"><button bindtap="onCreateBank" size="mini" disabled="{{busy}}">新建题库</button><button bindtap="onImport" size="mini" disabled="{{busy}}">从聊天导入增量包</button></view></view>
 </view>

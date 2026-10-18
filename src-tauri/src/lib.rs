@@ -1,5 +1,6 @@
 pub mod backup;
 pub mod cloud;
+mod credentials;
 pub mod db;
 mod desktop;
 pub mod exchange;
@@ -43,6 +44,38 @@ async fn backup_database(s: State<'_, AppState>, path: String, restore: bool) ->
         }
     })
     .await
+}
+#[tauri::command]
+async fn client_state(
+    s: State<'_, AppState>,
+    key: String,
+    value: Option<serde_json::Value>,
+) -> Result<serde_json::Value> {
+    let d = s.store.clone();
+    let lock = s.writes.clone();
+    blocking(move || {
+        let _g = lock.lock().map_err(err)?;
+        cloud::client_state(&d, &key, value)
+    })
+    .await
+}
+#[tauri::command]
+async fn intake_prepare(s: State<'_, AppState>, batch_id: String) -> Result<Vec<String>> {
+    let d = s.store.clone();
+    let lock = s.writes.clone();
+    blocking(move || {
+        let _g = lock.lock().map_err(err)?;
+        cloud::prepare_batches(&d, &batch_id)
+    })
+    .await
+}
+#[tauri::command]
+async fn credential_save(origin: String, key: Option<String>) -> Result<()> {
+    blocking(move || credentials::save(&origin, key)).await
+}
+#[tauri::command]
+async fn credential_login(origin: String) -> Result<serde_json::Value> {
+    blocking(move || credentials::login(&origin)).await
 }
 #[tauri::command]
 async fn cloud_request(
@@ -156,6 +189,22 @@ async fn intake_save(
 async fn intake_batches(s: State<'_, AppState>) -> Result<Vec<intake::Batch>> {
     let d = s.store.clone();
     blocking(move || intake::batches(&d)).await
+}
+#[tauri::command]
+async fn intake_edit(
+    s: State<'_, AppState>,
+    bank_id: String,
+    question_id: String,
+    text: String,
+    metadata: intake::Metadata,
+) -> Result<()> {
+    let d = s.store.clone();
+    let lock = s.writes.clone();
+    blocking(move || {
+        let _g = lock.lock().map_err(err)?;
+        intake::edit_entry(&d, &bank_id, &question_id, &text, metadata)
+    })
+    .await
 }
 #[tauri::command]
 async fn intake_entries(s: State<'_, AppState>, batch_id: String) -> Result<Vec<intake::Entry>> {
@@ -333,6 +382,11 @@ async fn import_commit(s: State<'_, AppState>, token: String) -> Result<String> 
     result
 }
 #[tauri::command]
+async fn export_name(s: State<'_, AppState>, bank_id: String) -> Result<String> {
+    let d = s.store.clone();
+    blocking(move || exchange::export_name(&d.bank(&bank_id)?, &d.questions(&bank_id)?)).await
+}
+#[tauri::command]
 async fn export_bank(
     s: State<'_, AppState>,
     bank_id: String,
@@ -446,6 +500,10 @@ pub fn run() {
             updater::software_update_install,
             backup_database,
             cloud_request,
+            credential_save,
+            credential_login,
+            client_state,
+            intake_prepare,
             cloud_transfer,
             cloud_receipt,
             cloud_versions,
@@ -459,6 +517,7 @@ pub fn run() {
             clipboard_write_text,
             intake_preview,
             intake_save,
+            intake_edit,
             intake_batches,
             intake_entries,
             intake_mark_upload,
@@ -477,6 +536,7 @@ pub fn run() {
             import_undo,
             import_preview,
             import_commit,
+            export_name,
             export_bank,
             rollback_bank,
             history,

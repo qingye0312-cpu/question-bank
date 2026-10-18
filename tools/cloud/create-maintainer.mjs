@@ -4,8 +4,8 @@ import path from 'node:path';
 import {randomBytes,createHash} from 'node:crypto';
 const [id,bank,roleList]=process.argv.slice(2);
 const roles=(roleList||'').split(',');
-if(!/^[A-Za-z0-9_-]{10,64}$/.test(id||'')||!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(bank||'')||!roles.length||roles.some(r=>!['upload','review','publish'].includes(r))){
- console.error('用法：node tools/cloud/create-maintainer.mjs <10-64位维护者ID> <bank_id> <upload,review,publish中的权限>');process.exit(1);
+if(!/^[A-Za-z0-9_-]{10,64}$/.test(id||'')||!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(bank||'')||!roles.length||roles.some(r=>!['upload','review','publish','merge'].includes(r))){
+ console.error('用法：node tools/cloud/create-maintainer.mjs <10-64位维护者ID> <bank_id> <upload,merge,review,publish中的权限>');process.exit(1);
 }
 const directory=path.resolve('.local/maintainers');await fs.mkdir(directory,{recursive:true,mode:0o700});
 const key=randomBytes(32).toString('hex'),keyPath=path.join(directory,`${id}.key`),configPath=path.join(directory,`${id}.grant.json`);

@@ -38,7 +38,10 @@
       "format": "date-time"
     },
     "min_app_version": {
-      "const": "0.1.0"
+      "enum": [
+        "0.1.0",
+        "0.2.7"
+      ]
     },
     "question_count": {
       "type": "integer",
@@ -70,6 +73,19 @@
           }
         }
       }
+    },
+    "merged_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "release_name": {
+      "type": [
+        "string",
+        "null"
+      ]
     }
   }
 }

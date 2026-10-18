@@ -293,6 +293,13 @@ pub fn save_with_metadata(
         .map_err(err)?;
     let b = db::get_bank(&tx, bank_id)?;
     let mut q = parse_reply(text)?;
+    q.recover_recorded_at(None);
+    q.recorded_at = Some(now());
+    q.recorded_at_source = Some("local".into());
+    q.updated_at = q.recorded_at.clone();
+    for source in &mut q.sources {
+        source["recorded_at"] = json!(q.recorded_at);
+    }
     q.bank = b.name;
     metadata.apply(&mut q)?;
     let comparison = compare(&tx, bank_id, q)?;
@@ -303,7 +310,13 @@ pub fn save_with_metadata(
             added: false,
         });
     }
-    let frozen:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM intake_transfers WHERE batch_id=?1) OR (SELECT COUNT(*) FROM intake_entries WHERE batch_id=?1)>=100",[batch_id],|r|r.get(0)).map_err(err)?;
+    let frozen: bool = tx
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM intake_transfers WHERE batch_id=?1)",
+            [batch_id],
+            |r| r.get(0),
+        )
+        .map_err(err)?;
     if !batch_id.is_empty() {
         let bank: Option<String> = tx
             .query_row(
@@ -331,6 +344,70 @@ pub fn save_with_metadata(
         comparison,
         added: true,
     })
+}
+pub fn edit_entry(
+    store: &Store,
+    bank_id: &str,
+    question_id: &str,
+    text: &str,
+    metadata: Metadata,
+) -> Result<()> {
+    let mut c = store.conn()?;
+    let tx = c.transaction().map_err(err)?;
+    let frozen:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM intake_entries e JOIN intake_transfers t ON e.batch_id=t.batch_id WHERE e.bank_id=?1 AND e.question_id=?2)",params![bank_id,question_id],|r|r.get(0)).map_err(err)?;
+    if frozen {
+        return Err("本批次已冻结，修改请另存为新批次".into());
+    }
+    let raw: String = tx
+        .query_row(
+            "SELECT data FROM intake_originals WHERE bank_id=?1 AND question_id=?2",
+            params![bank_id, question_id],
+            |r| r.get(0),
+        )
+        .map_err(err)?;
+    let old: Question = serde_json::from_str(&raw).map_err(err)?;
+    let mut q = parse_reply(text)?;
+    metadata.apply(&mut q)?;
+    q.bank = old.bank.clone();
+    q.question_id = old.question_id.clone();
+    q.base_revision = old.base_revision + 1;
+    q.recorded_at = old.recorded_at.clone();
+    q.recorded_at_source = old.recorded_at_source.clone();
+    q.sources[0]["recorded_at"] = old
+        .sources
+        .first()
+        .map(|s| s["recorded_at"].clone())
+        .unwrap_or(Value::Null);
+    q.recover_recorded_at(None);
+    q.updated_at = Some(now());
+    for (other, _) in all_questions(&tx, bank_id)? {
+        if other.question_id != question_id && identity(&other) == identity(&q) {
+            return Err("修改后与已有题目重复，请保留现有题目".into());
+        }
+    }
+    db::record(&tx, bank_id, &old, "录入编辑")?;
+    let row: i64 = tx
+        .query_row(
+            "SELECT rowid FROM questions WHERE bank_id=?1 AND id=?2",
+            params![bank_id, question_id],
+            |r| r.get(0),
+        )
+        .map_err(err)?;
+    db::remove_index(&tx, row)?;
+    tx.execute("DELETE FROM questions WHERE rowid=?1", [row])
+        .map_err(err)?;
+    db::insert(&tx, bank_id, &q)?;
+    tx.execute(
+        "UPDATE intake_originals SET data=?1 WHERE bank_id=?2 AND question_id=?3",
+        params![
+            serde_json::to_string(&q).map_err(err)?,
+            bank_id,
+            question_id
+        ],
+    )
+    .map_err(err)?;
+    db::touch(&tx, bank_id)?;
+    tx.commit().map_err(err)
 }
 #[derive(Serialize)]
 pub struct Batch {
@@ -385,7 +462,15 @@ pub fn entries_conn(c: &Connection, batch_id: &str) -> Result<Vec<Entry>> {
         if let Some(pending) = value["pending"].as_array() {
             for q in pending {
                 if let Some(id) = q["question_id"].as_str() {
-                    review_states.insert(id.to_string(), "pending".into());
+                    review_states.insert(
+                        id.to_string(),
+                        if q["status"] == "verified" {
+                            "confirmed"
+                        } else {
+                            "pending"
+                        }
+                        .into(),
+                    );
                 }
             }
         }
@@ -627,6 +712,7 @@ pub fn import(store: &Store, path: &Path) -> Result<Imported> {
     }
     if result.added > 0 {
         db::touch(&tx, &d.bank_id)?;
+        db::record_result(&tx, &d.bank_id, Some(&now()), "合并")?;
         tx.execute("UPDATE snapshots SET expected_version=(SELECT version FROM banks WHERE id=?1) WHERE bank_id=?1",[&d.bank_id]).map_err(err)?;
     }
     crate::import_jobs::record(&tx, &d.bank_id, "新题增量包", &d.sha256, &before)?;

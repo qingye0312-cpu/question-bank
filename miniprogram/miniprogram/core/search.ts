@@ -5,6 +5,7 @@ export type Question = {
   options: { key: string; content: string; option_id: string }[];
   answer: string[] | boolean | null; bank: string; external_id: string;
   chapter: string; tags: string[]; explanation: string;
+  recorded_at?:string|null; updated_at?:string|null; recorded_at_source?:'local'|'import'|'source'|'unknown'; sources?:Record<string,unknown>[];
   status: string; [key: string]: unknown;
 };
 export type SearchIndex = {

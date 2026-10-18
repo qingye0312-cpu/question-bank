@@ -3126,6 +3126,7 @@ dependencies = [
  "roxmltree",
  "rusqlite",
  "rust_xlsxwriter",
+ "security-framework",
  "serde",
  "serde_json",
  "sha2",

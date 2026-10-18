@@ -8,6 +8,7 @@ export type ModelReply = {
 };
 export type IntakeQuestion = {
   schema_version: string; question_id: string; base_revision: number;
+  recorded_at?: string | null; updated_at?: string | null; recorded_at_source?: 'local' | 'import' | 'source' | 'unknown';
   type: ModelReply['type']; stem: string; options: {key: string; content: string; option_id: string}[];
   answer: string[] | boolean; bank: string; external_id: string; chapter: string;
   tags: string[]; explanation: string; status: string; difficulty: string;
@@ -29,8 +30,8 @@ type Comparable = {type: string; stem: string; options: {key: string; content: s
 export function validateStandardQuestion(value:unknown,bank:string,legacy=false):void {
  const q=value as Omit<IntakeQuestion,'answer'> & {answer:string[]|boolean|null;extensions?:unknown};
  const uuid=/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
- if(!q||q.schema_version!=='1.0'||!uuid.test(q.question_id)||q.bank!==bank||!Number.isSafeInteger(q.base_revision)||q.base_revision<1
-  ||Object.keys(q).some(k=>!['schema_version','question_id','base_revision','type','stem','options','answer','bank','external_id','chapter','tags','explanation','status','difficulty','applicable_version','source_note','issues','sources','attachments','extensions'].includes(k))
+ if(!q||!['1.0','1.1'].includes(q.schema_version)||!uuid.test(q.question_id)||q.bank!==bank||!Number.isSafeInteger(q.base_revision)||q.base_revision<1
+  ||Object.keys(q).some(k=>!['schema_version','question_id','base_revision','recorded_at','updated_at','recorded_at_source','type','stem','options','answer','bank','external_id','chapter','tags','explanation','status','difficulty','applicable_version','source_note','issues','sources','attachments','extensions'].includes(k))
   ||!['stem','external_id','chapter','explanation','difficulty','applicable_version','source_note'].every(k=>typeof q[k as keyof typeof q]==='string')
   ||!q.stem.trim()||!['single','multiple','true_false'].includes(q.type)||!['unreviewed','needs_review','verified'].includes(q.status)
   ||!['','easy','medium','hard'].includes(q.difficulty)||!Array.isArray(q.options)||q.options.length>26
@@ -38,6 +39,9 @@ export function validateStandardQuestion(value:unknown,bank:string,legacy=false)
   ||new Set(q.options.map(o=>o.option_id)).size!==q.options.length||!Array.isArray(q.tags)||q.tags.some(v=>typeof v!=='string')
   ||!Array.isArray(q.issues)||q.issues.some(v=>typeof v!=='string')||!Array.isArray(q.sources)||q.sources.some(v=>!object(v))
   ||!Array.isArray(q.attachments)||q.attachments.length||q.extensions!=null)throw Error('题目结构或身份无效');
+ for(const at of [q.recorded_at,q.updated_at])if(at!=null&&!validTime(at))throw Error('题目时间无效');
+ if(q.recorded_at_source!=null&&!['local','import','source','unknown'].includes(q.recorded_at_source))throw Error('录入时间来源无效');
+ if(q.schema_version==='1.1'&&(!q.recorded_at_source||(!q.recorded_at&&q.recorded_at_source!=='unknown')))throw Error('缺少录入时间条目');
  if(legacy&&q.status==='needs_review'){
   if(q.type==='true_false'){if(q.options.length||!(typeof q.answer==='boolean'||q.answer===null&&q.sources.length))throw Error('历史判断题无效');}
   else if(!(q.answer===null&&q.sources.length)){
@@ -92,6 +96,59 @@ export function parseModelReply(input: string): ModelReply {
   if ([value.stem, ...value.options.map(o => o.content)].some(s => s.includes('【看不清】'))) throw new Error('题目仍有看不清的内容，请补全后再录入');
   return value as ModelReply;
 }
+// Drafts are deliberately more permissive than saved questions. Never use this
+// function to authorize a save or upload; parseModelReply remains the gate.
+export function emptyReply():ModelReply {
+ return {format:'qbank-photo-question-1',type:'single',stem:'',options:[{key:'A',content:''},{key:'B',content:''}],answer:[],answer_origin:'inferred',explanation:'',model:{name:'未知',version:'未知',version_source:'unknown'},warnings:[]};
+}
+export function parseDraft(input:string):ModelReply {
+ if(input.length>250000)throw Error('回复过长，请每次粘贴一道题；原文已保留');
+ const text=input.trim().replace(/^\uFEFF/,'').replace(/^```(?:json)?\s*\n([\s\S]*?)\n```\s*$/i,'$1');
+ let v:Record<string,unknown>;try{v=JSON.parse(text)}catch{throw Error('JSON 尚不完整，原文已保存；可继续修改或手工录题');}
+ if(!object(v))throw Error('每次粘贴一道题的 JSON 对象');
+ const r=emptyReply(),str=(v:unknown)=>typeof v==='string'?v:'';
+ r.type=['single','multiple','true_false'].includes(String(v.type))?v.type as ModelReply['type']:'single';
+ r.stem=str(v.stem);r.explanation=str(v.explanation);
+ r.options=r.type==='true_false'?[]:Array.isArray(v.options)?v.options.slice(0,8).map((o,i)=>({key:'ABCDEFGH'[i],content:object(o)?str(o.content):str(o)})):r.options;
+ r.answer=r.type==='true_false'?(typeof v.answer==='boolean'?v.answer:[]):Array.isArray(v.answer)?v.answer.filter((a):a is string=>typeof a==='string'):[];
+ // Repair option labels only when their original identity is unambiguous.
+ if(r.type!=='true_false'&&Array.isArray(v.options)&&Array.isArray(r.answer)){
+  const original=v.options.slice(0,8).map((o,i)=>object(o)&&typeof o.key==='string'?o.key:'ABCDEFGH'[i]);
+  if(new Set(original).size!==original.length)r.answer=[];
+  else r.answer=r.answer.map(k=>{const i=original.indexOf(k);return i<0?k:'ABCDEFGH'[i]});
+ }
+ if(object(v.model))r.model={name:str(v.model.name)||'未知',version:str(v.model.version)||'未知',version_source:['platform','user','unknown'].includes(String(v.model.version_source))?v.model.version_source as ModelReply['model']['version_source']:'unknown'};
+ r.warnings=Array.isArray(v.warnings)?v.warnings.filter((w):w is string=>typeof w==='string'):[];
+ return r;
+}
+export function toggleAnswer(reply:ModelReply,key:string|boolean):ModelReply {
+ if(reply.type==='true_false')return {...reply,answer:reply.answer===key?[]:typeof key==='boolean'?key:[]};
+ if(typeof key!=='string'||!reply.options.some(o=>o.key===key))return reply;
+ const selected=Array.isArray(reply.answer)?reply.answer:[];
+ return {...reply,answer:selected.includes(key)?selected.filter(k=>k!==key):reply.type==='single'?[key]:[...selected,key]};
+}
+export function replyFromQuestion(q:IntakeQuestion):ModelReply {
+ const source=q.sources.find(s=>s.kind==='model_reply');
+ return parseDraft(JSON.stringify({...q,format:'qbank-photo-question-1',answer_origin:'inferred',model:source?.model,warnings:q.issues}));
+}
+export function validTime(value:unknown):value is string {
+ return typeof value==='string'&&/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d)$/.test(value)&&Number.isFinite(Date.parse(value));
+}
+export function recordedTime(q:{recorded_at?:string|null;sources?:Record<string,unknown>[]}):string|null {
+ if(validTime(q.recorded_at))return q.recorded_at;
+ const source=q.sources?.find(s=>validTime(s.recorded_at));return source?.recorded_at as string||null;
+}
+export function withRecordedTime(q:IntakeQuestion,importedAt?:string):IntakeQuestion {
+ const at=recordedTime(q),importTime=q.recorded_at_source==='unknown'?undefined:importedAt;
+ return {...q,schema_version:'1.1',recorded_at:at||importTime||null,recorded_at_source:q.recorded_at_source||(at?'source':importTime?'import':'unknown')};
+}
+export function displayTime(at:unknown):string {return validTime(at)?new Date(at).toLocaleString('zh-CN',{hour12:false}):'历史时间未知';}
+// Names use a fixed zone, independent of the device locale and wall clock.
+export function resultName(at:string|null|undefined,name:string,stage:string,version:string,bankId:string,digest:string):string {
+ const stamp=validTime(at)?new Date(Date.parse(at)+8*3600000).toISOString().replace(/[-:TZ.]/g,'').slice(0,17).replace(/^(\d{8})(.*)$/,'$1-$2')+'+0800':'历史迁移';
+ const safe=(s:string,n:number)=>Array.from(s.replace(/[\\/:*?"<>|\x00-\x1f]/g,'_').replace(/[. ]+$/,'')).slice(0,n).join('');
+ return `${stamp}_${safe(name,36)}_${safe(stage,10)}_${safe(version,18)}_${bankId.slice(0,8)}-${digest.slice(0,8)}`;
+}
 // Keep answer identity when options move; deleting an answer leaves it unset so
 // the ordinary validator requires the user to make an explicit new choice.
 export function reorderOptions(reply: ModelReply, order: number[]): ModelReply {
@@ -107,7 +164,7 @@ export function changeQuestionType(reply: ModelReply, type: ModelReply['type']):
 }
 export const MANUAL_REVIEW_NOTE = '录入者已人工修改，请复核答案；模型信息仅记录原始作答来源。';
 export function editedReplyText(reply: ModelReply, original: string): string {
-  const before = parseModelReply(original);
+  let before:ModelReply;try{before=parseDraft(original)}catch{before=emptyReply()}
   const warnings = reply.warnings.filter(w=>w!==MANUAL_REVIEW_NOTE);
   const cleanReply = {...reply,warnings};
   if(JSON.stringify(cleanReply)!==JSON.stringify(before))warnings.push(MANUAL_REVIEW_NOTE);
@@ -128,7 +185,7 @@ export function sameAnswer(a: Comparable, b: Comparable): boolean {
   return signature(a) === signature(b);
 }
 export function toQuestion(reply: ModelReply, bank: string, id: () => string, at: string): IntakeQuestion {
-  return {schema_version:'1.0', question_id:id(), base_revision:1, type:reply.type, stem:reply.stem,
+  return {schema_version:'1.1', question_id:id(), base_revision:1, recorded_at:at, recorded_at_source:'local',updated_at:at,type:reply.type, stem:reply.stem,
     options:reply.options.map(o => ({...o, option_id:id()})), answer:reply.answer, bank, external_id:'',
     chapter:'', tags:[], explanation:reply.explanation, status:'unreviewed', difficulty:'', applicable_version:'',
     source_note:`${reply.warnings.includes(MANUAL_REVIEW_NOTE)?'人工修改，原始模型':'大模型作答'} · ${reply.model.name} / ${reply.model.version}`, issues:reply.warnings,
@@ -191,7 +248,7 @@ export function parseDelta(text: string): {delta: Delta; questions: IntakeQuesti
   const questions=d.payload.split('\n').filter(line=>line.trim()).map(line=>{
     if(line.length>250_000)throw new Error('单题过大');
     const q=JSON.parse(line) as IntakeQuestion;
-    if(q.schema_version!=='1.0'||typeof q.question_id!=='string'||!uuid.test(q.question_id)||ids.has(q.question_id)
+    if(!['1.0','1.1'].includes(q.schema_version)||typeof q.question_id!=='string'||!uuid.test(q.question_id)||ids.has(q.question_id)
       ||!Number.isSafeInteger(q.base_revision)||q.base_revision<1)throw new Error('题目 ID 或修订号无效');
     ids.add(q.question_id);
     parseModelReply(JSON.stringify({format:'qbank-photo-question-1',type:q.type,stem:q.stem,
@@ -201,7 +258,7 @@ export function parseDelta(text: string): {delta: Delta; questions: IntakeQuesti
       ||!Array.isArray(q.issues)||q.issues.some(t=>typeof t!=='string')||!Array.isArray(q.attachments)||q.attachments.length
       ||q.options.some(o=>typeof o.option_id!=='string'||!uuid.test(o.option_id))
       ||['bank','external_id','chapter','source_note','status','difficulty','applicable_version'].some(k=>typeof (q as unknown as Record<string,unknown>)[k]!=='string'))throw new Error('题目元数据不完整');
-    return q;
+    validateStandardQuestion(q,String(d.name));return q;
   });
   if(questions.length!==d.question_count)throw new Error('增量包题目数量不一致');
   return {delta:d as Delta,questions};

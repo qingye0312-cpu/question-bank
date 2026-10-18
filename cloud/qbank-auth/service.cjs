@@ -39,7 +39,7 @@ function loadConfig(env) {
   const maintainers = envJSON(env, 'QBANK_MAINTAINERS', '[]');
   if (!Array.isArray(maintainers) || maintainers.length > 100 || maintainers.some(m => !exact(m,['id','key_sha256','grants'])
     || !/^[A-Za-z0-9_-]{10,64}$/.test(m.id) || !HASH.test(m.key_sha256) || !object(m.grants)
-    || Object.entries(m.grants).some(([id,roles]) => !ids.has(id) || !Array.isArray(roles) || !roles.length || roles.some(r=>!['upload','review','publish'].includes(r))))
+    || Object.entries(m.grants).some(([id,roles]) => !ids.has(id) || !Array.isArray(roles) || !roles.length || roles.some(r=>!['upload','review','publish','merge'].includes(r))))
     || new Set(maintainers.map(m=>m.id)).size!==maintainers.length) fail(503,'CONFIG_INVALID','桌面维护者配置无效');
   return { banks, developers, origins, maintainers, syncEnabled: env.QBANK_SYNC_ENABLED === 'true', appId: env.WX_APP_ID || '', appSecret: env.WX_APP_SECRET || '',
     sessionSecret: env.QBANK_SESSION_SECRET || '', authVersion: env.QBANK_AUTH_VERSION || '1',
@@ -136,7 +136,7 @@ function decodeUpload(envelope, parseDelta, parseModelReply) {
   const fields = ['schema_version', 'question_id', 'base_revision', 'type', 'stem', 'options', 'answer', 'bank',
     'external_id', 'chapter', 'tags', 'explanation', 'status', 'difficulty', 'applicable_version', 'source_note', 'issues', 'sources', 'attachments'];
   for (const q of questions) {
-    if (!exact(q, fields) || q.status !== 'unreviewed' || q.base_revision !== 1 || q.bank !== delta.name
+    if (!fields.every(k=>Object.hasOwn(q,k)) || Object.keys(q).some(k=>![...fields,'recorded_at','recorded_at_source','updated_at'].includes(k)) || q.status !== 'unreviewed' || !Number.isSafeInteger(q.base_revision) || q.base_revision < 1 || q.bank !== delta.name
       || q.options.some(o => !exact(o, ['key', 'content', 'option_id']))
       || new Set(q.options.map(o => o.option_id)).size !== q.options.length
       || q.sources.length !== 1) fail(422, 'QUESTION_INVALID', '只接受保留模型来源的新题，不接受额外附件或已审核状态');
@@ -191,7 +191,7 @@ function createHandler({ env = () => process.env, store, exchangeCode, parseDelt
       if (method === 'GET' && path === '/health') return respond(200, {
         service: 'qbank-auth', version: VERSION, auth_configured: authConfigured(config),
         auth_checks: authChecks(config),
-        uploads_enabled: config.uploadsEnabled, sync_enabled: config.syncEnabled, limits: LIMITS,
+        uploads_enabled: config.uploadsEnabled, sync_enabled: config.syncEnabled, capabilities:['confirmed-upload-v1','snapshot-v2','recorded-at-v1','merge-v1'], limits: LIMITS,
       });
       const publicResult = await workflow.read(method,path,config);
       if(publicResult !== undefined)return respond(200,publicResult);
@@ -236,21 +236,24 @@ function createHandler({ env = () => process.env, store, exchangeCode, parseDelt
       if(workflowRoute)return respond(200,await workflow.write(method,path,method==='POST'?jsonBody(event,LIMITS.expandedBytes):undefined,config,auth));
       if (!config.uploadsEnabled) fail(503, 'UPLOAD_DISABLED', '上传服务尚未启用，本地题目仍然保留');
       throttle(`upload:${auth.openid}`, 20);
-      const { delta, envelope } = decodeUpload(jsonBody(event, LIMITS.requestBytes), parseDelta, parseModelReply);
+      const body=jsonBody(event,LIMITS.requestBytes),confirmed=body?.format==='qbank-confirmed-upload-1';
+      if(confirmed&&!exact(body,['format','package']))fail(422,'CONFIRMATION_INVALID','上传确认格式无效');
+      const { delta, envelope } = decodeUpload(confirmed?body.package:body, parseDelta, parseModelReply);
       if (!auth.grants[delta.bank_id]?.includes('upload')) fail(403, 'BANK_FORBIDDEN', '没有此题库的上传权限');
       if (config.banks.find(b => b.bank_id === delta.bank_id)?.name !== delta.name)
         fail(422, 'BANK_NAME_MISMATCH', '题库名称与云端目录不一致，请先同步题库信息');
       const key = `inbox/${delta.bank_id}/${delta.batch_id}.json`;
       const record = { format: 'qbank-submission-1', submission_id: sha256(`${delta.bank_id}/${delta.batch_id}`),
         bank_id: delta.bank_id, batch_id: delta.batch_id, sha256: envelope.sha256, payload_sha256: delta.sha256,
-        question_count: delta.question_count, status: 'pending_review', accepted_at: new Date(clock()).toISOString(),
+        question_count: delta.question_count, status: confirmed?'pending_merge':'pending_review', accepted_at: new Date(clock()).toISOString(),
         submitted_by: sha256(`${config.appId}\0${auth.openid}`), package: envelope };
+      if(confirmed)record.confirmation={version:1,actor:record.submitted_by,confirmed_at:record.accepted_at,sha256:record.sha256};
       let accepted;
       try { accepted = await store.createSubmission(key, record); }
       catch { fail(502, 'STORAGE_UNAVAILABLE', '云端保存未确认，请保留本地批次并重试'); }
       if (!accepted || accepted.record?.format !== 'qbank-submission-1')
         fail(502, 'STORAGE_UNAVAILABLE', '云端记录无效，请联系维护者');
-      if (accepted.record.sha256 !== record.sha256 || accepted.record.bank_id !== delta.bank_id || accepted.record.batch_id !== delta.batch_id)
+      if (accepted.record.sha256 !== record.sha256 || accepted.record.bank_id !== delta.bank_id || accepted.record.batch_id !== delta.batch_id || accepted.record.submitted_by !== record.submitted_by)
         fail(409, 'BATCH_CONFLICT', '此批次已提交不同内容，请使用新批次提交修改');
       if(config.syncEnabled)await workflow.register(config,accepted.record,delta);
       return respond(accepted.created ? 201 : 200, { receipt: receipt(accepted.record), duplicate: !accepted.created });

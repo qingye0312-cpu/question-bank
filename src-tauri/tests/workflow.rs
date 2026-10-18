@@ -140,7 +140,10 @@ fn filters_reverse_cursor_and_print_modes_respect_the_selected_questions() {
         query.after_rowid = *ids.last().unwrap();
     }
     assert_eq!(ids.len(), 125);
-    assert!(ids.windows(2).all(|p| p[0] > p[1]));
+    assert_eq!(
+        ids.iter().collect::<std::collections::HashSet<_>>().len(),
+        125
+    );
     query.text = "题干124".into();
     for mode in ["docx-study", "docx-exam", "docx-answers"] {
         let file = d.path().join(format!("{mode}.docx"));
@@ -378,4 +381,76 @@ fn software_updates_require_embedded_https_endpoint_and_a_public_signing_key() {
     ] {
         assert!(settings(endpoint, &key).is_err());
     }
+}
+
+#[test]
+fn entry_time_survives_edit_and_confirmed_split_is_atomic_and_frozen() {
+    let (_d, s, b) = setup();
+    let mut batch = String::new();
+    for n in 0..103 {
+        let mut r: serde_json::Value = serde_json::from_str(&reply()).unwrap();
+        r["stem"] = json!(format!("连续录题 {n}"));
+        let saved = intake::save(&s, &b, &batch, &r.to_string()).unwrap();
+        batch = saved.batch_id;
+    }
+    assert_eq!(intake::entries(&s, &batch).unwrap().len(), 103);
+    let parts = cloud::prepare_batches(&s, &batch).unwrap();
+    assert_eq!(parts.len(), 2);
+    let mut sizes = vec![];
+    for id in &parts {
+        let transfer = cloud::transfer(&s, id, "https://test.example").unwrap();
+        sizes.push(intake::entries(&s, id).unwrap().len());
+        assert_eq!(cloud::prepare_batches(&s, id).unwrap(), vec![id.clone()]);
+        assert_eq!(
+            cloud::transfer(&s, id, "https://test.example").unwrap(),
+            transfer
+        );
+    }
+    assert_eq!(sizes, vec![100, 3]);
+}
+#[test]
+fn recording_time_sort_cursor_is_stable_and_local_exports_do_not_fake_merge_time() {
+    let (d, s, b) = setup();
+    let mut qs = vec![];
+    for n in 0..65 {
+        let mut q = question(&format!("按时间 {n}"));
+        q.schema_version = "1.1".into();
+        q.recorded_at = Some(format!("2026-10-{:02}T00:00:00Z", 1 + n % 3));
+        q.recorded_at_source = Some("source".into());
+        qs.push(q);
+    }
+    import(&s, &b, &d.path().join("time.jsonl"), &qs);
+    let mut query = Query {
+        bank_id: b.clone(),
+        sort: "newest".into(),
+        ..Default::default()
+    };
+    let first = s.search(&query).unwrap();
+    query.after_rowid = first.items.last().unwrap().rowid;
+    let second = s.search(&query).unwrap();
+    let combined: Vec<_> = first.items.into_iter().chain(second.items).collect();
+    assert_eq!(combined.len(), 65);
+    for pair in combined.windows(2) {
+        assert!(pair[0].question.recorded_at >= pair[1].question.recorded_at);
+        if pair[0].question.recorded_at == pair[1].question.recorded_at {
+            assert!(pair[0].question.question_id < pair[1].question.question_id);
+        }
+    }
+    let old = s.bank(&b).unwrap();
+    let old_name = exchange::export_name(&old, &s.questions(&b).unwrap()).unwrap();
+    assert_eq!(Some(old_name.clone()), old.release_name);
+    let mut q = s.questions(&b).unwrap()[0].clone();
+    let at = q.recorded_at.clone();
+    q.explanation = "修改解析".into();
+    s.save(&b, q).unwrap();
+    assert_eq!(s.questions(&b).unwrap()[0].recorded_at, at);
+    let new = s.bank(&b).unwrap();
+    let name = exchange::export_name(&new, &s.questions(&b).unwrap()).unwrap();
+    assert_ne!(name, old_name);
+    assert!(name.contains("本地汇总"));
+    assert_eq!(
+        name,
+        exchange::export_name(&s.bank(&b).unwrap(), &s.questions(&b).unwrap()).unwrap()
+    );
+    assert_eq!(new.merged_at, old.merged_at);
 }

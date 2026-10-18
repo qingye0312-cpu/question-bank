@@ -1,10 +1,11 @@
+import {UploadError} from '../core/queue';
 import {authOrigin} from '../config/cloud';
 import {prepareUpload,verifyReceipt} from '../core/upload';
 type Bank={bank_id:string;name:string};
-type Session={token:string;origin:string;expiresAt:number;banks:Bank[];uploadsEnabled:boolean};
+type Session={openid:string;token:string;origin:string;expiresAt:number;banks:Bank[];uploadsEnabled:boolean};
 type Response={status:number;body:unknown};
 type Transport=(origin:string,path:string,method:'GET'|'POST',body:unknown,token?:string)=>Promise<Response>;
-export type CloudAccess={configured:boolean;loggedIn:boolean;banks:Bank[];uploadsEnabled:boolean};
+export type CloudAccess={openid?:string;configured:boolean;loggedIn:boolean;banks:Bank[];uploadsEnabled:boolean};
 const UUID=/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 function object(value:unknown):Record<string,unknown>{
   if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('云端响应无效，请稍后重试');
@@ -39,7 +40,7 @@ export function createCloudClient(deps:{origin:()=>string;login:()=>Promise<stri
     if(!/^https:\/\/[a-z0-9.-]+(?::443)?$/i.test(value))throw new Error('云端上传尚未配置，仍可本地录题、导出和分享');
     return value;}
   function active(){if(session&&(session.expiresAt<=now()+15000||session.origin!==deps.origin()))session=undefined;return session;}
-  function state():CloudAccess {const current=active();return {configured:!!deps.origin(),loggedIn:!!current,
+  function state():CloudAccess {const current=active();return {openid:current?.openid,configured:!!deps.origin(),loggedIn:!!current,
     banks:current?current.banks.map(b=>({...b})):[],uploadsEnabled:current?.uploadsEnabled||false};}
   function logout(){generation++;session=undefined;pending=undefined;}
   async function call(path:string,method:'GET'|'POST',body:unknown,current?:Session):Promise<Response>{
@@ -47,7 +48,7 @@ export function createCloudClient(deps:{origin:()=>string;login:()=>Promise<stri
     if(response.status<200||response.status>=300){
       const error=object(object(response.body).error),code=typeof error.code==='string'?error.code:'';
       if(response.status===401||code==='DEVELOPER_NOT_ALLOWED'||code==='BANK_FORBIDDEN')logout();
-      throw new Error(response.status===401?'登录已失效，请重新登录后重试':messages[code]||'云端请求未完成，请保留本地批次后重试');
+      throw new UploadError(response.status===401?'登录已失效，请重新登录后重试':messages[code]||'云端请求未完成，请保留本地批次后重试',response.status,code);
     }
     return response;
   }
@@ -61,7 +62,7 @@ export function createCloudClient(deps:{origin:()=>string;login:()=>Promise<stri
       if(typeof result.access_token!=='string'||!/^v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(result.access_token)
         ||result.access_token.length>4096||!Number.isInteger(result.expires_in)||Number(result.expires_in)<30||Number(result.expires_in)>900)
         throw new Error('云端登录响应无效，请重试');
-      const current:Session={token:result.access_token,origin:base,expiresAt:started+Number(result.expires_in)*1000,banks:readBanks(result.banks),uploadsEnabled:false};
+      const current:Session={openid:result.openid as string,token:result.access_token,origin:base,expiresAt:started+Number(result.expires_in)*1000,banks:readBanks(result.banks),uploadsEnabled:false};
       const me=object((await call('/v1/me','GET',undefined,current)).body);
       if(typeof result.openid!=='string'||me.openid!==result.openid||!Array.isArray(me.permissions)||!me.permissions.includes('upload')||typeof me.uploads_enabled!=='boolean')
         throw new Error('云端身份或权限校验失败，请重新登录');
@@ -76,20 +77,22 @@ export function createCloudClient(deps:{origin:()=>string;login:()=>Promise<stri
     const current=active();if(!current)throw new Error('登录已失效，请重新登录');
     const me=object((await call('/v1/me','GET',undefined,current)).body);
     if(!Array.isArray(me.permissions)||!me.permissions.includes('upload')||typeof me.uploads_enabled!=='boolean')throw new Error('云端权限响应无效');
+    if(active()!==current||me.openid!==current.openid)throw new UploadError('登录已取消或身份改变',401,'SIGNED_OUT');
     const banks=readBanks(me.banks);current.banks=banks;current.uploadsEnabled=me.uploads_enabled;
     const bank=banks.find(b=>b.bank_id===bankId);
-    if(!bank)throw new Error('没有当前题库的上传权限；本地新建的题库需先由维护者授权');
+    if(!bank)throw new UploadError('没有当前题库的上传权限；本地新建的题库需先由维护者授权',403,'BANK_FORBIDDEN');
     if(bank.name!==name)throw new Error(messages.BANK_NAME_MISMATCH);
-    if(!current.uploadsEnabled)throw new Error(messages.UPLOAD_DISABLED);
+    if(!current.uploadsEnabled)throw new UploadError(messages.UPLOAD_DISABLED,503,'UPLOAD_DISABLED');
     return current.origin;
   }
-  async function upload(expected:ReturnType<typeof prepareUpload>,expectedOrigin:string){
+  async function upload(expected:ReturnType<typeof prepareUpload>,expectedOrigin:string,confirmed=false){
     const current=active();if(!current||current.origin!==expectedOrigin)throw new Error('登录已失效或服务地址改变，请重新登录后重试');
-    const response=await call('/v1/uploads','POST',expected.envelope,current),body=object(response.body);
+    const response=await call('/v1/uploads','POST',confirmed?{format:'qbank-confirmed-upload-1',package:expected.envelope}:expected.envelope,current),body=object(response.body);
     if(!((response.status===201&&body.duplicate===false)||(response.status===200&&body.duplicate===true)))throw new Error('云端上传响应无效，请重试本批次');
     return {receipt:verifyReceipt(body.receipt,expected),duplicate:body.duplicate as boolean};
   }
-  return {state,login,logout,authorize,upload};
+  async function health(){return object((await call('/health','GET',undefined)).body)}
+  return {state,login,logout,authorize,upload,health};
 }
 
 const request:Transport=(origin,path,method,body,token)=>new Promise((resolve,reject)=>{

@@ -1,4 +1,4 @@
-import {parseModelReply,identityKey,sameAnswer,toQuestion,deltaPackage,parseDelta,intakeMetadata,type IntakeMetadata} from '../core/intake';
+import {parseModelReply,identityKey,sameAnswer,toQuestion,deltaPackage,parseDelta,intakeMetadata,resultName,sha256,recordedTime,withRecordedTime,type IntakeMetadata} from '../core/intake';
 import {loadBank,invalidateBank,listBanks} from './bank';
 import {readLocal,updateLocal,createIds} from './intake-store';
 import {prepareUpload,unpackUpload} from '../core/upload';
@@ -17,7 +17,7 @@ export async function saveReply(bankId:string,batchId:string,text:string,metadat
   if(data.entries.some(e=>e.bankId===bankId&&identityKey(e.question)===identityKey(q)))return false;
   let existing=data.batches.find(b=>b.id===batch);if(existing&&existing.bankId!==bankId)throw new Error('批次属于其他题库');
   // Once a submission may have reached COS its exact bytes must remain retryable.
-  if(existing?.sealedText||existing?.upload||data.entries.filter(e=>e.batchId===batch).length>=100){batch=ids();existing=undefined;}
+  if(existing?.sealedText||existing?.upload){batch=ids();existing=undefined;}
   if(!existing)data.batches.push({id:batch,bankId,createdAt:at});
   if(!data.banks.some(b=>b.id===bankId))data.banks.push({id:bankId,name:manifest.name});
   data.entries.push({bankId,batchId:batch,question:q,createdAt:at,uploadStatus:'pending',exportedAt:'',sharedAt:''});return true;
@@ -38,7 +38,7 @@ export async function exportBatch(batchId:string,compressed=false):Promise<{file
    next.entries.filter(e=>e.bankId===batch.bankId&&e.batchId===batchId).map(e=>e.question),current.createdAt);
   return current.sealedText;
  });
- const fileName=`${manifest.name.replace(/[\\/:*?"<>|]/g,'_')}_${batchId.slice(0,8)}.${compressed?'qbank-upload':'qbank-delta'}.json`;
+ const fileName=resultName(batch.createdAt,manifest.name,'增量','b'+batchId.slice(0,8),batch.bankId,sha256(payload))+`.${compressed?'qbank-upload':'qbank-delta'}.json`;
  const filePath=`${wx.env.USER_DATA_PATH}/${fileName}`;
  const fs=wx.getFileSystemManager();
  await new Promise<void>((resolve,reject)=>fs.writeFile({filePath:filePath+'.tmp',data:compressed?JSON.stringify(prepareUpload(payload).envelope):payload,encoding:'utf8',success:()=>resolve(),fail:reject}));
@@ -64,16 +64,28 @@ export async function importDelta(text:string){
    const key=identityKey(q),idMatch=byId.get(q.question_id),matches=byContent.get(key)||[];
    if(idMatch&&(identityKey(idMatch)!==key||!sameAnswer(idMatch,q))){conflicts++;continue;}
    if(idMatch||matches.length){if(matches.some(p=>!sameAnswer(p,q)))conflicts++;else skipped++;continue;}
-   incoming.push(q);byId.set(q.question_id,q);byContent.set(key,[q]);
+   incoming.push(recordedTime(q)?q:withRecordedTime(q,at));byId.set(q.question_id,q);byContent.set(key,[q]);
   }
   if(incoming.length){
    // A filtered import is a different package: never reuse the sender's batch ID
    // for only a subset, or append content to an already exported/submitted batch.
-   const complete=!batch&&incoming.length===questions.length,batchId=complete?delta.batch_id:ids();
+   const complete=!batch&&incoming.length===questions.length&&JSON.stringify(incoming)===JSON.stringify(questions),batchId=complete?delta.batch_id:ids();
    const createdAt=complete?delta.created_at:at;
    data.batches.push({id:batchId,bankId:delta.bank_id,createdAt,sealedText:complete?text:deltaPackage(delta.bank_id,delta.name,batchId,incoming,at)});
    for(const q of incoming)data.entries.push({bankId:delta.bank_id,batchId,question:q,createdAt:at,uploadStatus:'pending',exportedAt:'',sharedAt:''});
   }
   return {bankId:delta.bank_id,name:delta.name,added:incoming.length,skipped,conflicts};
  });invalidateBank(delta.bank_id);return result;
+}
+
+export async function editReply(bankId:string,id:string,text:string,metadata:Partial<IntakeMetadata>={}){
+ const reply=parseModelReply(text),{bank}=await loadBank(bankId),key=identityKey(reply);
+ for(let i=0;i<bank.count;i++){const q=bank.question(i);if(q.question_id!==id&&identityKey(q)===key)throw Error('修改后与已有题目重复或答案冲突');}
+ const ids=await createIds(9),at=new Date().toISOString();
+ await updateLocal(data=>{const entry=data.entries.find(e=>e.bankId===bankId&&e.question.question_id===id);if(!entry)throw Error('录入题目不存在');
+  const batch=data.batches.find(b=>b.id===entry.batchId);if(batch?.sealedText||batch?.upload)throw Error('批次已冻结，请另存新批次');
+  const old=entry.question,q={...toQuestion(reply,old.bank,ids,at),...intakeMetadata(metadata),question_id:id,base_revision:old.base_revision+1,recorded_at:recordedTime(old),recorded_at_source:old.recorded_at_source||(recordedTime(old)?'source':'unknown') as 'source'|'unknown',updated_at:at};
+  q.sources[0].recorded_at=recordedTime(old);
+  if(data.entries.some(e=>e.bankId===bankId&&e.question.question_id!==id&&identityKey(e.question)===identityKey(q)))throw Error('修改后与已有新题重复');entry.question=q;
+ });invalidateBank(bankId);
 }

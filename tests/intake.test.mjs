@@ -84,3 +84,16 @@ test('manual metadata survives mobile persistence and compressed exchange withou
  await assert.rejects(service.saveReply(bank,'',JSON.stringify({...reply,stem:'坏元数据'}),{tags:['x'.repeat(101)]}));
  assert.equal((await banks.loadBank(bank)).bank.count,1);
 });
+
+test('partial replies are editable while submission remains strict; answer dots distinguish unset from false',async()=>{
+ const {parseDraft,toggleAnswer,emptyReply,recordedTime,resultName,withRecordedTime}=await import('../shared/intake.ts');
+ const partial=parseDraft(JSON.stringify({stem:'未完成判断',type:'true_false'}));assert.equal(partial.stem,'未完成判断');assert.deepEqual(partial.answer,[]);assert.throws(()=>parseModelReply(JSON.stringify(partial)));
+ assert.deepEqual(parseDraft(JSON.stringify({...reply,options:[{key:'B',content:'二'},{key:'A',content:'一'}],answer:['A']})).answer,['B']);
+ const yes=toggleAnswer(partial,false);assert.equal(yes.answer,false);assert.deepEqual(toggleAnswer(yes,false).answer,[]);
+ assert.deepEqual(toggleAnswer(reply,'B').answer,[]);assert.deepEqual(toggleAnswer({...reply,type:'multiple',answer:['A']},'B').answer,['A','B']);
+ assert.equal(recordedTime({...toQuestion(reply,'时间测试',id,'2026-10-18T01:02:03.456Z')}),'2026-10-18T01:02:03.456Z');assert.equal(recordedTime({sources:[]}),null);
+ const unknown={...toQuestion(reply,'时间测试',id,'2026-10-18T01:02:03.456Z'),recorded_at:null,recorded_at_source:'unknown',sources:[]};
+ assert.equal(withRecordedTime(unknown,'2026-10-18T02:00:00Z').recorded_at,null);
+ assert.equal(withRecordedTime({...unknown,recorded_at_source:undefined},'2026-10-18T02:00:00Z').recorded_at_source,'import');
+ const name=resultName('2026-10-18T01:02:03.456Z','坏/名称:*','合并','v2','12345678-x','abcdef1234');assert.match(name,/20261018-090203456\+0800/);assert.doesNotMatch(name,/[\/:*?]/);assert.deepEqual(emptyReply().answer,[]);
+});

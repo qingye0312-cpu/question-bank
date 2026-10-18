@@ -1,3 +1,4 @@
+import {resultName,sha256} from '../core/intake';
 import {LocalBank, SearchIndex, buildPostingsFromLines} from '../core/search';
 import {CompactBank, decodeCompact, decodeUtf8} from '../core/compact';
 import { bundledManifest } from '../data/manifest';
@@ -7,7 +8,7 @@ import {combineLayers,type SyncQuestion} from '../core/sync';
 
 export type Manifest = {
   schema_version: string; bank_id: string; name: string; release_id: string;
-  release_version: number; question_count: number;
+  release_version: number; question_count: number; merged_at?:string|null;release_name?:string|null;
 };
 export type BankBundle = {bank: LocalBank; manifest: Manifest};
 let pending: Promise<BankBundle> | undefined;
@@ -96,16 +97,20 @@ export function activeBankId():string {
   return selected||bundledManifest.bank_id;
 }
 export function selectBank(id:string):void {selected=id;try{wx.setStorageSync(ACTIVE_BANK_KEY,id)}catch{/* Current session still switches. */}}
-export async function listBanks():Promise<{id:string;name:string}[]> {
+export async function listBanks():Promise<{id:string;name:string;display_name:string}[]> {
   if(!catalogReady)catalogReady=restoreCatalog();await catalogReady;
   const local=await readLocal(),all=[{id:bundledManifest.bank_id,name:bundledManifest.name},...local.banks,...cloudCatalog().map(b=>({id:b.bank_id,name:b.name}))];
-  return [...new Map(all.map(b=>[b.id,b])).values()];
+  return Promise.all([...new Map(all.map(b=>[b.id,b])).values()].map(async b=>{
+    const snapshot=await cachedSnapshot(b.id),m=snapshot?.manifest;
+    const own=local.banks.find(v=>v.id===b.id),embedded=b.id===bundledManifest.bank_id;
+    return {...b,display_name:m?.release_name||own?.release_name||resultName(null,b.name,'历史迁移','v'+(m?.release_version||(embedded?bundledManifest.release_version:1)),b.id,embedded?bundledManifest.release_id:sha256(b.id))};
+  }));
 }
 export function invalidateBank(id:string):void {banks.delete(id);}
 export async function createBank(name:string):Promise<string>{
   name=name.trim();if(!name||Array.from(name).length>100)throw new Error('题库名称须为 1 至 100 字');
   const id=(await createIds(1))();
-  await updateLocal(data=>{data.banks.push({id,name})});selectBank(id);return id;
+  await updateLocal(data=>{data.banks.push({id,name,createdAt:new Date().toISOString(),release_name:resultName(new Date().toISOString(),name,'初建','v1',id,sha256(''))})});selectBank(id);return id;
 }
 export function loadBank(id=activeBankId()):Promise<BankBundle>{
   const cached=banks.get(id);if(cached){banks.delete(id);banks.set(id,cached);return cached;}
@@ -122,7 +127,7 @@ export function loadBank(id=activeBankId()):Promise<BankBundle>{
     const cached=await cachedSnapshot(id);
     if(cached?.snapshot.formal){
       const lines=cached.snapshot.formal.map(q=>JSON.stringify({...q,cloud_layer:'formal'}));
-      bundle={manifest:{schema_version:'1.0',bank_id:id,name:cached.manifest.name,release_id:cached.manifest.sha256,release_version:cached.manifest.release_version,question_count:lines.length},
+      bundle={manifest:{schema_version:'1.0',bank_id:id,name:cached.manifest.name,merged_at:cached.manifest.merged_at,release_name:cached.manifest.release_name,release_id:cached.manifest.sha256,release_version:cached.manifest.release_version,question_count:lines.length},
         bank:new LocalBank(lines,{schema_version:'qbank-index-1',release_id:cached.manifest.sha256,question_count:lines.length,postings:await buildPostingsFromLines(lines)})};
     }
     const formal=Array.from({length:bundle.bank.count},(_,i)=>bundle.bank.question(i)) as unknown as SyncQuestion[];

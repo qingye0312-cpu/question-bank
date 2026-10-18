@@ -1,7 +1,8 @@
+const recordedTime=(q:Question):string|null=>q.recorded_at||q.sources?.find(s=>typeof s.recorded_at==='string'&&Number.isFinite(Date.parse(s.recorded_at)))?.recorded_at as string||null;
 import type {Question} from './search';
 
 // Mobile read-only projection. Editorial provenance and option UUIDs stay in desktop source.
-export type CompactBank = {v: 1; release: string; dict: string[]; rows: unknown[][]};
+export type CompactBank = {v: 1|2; release: string; dict: string[]; rows: unknown[][]};
 const types = ['single', 'multiple', 'true_false'] as const;
 export function encodeCompact(questions: Question[], release: string): CompactBank {
   const counts = new Map<string, number>();
@@ -10,13 +11,13 @@ export function encodeCompact(questions: Question[], release: string): CompactBa
   const dict = [...counts].filter(([s, n]) => n > 1 && s.length > 3).map(([s]) => s).sort();
   const lookup = new Map(dict.map((s, i) => [s, i]));
   const ref = (s: string): string | number => lookup.has(s) ? lookup.get(s)! : s;
-  return {v: 1, release, dict, rows: questions.map(q => [q.question_id, q.external_id,
+  return {v: 2, release, dict, rows: questions.map(q => [q.question_id, q.external_id,
     types.indexOf(q.type), q.stem, q.options.map(o => [o.key, ref(o.content)]), q.answer,
-    ref(q.chapter), q.tags.map(ref), ref(q.explanation)])};
+    ref(q.chapter), q.tags.map(ref), ref(q.explanation), recordedTime(q), q.recorded_at_source||(recordedTime(q)?'source':'unknown'),q.updated_at||null])};
 }
 
 export function decodeCompact(value: CompactBank, release: string, count: number): string[] {
-  if (!value || value.v !== 1 || value.release !== release || !Array.isArray(value.dict)
+  if (!value || ![1,2].includes(value.v) || value.release !== release || !Array.isArray(value.dict)
       || !value.dict.every(s => typeof s === 'string') || !Array.isArray(value.rows)
       || value.rows.length !== count) throw new Error('压缩题库资源格式无效或版本不一致');
   const str = (v: unknown): string => {
@@ -25,8 +26,8 @@ export function decodeCompact(value: CompactBank, release: string, count: number
     throw new Error('压缩题库字典引用无效');
   };
   return value.rows.map(row => {
-    if (!Array.isArray(row) || row.length !== 9) throw new Error('压缩题库记录无效');
-    const [id, number, kind, stem, options, answer, chapter, tags, explanation] = row;
+    if (!Array.isArray(row) || row.length !== (value.v===2?12:9)) throw new Error('压缩题库记录无效');
+    const [id, number, kind, stem, options, answer, chapter, tags, explanation,recorded_at,recorded_at_source,updated_at] = row;
     if (typeof id !== 'string' || typeof number !== 'string' || typeof stem !== 'string'
         || typeof kind !== 'number' || !Number.isInteger(kind) || !types[kind]
         || !Array.isArray(options) || !Array.isArray(tags)) throw new Error('压缩题库字段无效');
@@ -36,7 +37,8 @@ export function decodeCompact(value: CompactBank, release: string, count: number
     });
     if (answer !== null && (kind === 2 ? typeof answer !== 'boolean'
       : !Array.isArray(answer) || !answer.every(k => restored.some(o => o.key === k)))) throw new Error('压缩题库答案无效');
-    return JSON.stringify({schema_version: '1.0', question_id: id, base_revision: 1, type: types[kind],
+    if(value.v===2&&((recorded_at!=null&&(typeof recorded_at!=='string'||!Number.isFinite(Date.parse(recorded_at))))||!['local','import','source','unknown'].includes(String(recorded_at_source))||(updated_at!=null&&(typeof updated_at!=='string'||!Number.isFinite(Date.parse(updated_at))))))throw Error('录入时间无效');
+    return JSON.stringify({...value.v===2?{recorded_at,recorded_at_source,updated_at}:{},schema_version: value.v===2?'1.1':'1.0', question_id: id, base_revision: 1, type: types[kind],
       stem, options: restored, answer, external_id: number, bank: '', chapter: str(chapter),
       tags: tags.map(str), explanation: str(explanation), status: answer === null ? 'needs_review' : 'unreviewed'});
   });

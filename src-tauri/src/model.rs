@@ -47,6 +47,12 @@ pub struct Question {
     pub question_id: String,
     #[serde(default = "revision")]
     pub base_revision: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recorded_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recorded_at_source: Option<String>,
     #[serde(rename = "type")]
     pub kind: String,
     pub stem: String,
@@ -93,8 +99,20 @@ impl Question {
         }
     }
     pub fn validate(&self, legacy: bool) -> Result<()> {
-        if self.schema_version != "1.0" {
+        if !["1.0", "1.1"].contains(&self.schema_version.as_str()) {
             return Err("不支持的 schema_version".into());
+        }
+        for at in [&self.recorded_at, &self.updated_at].into_iter().flatten() {
+            if chrono::DateTime::parse_from_rfc3339(at).is_err() {
+                return Err("题目时间无效".into());
+            }
+        }
+        if self
+            .recorded_at_source
+            .as_deref()
+            .is_some_and(|s| !["local", "import", "source", "unknown"].contains(&s))
+        {
+            return Err("录入时间来源无效".into());
         }
         if !["single", "multiple", "true_false"].contains(&self.kind.as_str()) {
             return Err("题型只能是单选、多选或判断".into());
@@ -190,10 +208,84 @@ impl Question {
             self.chapter
         ))
     }
+    pub fn recover_recorded_at(&mut self, imported_at: Option<&str>) {
+        if self.recorded_at.is_some() {
+            return;
+        }
+        self.recorded_at = self
+            .sources
+            .iter()
+            .filter_map(|s| s["recorded_at"].as_str())
+            .find(|s| chrono::DateTime::parse_from_rfc3339(s).is_ok())
+            .map(str::to_string);
+        self.recorded_at_source = Some(
+            if self.recorded_at.is_some() {
+                "source"
+            } else if let Some(at) = imported_at {
+                self.recorded_at = Some(at.into());
+                "import"
+            } else {
+                "unknown"
+            }
+            .into(),
+        );
+        // Old frozen payloads are never rewritten; this is used on newly saved
+        // questions or display/import copies only.
+        self.schema_version = "1.1".into();
+    }
+}
+
+pub fn result_name(
+    at: Option<&str>,
+    name: &str,
+    stage: &str,
+    version: &str,
+    bank: &str,
+    digest: &str,
+) -> String {
+    let stamp = at
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|d| {
+            d.with_timezone(&chrono::FixedOffset::east_opt(28800).unwrap())
+                .format("%Y%m%d-%H%M%S%3f+0800")
+                .to_string()
+        })
+        .unwrap_or("历史迁移".into());
+    let safe = |s: &str, n| {
+        s.chars()
+            .map(|c| {
+                if c.is_control() || "\\/:*?\"<>|".contains(c) {
+                    '_'
+                } else {
+                    c
+                }
+            })
+            .take(n)
+            .collect::<String>()
+            .trim_end_matches(['.', ' '])
+            .to_string()
+    };
+    format!(
+        "{}_{}_{}_{}_{}-{}",
+        stamp,
+        safe(name, 36),
+        safe(stage, 10),
+        safe(version, 18),
+        bank.chars().take(8).collect::<String>(),
+        digest.chars().take(8).collect::<String>()
+    )
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Bank {
+    #[serde(default)]
+    pub result_content_hash: Option<String>,
+    #[serde(default)]
+    pub merged_at: Option<String>,
+    #[serde(default)]
+    pub release_name: Option<String>,
+    #[serde(default)]
+    pub release_id: Option<String>,
     pub id: String,
     pub name: String,
     pub read_only: bool,

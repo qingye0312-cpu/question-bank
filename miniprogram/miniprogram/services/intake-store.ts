@@ -1,9 +1,10 @@
 import {IntakeQuestion, sha256, uuidFromBytes} from '../core/intake';
+import type {UploadJob} from '../core/queue';
 import type {UploadReceipt} from '../core/upload';
 export type LocalEntry={bankId:string;batchId:string;question:IntakeQuestion;createdAt:string;uploadStatus:'pending'|'uploaded_manual'|'uploaded';exportedAt:string;sharedAt:string};
 export type LocalBatch={id:string;bankId:string;createdAt:string;sealedText?:string;upload?:{endpoint:string;text:string;receipt?:UploadReceipt}};
-export type LocalCatalog={id:string;name:string};
-export type IntakeStore={version:1;banks:LocalCatalog[];batches:LocalBatch[];entries:LocalEntry[]};
+export type LocalCatalog={id:string;name:string;createdAt?:string;release_name?:string};
+export type IntakeStore={drafts?:Record<string,{current:Record<string,unknown>;previous?:Record<string,unknown>}>;jobs?:UploadJob[];version:1;banks:LocalCatalog[];batches:LocalBatch[];entries:LocalEntry[]};
 let cached:Promise<IntakeStore>|undefined;
 let writes:Promise<unknown>=Promise.resolve();
 const file=()=>`${wx.env.USER_DATA_PATH}/qbank-intake-v1.json`;

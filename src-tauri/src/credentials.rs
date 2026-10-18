@@ -1,0 +1,130 @@
+//! Only the native process reads the remembered maintainer key. WebView storage
+//! contains an opt-in flag, never the key. Entries are scoped to the HTTPS origin.
+use crate::{cloud, model::*};
+use serde_json::{json, Value};
+const SERVICE: &str = "local.questionbank.desktop.maintainer";
+fn account(origin: &str) -> Result<String> {
+    let u = reqwest::Url::parse(origin).map_err(|_| "服务地址无效")?;
+    if u.scheme() != "https"
+        || u.host_str().is_none()
+        || u.path() != "/"
+        || u.query().is_some()
+        || u.fragment().is_some()
+        || !u.username().is_empty()
+        || u.password().is_some()
+    {
+        return Err("服务地址无效".into());
+    }
+    Ok(hash(u.origin().ascii_serialization().as_bytes()))
+}
+pub fn save(origin: &str, key: Option<String>) -> Result<()> {
+    let id = account(origin)?;
+    if let Some(ref value) = key {
+        if value.len() < 16 || value.len() > 2048 || value.contains('\0') {
+            return Err("维护者密钥格式无效".into());
+        }
+    }
+    platform::save(&id, key.as_deref())
+}
+pub fn login(origin: &str) -> Result<Value> {
+    let key =
+        platform::read(&account(origin)?)?.ok_or("本机没有保存此服务的维护者凭据，请重新登录")?;
+    cloud::request(origin, "/v1/auth/desktop", Some(json!({"key":key})), None)
+}
+#[cfg(target_os = "macos")]
+mod platform {
+    use super::*;
+    use security_framework::passwords::{
+        delete_generic_password, get_generic_password, set_generic_password,
+    };
+    pub fn save(id: &str, key: Option<&str>) -> Result<()> {
+        match key {
+            Some(k) => set_generic_password(SERVICE, id, k.as_bytes())
+                .map_err(|_| "无法保存到系统钥匙串，请使用本次会话登录".into()),
+            None => match delete_generic_password(SERVICE, id) {
+                Ok(()) => Ok(()),
+                Err(e) if e.code() == -25300 => Ok(()),
+                Err(_) => Err("系统钥匙串凭据移除失败".into()),
+            },
+        }
+    }
+    pub fn read(id: &str) -> Result<Option<String>> {
+        match get_generic_password(SERVICE, id) {
+            Ok(k) => String::from_utf8(k)
+                .map(Some)
+                .map_err(|_| "系统凭据无效".into()),
+            Err(e) if e.code() == -25300 => Ok(None),
+            Err(_) => Err("无法读取系统钥匙串，请手动登录".into()),
+        }
+    }
+}
+#[cfg(target_os = "windows")]
+mod platform {
+    use super::*;
+    use windows::{
+        core::{PCWSTR, PWSTR},
+        Win32::{Foundation::ERROR_NOT_FOUND, Security::Credentials::*},
+    };
+    fn target(id: &str) -> Vec<u16> {
+        format!("{SERVICE}/{id}")
+            .encode_utf16()
+            .chain(Some(0))
+            .collect()
+    }
+    pub fn save(id: &str, key: Option<&str>) -> Result<()> {
+        let mut name = target(id);
+        unsafe {
+            if let Some(k) = key {
+                let mut blob = k.as_bytes().to_vec();
+                let c = CREDENTIALW {
+                    Type: CRED_TYPE_GENERIC,
+                    TargetName: PWSTR(name.as_mut_ptr()),
+                    CredentialBlobSize: blob.len() as u32,
+                    CredentialBlob: blob.as_mut_ptr(),
+                    Persist: CRED_PERSIST_LOCAL_MACHINE,
+                    ..Default::default()
+                };
+                CredWriteW(&c, 0).map_err(|_| "无法保存到 Windows 凭据管理器".to_string())
+            } else {
+                match CredDeleteW(PCWSTR(name.as_ptr()), CRED_TYPE_GENERIC, None) {
+                    Ok(()) => Ok(()),
+                    Err(e) if e.code() == ERROR_NOT_FOUND.to_hresult() => Ok(()),
+                    Err(_) => Err("系统凭据移除失败".into()),
+                }
+            }
+        }
+    }
+    pub fn read(id: &str) -> Result<Option<String>> {
+        let name = target(id);
+        let mut ptr = std::ptr::null_mut();
+        unsafe {
+            match CredReadW(PCWSTR(name.as_ptr()), CRED_TYPE_GENERIC, None, &mut ptr) {
+                Ok(()) => {
+                    let c = &*ptr;
+                    let bytes = if c.CredentialBlobSize == 0 {
+                        Vec::new()
+                    } else {
+                        std::slice::from_raw_parts(c.CredentialBlob, c.CredentialBlobSize as usize)
+                            .to_vec()
+                    };
+                    CredFree(ptr.cast());
+                    String::from_utf8(bytes)
+                        .map(Some)
+                        .map_err(|_| "系统凭据无效".into())
+                }
+                Err(e) if e.code() == ERROR_NOT_FOUND.to_hresult() => Ok(None),
+                Err(_) => Err("无法读取 Windows 凭据管理器，请手动登录".into()),
+            }
+        }
+    }
+}
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+mod platform {
+    use super::*;
+    pub fn save(_: &str, _: Option<&str>) -> Result<()> {
+        Err("此平台尚不支持安全保存维护者凭据".into())
+    }
+    pub fn read(_: &str) -> Result<Option<String>> {
+        Ok(None)
+    }
+}

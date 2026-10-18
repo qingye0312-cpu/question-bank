@@ -4,6 +4,7 @@ import {readFile} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import vm from 'node:vm';
 import ts from 'typescript';
+import * as intakeCore from '../shared/intake.ts';
 import * as core from '../miniprogram/miniprogram/core/search.ts';
 import * as compact from '../miniprogram/miniprogram/core/compact.ts';
 import {brotliDecompressSync} from 'node:zlib';
@@ -202,7 +203,7 @@ async function loadPage(path, mocks = {}) {
   const selection = {in() {return this;}, select() {return this;}, selectAll() {return this;}, boundingClientRect() {return this;}, exec() {}};
   const wx = {createSelectorQuery: () => selection, navigateTo: () => {}, ...mocks};
   vm.runInNewContext(outputText, {
-    exports: {}, require: name => name.endsWith('/search') ? core : {loadBank: async () => ({bank: bank(), manifest}),listBanks:async()=>[{id:manifest.bank_id,name:manifest.name}],activeBankId:()=>manifest.bank_id,selectBank:()=>{},APP_VERSION:'0.2.7'},
+    exports: {}, require: name => name.endsWith('/search') ? core : name.endsWith('/intake') ? intakeCore : {loadBank: async () => ({bank: bank(), manifest}),listBanks:async()=>[{id:manifest.bank_id,name:manifest.name}],activeBankId:()=>manifest.bank_id,selectBank:()=>{},APP_VERSION:'0.2.7'},
     Page: options => { page = options; }, wx, setTimeout, clearTimeout, Error,
   });
   // WeChat instantiates pages by cloning free data. Tests must not accidentally

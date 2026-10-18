@@ -71,6 +71,8 @@ impl Store {
             crate::backup::automatic(&s, "migration")?;
         }
         s.conn()?.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;
+          CREATE TABLE IF NOT EXISTS bank_result_content(bank_id TEXT PRIMARY KEY,content_hash TEXT NOT NULL);
+          CREATE TABLE IF NOT EXISTS bank_results(bank_id TEXT PRIMARY KEY,merged_at TEXT,release_name TEXT NOT NULL,release_id TEXT NOT NULL);
           CREATE TABLE IF NOT EXISTS banks(id TEXT PRIMARY KEY,name TEXT NOT NULL,read_only INTEGER NOT NULL,version INTEGER NOT NULL,updated_at TEXT NOT NULL,content_hash TEXT NOT NULL DEFAULT '',provenance TEXT NOT NULL DEFAULT '');
           CREATE TABLE IF NOT EXISTS questions(rowid INTEGER PRIMARY KEY,bank_id TEXT NOT NULL REFERENCES banks(id),id TEXT NOT NULL,kind TEXT NOT NULL,status TEXT NOT NULL,external_id TEXT NOT NULL,data TEXT NOT NULL,deleted INTEGER NOT NULL DEFAULT 0,UNIQUE(bank_id,id));
           CREATE INDEX IF NOT EXISTS by_bank ON questions(bank_id,deleted,kind,status);
@@ -117,6 +119,10 @@ impl Store {
         let rows = s
             .query_map([], |r| {
                 Ok(Bank {
+                    result_content_hash: None,
+                    merged_at: None,
+                    release_name: None,
+                    release_id: None,
                     id: r.get(0)?,
                     name: r.get(1)?,
                     read_only: r.get(2)?,
@@ -129,8 +135,13 @@ impl Store {
                 })
             })
             .map_err(err)?;
-        rows.collect::<std::result::Result<Vec<_>, _>>()
-            .map_err(err)
+        let mut banks = rows
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(err)?;
+        for b in &mut banks {
+            decorate_bank(&c, b)?;
+        }
+        Ok(banks)
     }
     pub fn bank(&self, id: &str) -> Result<Bank> {
         get_bank(&self.conn()?, id)
@@ -147,6 +158,7 @@ impl Store {
                 params![id, name, now()],
             )
             .map_err(err)?;
+        record_result(&self.conn()?, &id, Some(&now()), "初建")?;
         Ok(id)
     }
     pub fn seed(&self) -> Result<()> {
@@ -296,17 +308,39 @@ impl Store {
             .first()
             .map(|(t, _)| format!("{t}.rowid"))
             .unwrap_or("q.rowid".into());
-        if q.after_rowid > 0 {
+        if q.sort == "newest" {
+            // Unknown historical timestamps sort last. The cursor is looked up
+            // locally; it never trusts a client-provided display time.
+            let time = "COALESCE(julianday(json_extract(q.data,'$.recorded_at')),julianday(json_extract(q.data,'$.sources[0].recorded_at')),0)";
+            if q.after_rowid > 0 {
+                let (at, id, bank): (f64, String, String) = c
+                    .query_row(
+                        &format!("SELECT {time},q.id,q.bank_id FROM questions q WHERE q.rowid=?1"),
+                        [q.after_rowid],
+                        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                    )
+                    .map_err(err)?;
+                sql.push_str(&format!(
+                    " AND ({time}<? OR ({time}=? AND (q.id>? OR (q.id=? AND q.bank_id>?))))"
+                ));
+                values.extend([
+                    at.into(),
+                    at.into(),
+                    id.clone().into(),
+                    id.into(),
+                    bank.into(),
+                ]);
+            }
             sql.push_str(&format!(
-                " AND {order}{}?",
-                if q.sort == "newest" { "<" } else { ">" }
+                " ORDER BY {time} DESC,q.id ASC,q.bank_id ASC LIMIT 51"
             ));
-            values.push(q.after_rowid.into());
+        } else {
+            if q.after_rowid > 0 {
+                sql.push_str(&format!(" AND {order}>?"));
+                values.push(q.after_rowid.into());
+            }
+            sql.push_str(&format!(" ORDER BY {order} ASC LIMIT 51"));
         }
-        sql.push_str(&format!(
-            " ORDER BY {order} {} LIMIT 51",
-            if q.sort == "newest" { "DESC" } else { "ASC" }
-        ));
         let mut st = c.prepare(&sql).map_err(err)?;
         let rows = st
             .query_map(rusqlite::params_from_iter(values), |r| {
@@ -366,6 +400,10 @@ impl Store {
                 return Err("题目已发生变化，请重新打开再编辑".into());
             }
             record(&tx, bank_id, &previous, "编辑")?;
+            q.recorded_at = previous.recorded_at.clone();
+            q.recorded_at_source = previous.recorded_at_source.clone();
+            q.recover_recorded_at(None);
+            q.updated_at = Some(now());
             q.base_revision += 1;
             remove_index(&tx, rowid)?;
             tx.execute(
@@ -381,6 +419,10 @@ impl Store {
             .map_err(err)?;
             index(&tx, rowid, &q)?;
         } else {
+            q.recorded_at = Some(now());
+            q.recorded_at_source = Some("local".into());
+            q.schema_version = "1.1".into();
+            q.updated_at = q.recorded_at.clone();
             insert(&tx, bank_id, &q)?;
         }
         tx.execute(
@@ -453,6 +495,7 @@ impl Store {
             }
             insert(&tx, &new, q)?;
         }
+        record_result(&tx, &new, Some(&now()), "副本")?;
         tx.commit().map_err(err)?;
         Ok(new)
     }
@@ -512,6 +555,14 @@ impl Store {
         tx.execute("DELETE FROM imports WHERE bank_id=?1", [id])
             .map_err(err)?;
         crate::intake::restore_snapshot(&tx, id)?;
+        if let (Some(name), Some(digest)) = (&bank.release_name, &bank.release_id) {
+            set_result(&tx, id, bank.merged_at.as_deref(), name, digest)?;
+        } else {
+            tx.execute("DELETE FROM bank_results WHERE bank_id=?1", [id])
+                .map_err(err)?;
+            tx.execute("DELETE FROM bank_result_content WHERE bank_id=?1", [id])
+                .map_err(err)?;
+        }
         tx.commit().map_err(err)
     }
     pub fn reindex(&self) -> Result<()> {
@@ -626,7 +677,9 @@ struct SnapshotRow {
     deleted: bool,
 }
 pub fn get_bank(c: &Connection, id: &str) -> Result<Bank> {
-    c.query_row("SELECT b.id,b.name,b.read_only,b.version,b.updated_at,b.content_hash,b.provenance,(SELECT count(*) FROM questions WHERE bank_id=b.id AND deleted=0),(SELECT count(*) FROM questions WHERE bank_id=b.id AND deleted=0 AND status='needs_review') FROM banks b WHERE b.id=?1",[id],|r|Ok(Bank{id:r.get(0)?,name:r.get(1)?,read_only:r.get(2)?,version:r.get(3)?,updated_at:r.get(4)?,content_hash:r.get(5)?,provenance:r.get(6)?,count:r.get(7)?,review_count:r.get(8)?})).map_err(err)
+    let mut bank=c.query_row("SELECT b.id,b.name,b.read_only,b.version,b.updated_at,b.content_hash,b.provenance,(SELECT count(*) FROM questions WHERE bank_id=b.id AND deleted=0),(SELECT count(*) FROM questions WHERE bank_id=b.id AND deleted=0 AND status='needs_review') FROM banks b WHERE b.id=?1",[id],|r|Ok(Bank{result_content_hash:None,merged_at:None,release_name:None,release_id:None,id:r.get(0)?,name:r.get(1)?,read_only:r.get(2)?,version:r.get(3)?,updated_at:r.get(4)?,content_hash:r.get(5)?,provenance:r.get(6)?,count:r.get(7)?,review_count:r.get(8)?})).map_err(err)?;
+    decorate_bank(c, &mut bank)?;
+    Ok(bank)
 }
 pub fn snapshot(c: &Connection, bank: &Bank) -> Result<()> {
     let mut st = c
@@ -665,4 +718,83 @@ pub fn clear_bank(c: &Connection, id: &str) -> Result<()> {
     c.execute("DELETE FROM questions WHERE bank_id=?1", [id])
         .map_err(err)?;
     Ok(())
+}
+
+fn decorate_bank(c: &Connection, b: &mut Bank) -> Result<()> {
+    b.result_content_hash = c
+        .query_row(
+            "SELECT content_hash FROM bank_result_content WHERE bank_id=?1",
+            [&b.id],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(err)?;
+    let result: Option<(Option<String>, String, String)> = c
+        .query_row(
+            "SELECT merged_at,release_name,release_id FROM bank_results WHERE bank_id=?1",
+            [&b.id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()
+        .map_err(err)?;
+    if let Some((at, name, id)) = result {
+        b.merged_at = at;
+        b.release_name = Some(name);
+        b.release_id = Some(id);
+    } else {
+        b.release_name = Some(result_name(
+            None,
+            &b.name,
+            "历史迁移",
+            &format!("v{}", b.version),
+            &b.id,
+            &if b.content_hash.is_empty() {
+                hash(b.id.as_bytes())
+            } else {
+                b.content_hash.clone()
+            },
+        ));
+    }
+    Ok(())
+}
+pub fn set_result(
+    c: &Connection,
+    id: &str,
+    at: Option<&str>,
+    name: &str,
+    digest: &str,
+) -> Result<()> {
+    c.execute(
+        "INSERT OR REPLACE INTO bank_results VALUES(?1,?2,?3,?4)",
+        params![id, at, name, digest],
+    )
+    .map_err(err)?;
+    let mut st=c.prepare("SELECT q.data FROM questions q LEFT JOIN question_layers l ON l.bank_id=q.bank_id AND l.question_id=q.id WHERE q.bank_id=?1 AND q.deleted=0 AND (l.layer IS NULL OR l.layer='formal') ORDER BY q.rowid").map_err(err)?;
+    let qs = st
+        .query_map([id], |r| r.get::<_, String>(0))
+        .map_err(err)?
+        .map(|r| serde_json::from_str::<Question>(&r.map_err(err)?).map_err(err))
+        .collect::<Result<Vec<_>>>()?;
+    c.execute(
+        "INSERT OR REPLACE INTO bank_result_content VALUES(?1,?2)",
+        params![id, hash(&crate::exchange::jsonl(&qs)?)],
+    )
+    .map_err(err)?;
+    Ok(())
+}
+pub fn record_result(c: &Connection, id: &str, at: Option<&str>, stage: &str) -> Result<()> {
+    let b = get_bank(c, id)?;
+    let qs = questions(c, id)?;
+    let payload = crate::exchange::jsonl(&qs)?;
+    let digest = hash(&payload);
+    if b.release_id.as_deref() == Some(&digest) {
+        return Ok(());
+    }
+    set_result(
+        c,
+        id,
+        at,
+        &result_name(at, &b.name, stage, &format!("v{}", b.version), id, &digest),
+        &digest,
+    )
 }

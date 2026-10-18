@@ -17,6 +17,7 @@ const sortedValue = v => Array.isArray(v) ? v.map(sortedValue) : v && typeof v =
 export function seedPayload(seed) {
   return seed.map(q => JSON.stringify({
     schema_version: q.schema_version ?? '1.0', question_id: q.question_id, base_revision: q.base_revision ?? 1,
+    ...(q.recorded_at!=null?{recorded_at:q.recorded_at}:{}),...(q.updated_at!=null?{updated_at:q.updated_at}:{}),...(q.recorded_at_source?{recorded_at_source:q.recorded_at_source}:{}),
     type: q.type, stem: q.stem,
     options: q.options.map(o => ({key: o.key, content: o.content, option_id: o.option_id})),
     answer: q.answer, external_id: q.external_id ?? '', bank: q.bank ?? '', chapter: q.chapter ?? '',
@@ -52,7 +53,7 @@ export async function prepare({check = false, sourceDirectory} = {}) {
   if (questions.length !== manifest.question_count || !questions.length) throw new Error('题数不一致或空题库');
   const ids = new Set();
   for (const q of questions) {
-    if (!q.question_id || ids.has(q.question_id) || q.schema_version !== '1.0'
+    if (!q.question_id || ids.has(q.question_id) || !['1.0','1.1'].includes(q.schema_version)
         || !['single', 'multiple', 'true_false'].includes(q.type) || !q.stem?.trim()
         || !Array.isArray(q.options) || !Array.isArray(q.tags)
         || (q.attachments?.length ?? 0) || q.extensions != null) throw new Error('题库存在无效记录、重复 ID 或不支持的附件');

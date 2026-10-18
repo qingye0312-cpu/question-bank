@@ -14,11 +14,131 @@ use std::{
 };
 
 pub fn initialize(c: &rusqlite::Connection) -> Result<()> {
+    c.execute_batch(
+        "CREATE TABLE IF NOT EXISTS client_state(key TEXT PRIMARY KEY,value TEXT NOT NULL);",
+    )
+    .map_err(err)?;
     c.execute_batch("CREATE TABLE IF NOT EXISTS intake_transfers(batch_id TEXT PRIMARY KEY,raw TEXT NOT NULL,endpoint TEXT NOT NULL DEFAULT '',receipt TEXT NOT NULL DEFAULT '');
  CREATE TABLE IF NOT EXISTS intake_originals(bank_id TEXT NOT NULL,question_id TEXT NOT NULL,data TEXT NOT NULL,deleted INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(bank_id,question_id));
  CREATE TABLE IF NOT EXISTS cloud_snapshots(bank_id TEXT PRIMARY KEY,revision INTEGER NOT NULL,payload TEXT NOT NULL,sha256 TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS cloud_baselines(bank_id TEXT PRIMARY KEY,payload TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS question_layers(bank_id TEXT NOT NULL,question_id TEXT NOT NULL,layer TEXT NOT NULL,PRIMARY KEY(bank_id,question_id));").map_err(err)
+}
+pub fn client_state(store: &Store, key: &str, value: Option<Value>) -> Result<Value> {
+    if !(key.starts_with("draft:") || key == "upload-queue" || key == "publish-operations")
+        || key.len() > 100
+    {
+        return Err("状态键无效".into());
+    }
+    let c = store.conn()?;
+    if let Some(value) = value {
+        let text = value.to_string();
+        if text.len() > 8 * 1024 * 1024 {
+            return Err("本地状态过大".into());
+        }
+        c.execute("INSERT INTO client_state VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",params![key,text]).map_err(err)?;
+        return Ok(value);
+    }
+    let text: Option<String> = c
+        .query_row("SELECT value FROM client_state WHERE key=?1", [key], |r| {
+            r.get(0)
+        })
+        .optional()
+        .map_err(err)?;
+    text.map(|s| serde_json::from_str(&s).map_err(err))
+        .unwrap_or(Ok(Value::Null))
+}
+
+// Split only at final submission. A transaction validates every part before
+// moving any question, so an oversized question cannot silently disappear.
+pub fn prepare_batches(store: &Store, batch: &str) -> Result<Vec<String>> {
+    let mut c = store.conn()?;
+    let tx = c.transaction().map_err(err)?;
+    let frozen: bool = tx
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM intake_transfers WHERE batch_id=?1)",
+            [batch],
+            |r| r.get(0),
+        )
+        .map_err(err)?;
+    if frozen {
+        return Ok(vec![batch.into()]);
+    }
+    let (bank, at): (String, String) = tx
+        .query_row(
+            "SELECT bank_id,created_at FROM intake_batches WHERE id=?1",
+            [batch],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .map_err(err)?;
+    let b = db::get_bank(&tx, &bank)?;
+    let entries = intake::entries_conn(&tx, batch)?;
+    if entries.is_empty() {
+        return Err("本批次没有新题".into());
+    }
+    let raw_for = |qs: &[Question], id: &str| -> Result<String> {
+        let mut payload = String::new();
+        for q in qs {
+            q.validate(false)?;
+            payload.push_str(&serde_json::to_string(q).map_err(err)?);
+            payload.push('\n');
+        }
+        serde_json::to_string(&intake::Delta {
+            format: "qbank-delta-1".into(),
+            bank_id: bank.clone(),
+            name: b.name.clone(),
+            batch_id: id.into(),
+            created_at: at.clone(),
+            question_count: qs.len(),
+            sha256: hash(payload.as_bytes()),
+            payload,
+        })
+        .map_err(err)
+    };
+    let mut chunks: Vec<Vec<Question>> = vec![vec![]];
+    for e in entries {
+        let current = chunks.last_mut().unwrap();
+        let mut trial = current.clone();
+        trial.push(e.question.clone());
+        if trial.len() > 100 || encode(&raw_for(&trial, batch)?).is_err() {
+            if current.is_empty() {
+                return Err("有一道题超过上传大小限制，请修改后再提交".into());
+            }
+            encode(&raw_for(&[e.question.clone()], batch)?)?;
+            chunks.push(vec![e.question]);
+        } else {
+            *current = trial;
+        }
+    }
+    let split = chunks.len() > 1;
+    let mut ids = vec![];
+    for qs in chunks {
+        let id = if split { uid() } else { batch.into() };
+        let raw = raw_for(&qs, &id)?;
+        encode(&raw)?;
+        if split {
+            tx.execute(
+                "INSERT INTO intake_batches VALUES(?1,?2,?3)",
+                params![id, bank, at],
+            )
+            .map_err(err)?;
+            for q in qs {
+                tx.execute(
+                    "UPDATE intake_entries SET batch_id=?1 WHERE bank_id=?2 AND question_id=?3",
+                    params![id, bank, q.question_id],
+                )
+                .map_err(err)?;
+            }
+        }
+        tx.execute(
+            "INSERT INTO intake_transfers(batch_id,raw) VALUES(?1,?2)",
+            params![id, raw],
+        )
+        .map_err(err)?;
+        ids.push(id);
+    }
+    tx.commit().map_err(err)?;
+    Ok(ids)
 }
 pub fn request(
     origin: &str,
@@ -215,7 +335,7 @@ pub fn acknowledge(store: &Store, batch: &str, receipt: Value) -> Result<()> {
         || receipt["sha256"] != hash(raw.as_bytes())
         || receipt["payload_sha256"] != d.sha256
         || receipt["question_count"].as_u64() != Some(d.question_count as u64)
-        || receipt["status"] != "pending_review"
+        || !["pending_review", "pending_merge"].contains(&receipt["status"].as_str().unwrap_or(""))
         || chrono::DateTime::parse_from_rfc3339(receipt["accepted_at"].as_str().unwrap_or(""))
             .is_err()
     {
@@ -250,6 +370,12 @@ pub fn acknowledge(store: &Store, batch: &str, receipt: Value) -> Result<()> {
 }
 #[derive(Deserialize, Serialize)]
 pub struct Snapshot {
+    #[serde(default)]
+    pub merged_at: Option<String>,
+    #[serde(default)]
+    pub release_name: Option<String>,
+    #[serde(default)]
+    pub release_id: Option<String>,
     pub format: String,
     pub bank_id: String,
     pub name: String,
@@ -273,7 +399,7 @@ pub fn apply(store: &Store, payload: &str, digest: &str) -> Result<()> {
         return Err("同步数据摘要或大小无效，旧版已保留".into());
     }
     let s: Snapshot = serde_json::from_str(payload).map_err(err)?;
-    if s.format != "qbank-snapshot-1"
+    if !["qbank-snapshot-1", "qbank-snapshot-2"].contains(&s.format.as_str())
         || uuid::Uuid::parse_str(&s.bank_id).is_err()
         || s.name.trim().is_empty()
         || s.revision == 0
@@ -294,7 +420,7 @@ pub fn apply(store: &Store, payload: &str, digest: &str) -> Result<()> {
                 || q.options
                     .iter()
                     .any(|o| uuid::Uuid::parse_str(&o.option_id).is_err())
-                || (!legacy && q.status != "unreviewed")
+                || (!legacy && !["unreviewed", "verified"].contains(&q.status.as_str()))
                 || q.bank != s.name
                 || !ids.insert(&q.question_id)
             {
@@ -435,6 +561,9 @@ pub fn apply(store: &Store, payload: &str, digest: &str) -> Result<()> {
         params![s.bank_id, s.revision as i64, payload, digest],
     )
     .map_err(err)?;
+    if let (Some(name), Some(digest)) = (&s.release_name, &s.release_id) {
+        db::set_result(&tx, &s.bank_id, s.merged_at.as_deref(), name, digest)?;
+    }
     tx.commit().map_err(err)
 }
 

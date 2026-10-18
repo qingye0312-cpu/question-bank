@@ -47,6 +47,10 @@ pub struct Manifest {
     pub release_id: String,
     pub release_version: i64,
     pub published_at: String,
+    #[serde(default)]
+    pub merged_at: Option<String>,
+    #[serde(default)]
+    pub release_name: Option<String>,
     pub min_app_version: String,
     pub question_count: usize,
     pub files: Vec<PackageFile>,
@@ -97,7 +101,7 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
     tmp.persist(path).map_err(err)?;
     Ok(())
 }
-fn jsonl(qs: &[Question]) -> Result<Vec<u8>> {
+pub(crate) fn jsonl(qs: &[Question]) -> Result<Vec<u8>> {
     let mut out = Vec::new();
     for q in qs {
         serde_json::to_writer(&mut out, q).map_err(err)?;
@@ -193,19 +197,59 @@ fn inspect_zip(z: &mut ZipArchive<Cursor<&[u8]>>) -> Result<()> {
     }
     Ok(())
 }
+pub fn export_name(bank: &Bank, qs: &[Question]) -> Result<String> {
+    let digest = hash(&jsonl(qs)?);
+    if bank
+        .result_content_hash
+        .as_deref()
+        .or(bank.release_id.as_deref())
+        == Some(&digest)
+    {
+        if let Some(name) = &bank.release_name {
+            return Ok(name.clone());
+        }
+    }
+    Ok(result_name(
+        Some(&bank.updated_at),
+        &bank.name,
+        "本地汇总",
+        &format!("v{}", bank.version),
+        &bank.id,
+        &digest,
+    ))
+}
 pub fn package_bytes(bank: &Bank, qs: &[Question]) -> Result<Vec<u8>> {
     if qs.is_empty() {
         return Err("空题库不能制作发布包，请先添加或导入题目".into());
     }
     let payload = jsonl(qs)?;
+    let digest = hash(&payload);
+    let matches_result = bank
+        .result_content_hash
+        .as_deref()
+        .or(bank.release_id.as_deref())
+        == Some(&digest);
+    let merged_at = if matches_result {
+        bank.merged_at.clone()
+    } else {
+        None
+    };
+    let release_name = Some(export_name(bank, qs)?);
     let manifest = Manifest {
         schema_version: "1.0".into(),
         bank_id: bank.id.clone(),
         name: bank.name.clone(),
         release_id: hash(&payload),
         release_version: bank.version,
-        published_at: now(),
-        min_app_version: "0.1.0".into(),
+        published_at: bank.updated_at.clone(),
+        merged_at,
+        release_name,
+        min_app_version: if qs.iter().any(|q| q.schema_version == "1.1") {
+            "0.2.7"
+        } else {
+            "0.1.0"
+        }
+        .into(),
         question_count: qs.len(),
         files: vec![PackageFile {
             path: "questions.jsonl".into(),
@@ -243,7 +287,7 @@ fn read_package(bytes: &[u8], errors: &mut Vec<String>) -> Result<(Manifest, Vec
     }
     let m: Manifest =
         serde_json::from_slice(&zip_entry(&mut z, "manifest.json", 1024 * 1024)?).map_err(err)?;
-    if m.schema_version != "1.0" || m.min_app_version != "0.1.0" {
+    if m.schema_version != "1.0" || !["0.1.0", "0.2.7"].contains(&m.min_app_version.as_str()) {
         return Err("题库包要求另一版本的程序或协议，请更新后重试".into());
     }
     if uuid::Uuid::parse_str(&m.bank_id).is_err()
@@ -566,9 +610,16 @@ pub fn commit_controlled(
                 }
                 db::record(&tx, &id, &previous, "文件导入更新")?;
                 q.base_revision += 1;
+                q.recorded_at = previous.recorded_at.clone();
+                q.recorded_at_source = previous.recorded_at_source.clone();
+                q.recover_recorded_at(None);
+                q.updated_at = Some(now());
                 db::remove_index(&tx, rowid)?;
                 tx.execute("DELETE FROM questions WHERE rowid=?1", [rowid])
                     .map_err(err)?;
+            }
+            if q.recorded_at.is_none() && q.sources.is_empty() && q.recorded_at_source.is_none() {
+                q.recover_recorded_at(Some(&now()));
             }
             db::insert(&tx, &id, &q)?;
             tx.execute(
@@ -591,6 +642,21 @@ pub fn commit_controlled(
     crate::import_jobs::record(&tx, &id, &p.preview.filename, &p.fingerprint, &before)?;
     tx.execute("DELETE FROM import_jobs WHERE token=?1", [&p.preview.token])
         .map_err(err)?;
+    if let Some(m) = &p.manifest {
+        let name = m.release_name.clone().unwrap_or_else(|| {
+            result_name(
+                m.merged_at.as_deref(),
+                &m.name,
+                "历史迁移",
+                &format!("v{}", m.release_version),
+                &m.bank_id,
+                &m.release_id,
+            )
+        });
+        db::set_result(&tx, &id, m.merged_at.as_deref(), &name, &m.release_id)?;
+    } else {
+        db::record_result(&tx, &id, Some(&now()), "合并")?;
+    }
     control.step("提交事务", p.questions.len(), p.questions.len())?;
     tx.commit().map_err(err)?;
     Ok(id)
@@ -693,6 +759,10 @@ fn from_fields(fields: &HashMap<String, String>) -> Result<Question> {
         let m: Value =
             serde_json::from_str(&metadata).map_err(|_| "记录元数据损坏，请从系统重新导出")?;
         q.sources = serde_json::from_value(m["sources"].clone()).map_err(err)?;
+        q.schema_version = m["schema_version"].as_str().unwrap_or("1.0").into();
+        q.recorded_at = m["recorded_at"].as_str().map(str::to_string);
+        q.recorded_at_source = m["recorded_at_source"].as_str().map(str::to_string);
+        q.updated_at = m["updated_at"].as_str().map(str::to_string);
         q.issues = serde_json::from_value(m["issues"].clone()).map_err(err)?;
         q.status = m["status"].as_str().ok_or("状态元数据无效")?.to_string();
         if let Some(ids) = m["option_ids"].as_array() {
@@ -754,7 +824,7 @@ fn fields(q: &Question) -> Vec<(String, String)> {
         q.base_revision.to_string(),
     ]);
     let mut out: Vec<_> = HEADERS.iter().map(|s| s.to_string()).zip(vals).collect();
-    out.push(("记录元数据".into(),json!({"sources":q.sources,"issues":q.issues,"status":q.status,"option_ids":q.options.iter().map(|o|&o.option_id).collect::<Vec<_>>()} ).to_string()));
+    out.push(("记录元数据".into(),json!({"schema_version":q.schema_version,"recorded_at":q.recorded_at,"recorded_at_source":q.recorded_at_source,"updated_at":q.updated_at,"sources":q.sources,"issues":q.issues,"status":q.status,"option_ids":q.options.iter().map(|o|&o.option_id).collect::<Vec<_>>()} ).to_string()));
     out
 }
 fn xml_text(n: roxmltree::Node) -> String {

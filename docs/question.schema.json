@@ -30,7 +30,10 @@
       "type": "string"
     },
     "schema_version": {
-      "const": "1.0"
+      "enum": [
+        "1.0",
+        "1.1"
+      ]
     },
     "question_id": {
       "type": "string",
@@ -148,6 +151,28 @@
     },
     "extensions": {
       "type": "null"
+    },
+    "recorded_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "updated_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "recorded_at_source": {
+      "enum": [
+        "local",
+        "import",
+        "source",
+        "unknown"
+      ]
     }
   },
   "allOf": [

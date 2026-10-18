@@ -40,7 +40,7 @@ function setup(options = {}) {
 function changePacket(edit) {
   const d = structuredClone(packet), q = JSON.parse(d.payload);
   edit(d, q); d.payload = JSON.stringify(q) + '\n'; d.sha256 = sha256(d.payload);
-  return encodeUpload(JSON.stringify(d));
+  const raw=Buffer.from(JSON.stringify(d));return {format:'qbank-upload-1',encoding:'gzip+base64',uncompressed_size:raw.length,sha256:sha256(raw),data:gzipSync(raw).toString('base64')};
 }
 
 test('health works before secrets are configured; protected routes fail closed', async () => {

@@ -379,6 +379,8 @@ fn every_reader_can_repackage_and_updates_are_atomic_with_rollback() {
     assert!(duplicate.preview.action.contains("跳过"));
     exchange::commit(&reader, &duplicate).unwrap();
     assert_eq!(reader.bank(&id).unwrap().count, 1);
+    let previous_name =
+        exchange::export_name(&reader.bank(&id).unwrap(), &reader.questions(&id).unwrap()).unwrap();
     let mut q = author.questions(&b).unwrap().remove(0);
     q.stem = "新版变更".into();
     author.save(&b, q).unwrap();
@@ -395,6 +397,10 @@ fn every_reader_can_repackage_and_updates_are_atomic_with_rollback() {
         .is_empty());
     reader.rollback(&id).unwrap();
     assert!(find(&reader, "新版变更").is_empty());
+    assert_eq!(
+        exchange::export_name(&reader.bank(&id).unwrap(), &reader.questions(&id).unwrap()).unwrap(),
+        previous_name
+    );
     assert_eq!(reader.bank(&id).unwrap().count, 1);
     let fork = reader.fork(&id).unwrap();
     assert!(!reader.bank(&fork).unwrap().read_only);
