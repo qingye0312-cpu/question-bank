@@ -128,3 +128,39 @@ mod platform {
         Ok(None)
     }
 }
+
+#[cfg(all(test, target_os = "windows"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn windows_credential_store_roundtrip_is_scoped_and_removable() {
+        // Synthetic, unique target: never read or overwrite a user's credential.
+        let origin = format!("https://qbank-test-{}.invalid", uuid::Uuid::new_v4());
+        let id = account(&origin).unwrap();
+        struct Cleanup(String);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = platform::save(&self.0, None);
+            }
+        }
+        let _cleanup = Cleanup(id.clone());
+        assert_eq!(platform::read(&id).unwrap(), None);
+        assert!(save(&origin, Some("too-short".into())).is_err());
+        save(&origin, Some("synthetic-windows-test-key-one".into())).unwrap();
+        assert_eq!(
+            platform::read(&id).unwrap().as_deref(),
+            Some("synthetic-windows-test-key-one")
+        );
+        save(&origin, Some("synthetic-windows-test-key-two".into())).unwrap();
+        assert_eq!(
+            platform::read(&id).unwrap().as_deref(),
+            Some("synthetic-windows-test-key-two")
+        );
+        save(&origin, None).unwrap();
+        assert_eq!(platform::read(&id).unwrap(), None);
+        save(&origin, None).unwrap();
+        assert!(account("http://qbank-test.invalid").is_err());
+        assert!(account("https://qbank-test.invalid/path").is_err());
+    }
+}

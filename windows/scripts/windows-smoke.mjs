@@ -36,7 +36,9 @@ async function check(name, run) {
     await fs.writeFile(path.join(output, 'report.json'), JSON.stringify(report, null, 2));
   }
 }
-const invoke = (command, args = {}) => page.evaluate(({command, args}) => window.__TAURI_INTERNALS__.invoke(command, args), {command, args});
+const invoke = (command, args = {}) => page.evaluate(({command, args}) => window.__TAURI_INTERNALS__.invoke(command, args), {
+  command, args: command === 'import_preview' ? {jobId: crypto.randomUUID(), ...args} : args,
+});
 const search = (text = '', bankId = '', extra = {}) => invoke('search', {query: {text, bank_id: bankId, ...extra}});
 async function all(bankId, extra = {}) {
   const items = []; let after = 0;
@@ -360,6 +362,90 @@ try {
   await check('no uncaught page errors or external resource requests', async () => {
     assert.deepEqual(report.errors,[]); assert.deepEqual(report.requests,[]);
   });
+  await check('Windows tray and global shortcut register; unsigned build leaves updater disabled', async () => {
+    const info = await invoke('app_info');
+    assert.equal(info.version, '0.2.7');
+    assert.equal(info.tray, 'true');
+    assert.equal(info.global_shortcut, 'Ctrl + Alt + Q');
+    assert.deepEqual(await invoke('software_update_check'), {configured:false});
+    return info;
+  });
+  await check('continuous intake edits answers and preserves pending questions and draft after restart', async () => {
+    await page.getByRole('button',{name:'大模型录题',exact:true}).click();
+    await page.getByLabel('录入题库').selectOption(seedBank.id);
+    const reply = {format:'qbank-photo-question-1',type:'single',stem:'Windows 0.2.7 原生录题验证',options:[{key:'A',content:'第一个选项'},{key:'B',content:'正确选项'}],answer:['B'],answer_origin:'inferred',explanation:'隔离测试',model:{name:'Synthetic',version:'test',version_source:'user'},warnings:[]};
+    await page.getByLabel('模型原文',{exact:true}).fill(JSON.stringify(reply));
+    await page.locator('.intake-editor .model-editor textarea').first().waitFor();
+    await page.locator('.editable-option').nth(1).getByRole('button',{name:'上移',exact:true}).click();
+    assert.equal(await page.getByRole('button',{name:'A 正确答案',exact:true}).getAttribute('aria-pressed'),'true');
+    await page.getByRole('button',{name:'保存本题，继续下一题',exact:true}).click();
+    await page.getByRole('heading',{name:'待上传 · 1 题',exact:true}).waitFor();
+    const batches = await invoke('intake_batches');
+    const batch = batches.find(b=>b.bank_id===seedBank.id);
+    assert.equal(batch.pending,1);
+    const entry = (await invoke('intake_entries',{batchId:batch.id}))[0];
+    assert.deepEqual(entry.question.answer,['A']);
+    assert.ok(entry.question.sources.some(s=>s.recorded_at));
+    reply.stem = 'Windows 尚未保存的草稿';
+    await page.getByLabel('模型原文',{exact:true}).fill(JSON.stringify(reply));
+    await page.waitForFunction(()=>document.querySelector('.intake-editor textarea')?.value==='Windows 尚未保存的草稿');
+    await page.getByRole('button',{name:'关闭录题窗口',exact:true}).click();
+    await stop(); await launch();
+    await page.getByRole('button',{name:'大模型录题',exact:true}).click();
+    await page.getByLabel('录入题库').selectOption(seedBank.id);
+    await page.waitForFunction(()=>document.querySelector('.intake-editor textarea')?.value==='Windows 尚未保存的草稿');
+    await page.getByRole('heading',{name:'待上传 · 1 题',exact:true}).waitFor();
+    await screenshot('intake-restart');
+    assert.equal((await invoke('intake_entries',{batchId:batch.id}))[0].upload_status,entry.upload_status);
+    assert.deepEqual(await invoke('client_state',{key:'upload-queue',value:null}),null);
+    await page.getByRole('button',{name:'关闭录题窗口',exact:true}).click();
+    return {batchId:batch.id,answer:entry.question.answer,uploaded:false};
+  });
+  await check('import preview survives process restart and selective undo restores the bank', async () => {
+    const bankId=await invoke('create_bank',{name:'Windows 持久导入'});
+    const source=path.join(root,'templates','题库导入示例_v1.jsonl');
+    const preview=await invoke('import_preview',{path:source,bankId});
+    assert.deepEqual(preview.errors,[]);
+    await stop(); await launch();
+    assert.ok((await invoke('import_jobs_list')).some(j=>j.preview.token===preview.token));
+    await invoke('import_commit',{token:preview.token});
+    assert.equal((await all(bankId)).length,3);
+    const runs=await invoke('import_runs',{bankId});
+    await invoke('import_undo',{runId:runs[0].id});
+    assert.equal((await all(bankId)).length,0);
+  });
+  await check('real SQLite backup restore preserves state and rejects corrupt input', async () => {
+    const before=await invoke('banks');
+    const backup=path.join(files,'完整备份.sqlite');
+    const count=await invoke('backup_database',{path:backup,restore:false});
+    assert.ok(count>=914);
+    const added=await invoke('create_bank',{name:'仅在备份之后存在'});
+    await invoke('backup_database',{path:backup,restore:true});
+    assert.ok(!(await invoke('banks')).some(b=>b.id===added));
+    assert.deepEqual(await invoke('banks'),before);
+    const invalid=path.join(files,'损坏备份.sqlite');
+    await fs.writeFile(invalid,'not a database');
+    await assert.rejects(invoke('backup_database',{path:invalid,restore:true}));
+    assert.deepEqual(await invoke('banks'),before);
+  });
+  await check('second executable launch exits and focuses the existing instance', async () => {
+    await page.getByRole('button',{name:'极速模式',exact:true}).click();
+    const second=spawn(executable,[],{cwd:launchDirectory,windowsHide:true,stdio:'ignore'});
+    await new Promise((resolve,reject)=>{
+      const timer=setTimeout(()=>{second.kill();reject(Error('Second instance did not exit'));},10000);
+      second.once('error',e=>{clearTimeout(timer);reject(e)});
+      second.once('exit',code=>{clearTimeout(timer);code===0?resolve():reject(Error(`Second instance exited ${code}`))});
+    });
+    assert.equal(app.exitCode,null);
+    await page.waitForFunction(()=>document.activeElement===document.querySelector('.search-box input'));
+    assert.deepEqual(report.errors,[]); assert.deepEqual(report.requests,[]);
+  });
+  if (process.env.QBANK_SMOKE_NATIVE_REVIEW === '1') {
+    await fs.writeFile(path.join(output,'native-ready.json'),JSON.stringify({pid:app.pid,executable}));
+    console.log(`Native review ready: ${output}`);
+    const deadline=Date.now()+600000;
+    while(Date.now()<deadline && !(await fs.stat(path.join(output,'native-done')).catch(()=>null))) await delay(1000);
+  }
 } catch (error) {
   report.failure=String(error.stack||error);
   console.error(error);
