@@ -33,7 +33,7 @@ export class IntakeController {
  async select(id:string){await this.flush();this.current=this.records.find(r=>r.id===id)||this.current;this.render();}
  async remove(id:string,removed=true){await this.flush();const r=this.records.find(r=>r.id===id);if(!r)return;this.stage(reviseDraft(r,{removed}));await this.flush();this.undoId=removed?id:'';await this.next();}
  async upload(){await this.flush();const pending=this.records.filter(r=>!r.removed&&!r.submissionId);
-  if(pending.some(r=>r.issues.length))throw Error('还有待补全题目，请修改或移除后上传');
+  if(pending.some(r=>r.issues.length))throw Error('还有待补全题目，请修改或删除后上传');
   await submitDrafts(this.bankId,pending.map(r=>({id:r.id,revision:r.revision})));
   this.records=await listDrafts(this.bankId);this.saver.seed(this.records);await this.next();await this.refreshJobs();void runUploadQueue().then(()=>this.refreshJobs()).catch(e=>{this.error=String(e);this.render()});
  }
