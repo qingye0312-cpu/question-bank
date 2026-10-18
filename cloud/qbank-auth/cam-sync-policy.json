@@ -7,7 +7,7 @@
         "cos:GetBucketVersioning"
       ],
       "resource": [
-        "qcs::cos:ap-guangzhou:uid/1324463245:qbank-release-1324463245/*"
+        "qcs::cos:ap-guangzhou:uid/1324463245:qbank-release-v2-1324463245/*"
       ]
     },
     {
@@ -16,7 +16,7 @@
         "cos:GetBucket"
       ],
       "resource": [
-        "qcs::cos:ap-guangzhou:uid/1324463245:qbank-release-1324463245/*"
+        "qcs::cos:ap-guangzhou:uid/1324463245:qbank-release-v2-1324463245/*"
       ],
       "condition": {
         "string_like": {
@@ -30,7 +30,7 @@
         "cos:GetObject"
       ],
       "resource": [
-        "qcs::cos:ap-guangzhou:uid/1324463245:qbank-release-1324463245/states/*"
+        "qcs::cos:ap-guangzhou:uid/1324463245:qbank-release-v2-1324463245/states/*"
       ]
     },
     {
@@ -39,7 +39,7 @@
         "cos:PutObject"
       ],
       "resource": [
-        "qcs::cos:ap-guangzhou:uid/1324463245:qbank-release-1324463245/states/*"
+        "qcs::cos:ap-guangzhou:uid/1324463245:qbank-release-v2-1324463245/states/*"
       ],
       "condition": {
         "string_equal": {
