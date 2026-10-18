@@ -1,5 +1,5 @@
 import {LocalBank, VirtualList, Segment, queryTerms, snippet, answerText, typeNames} from '../../core/search';
-import {loadBank,listBanks,activeBankId,selectBank,invalidateBank} from '../../services/bank';
+import {loadBank,listBanks,activeBankId,selectBank,invalidateBank,type BankSummary} from '../../services/bank';
 import {refreshCatalog,syncBank} from '../../services/sync';
 import {copyPrompt} from '../../services/prompt';
 import {APP_VERSION} from '../../generated/client-assets';
@@ -14,7 +14,7 @@ Page({
     query: '', bankName: '正在打开题库', version: 1, total: 0, count: 0,
     syncNotice:'',syncing:false,ready: false, loading: true, error: '', rows: [] as Row[],
     before: 0, after: 0, scrollTop: 0, headerCollapsed: false, advancedOpen: false,
-    appVersion:APP_VERSION,bankId:'',banks:[] as {id:string;name:string}[],bankIndex:0,bankLabel:'内置题库',
+    appVersion:APP_VERSION,bankId:'',banks:[] as BankSummary[],bankIndex:0,bankLabel:'内置题库',
   },
   bank: undefined as LocalBank | undefined,
   ids: [] as number[], terms: [] as string[], layout: null as VirtualList | null,
@@ -47,7 +47,7 @@ Page({
       selectBank(id);
       this.setData({banks,bankId:id,bankIndex:banks.findIndex(b=>b.id===id),bankLabel:manifest.release_id==='local'?'本地题库':'正式题库 + 待合并题 + 本地新题'});
       this.bank = bank;
-      this.setData({ready: true, bankName: banks.find(b=>b.id===id)?.display_name||manifest.name, version: manifest.release_version, total: manifest.question_count}, () => this.measureViewport());
+      this.setData({ready: true, bankName: banks.find(b=>b.id===id)?.name||manifest.name, version: manifest.release_version, total: manifest.question_count}, () => this.measureViewport());
       await this.runSearch(this.data.query);
     } catch (error) {
       if (this.alive&&epoch===this.loadEpoch) this.setData({loading: false, error: error instanceof Error ? error.message : '题库加载失败，请重试'});
@@ -56,7 +56,7 @@ Page({
   async syncCloud(){
     if(this.data.syncing||!this.alive)return;this.setData({syncing:true});const id=this.data.bankId;
     try{await refreshCatalog();const changed=await syncBank(id);if(!this.alive)return;
-      const banks=await listBanks();this.setData({banks,bankIndex:banks.findIndex(b=>b.id===this.data.bankId),syncNotice:'云端版本已核对'});
+      const banks=await listBanks();this.setData({banks,bankIndex:banks.findIndex(b=>b.id===this.data.bankId),bankName:banks.find(b=>b.id===this.data.bankId)?.name||this.data.bankName,syncNotice:'云端版本已核对'},()=>this.measureViewport());
       if(changed){invalidateBank(id);if(this.data.bankId===id)await this.initialize();}
     }catch(e){if(this.alive)this.setData({syncNotice:e instanceof Error?e.message:'同步暂未完成，本地题库仍可使用'});}
     finally{if(this.alive){this.setData({syncing:false});if(this.data.bankId!==id)void this.syncCloud();}}

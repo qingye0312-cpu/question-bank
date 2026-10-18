@@ -4,7 +4,7 @@
       <view class="header-fold-inner">
         <view class="bank-summary">
           <view class="eyebrow">本地题库 · 文字搜题 <text class="app-version">v{{appVersion}}</text></view>
-          <picker range="{{banks}}" range-key="display_name" value="{{bankIndex}}" bindchange="onBankChange" disabled="{{loading}}"><view class="title">{{bankName}} <text class="bank-switch-hint">切换 ▾</text></view></picker>
+          <picker range="{{banks}}" range-key="name" value="{{bankIndex}}" bindchange="onBankChange" disabled="{{loading}}"><view class="title">{{bankName}} <text class="bank-switch-hint">切换 ▾</text></view></picker>
           <view class="bank-meta muted" bindtap="onSync">{{syncing ? '正在核对云端版本…' : syncNotice}}</view><view class="bank-meta muted">{{ready ? total + ' 道题 · ' + bankLabel : '正在准备本地题库，首次启动生成索引'}}</view>
         </view>
       </view>

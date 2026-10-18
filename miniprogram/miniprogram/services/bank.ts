@@ -12,6 +12,8 @@ export type Manifest = {
   release_version: number; question_count: number; merged_at?:string|null;release_name?:string|null;
 };
 export type BankBundle = {bank: LocalBank; manifest: Manifest};
+// name is the reader-facing title; release_name retains the complete version label.
+export type BankSummary = {id: string; name: string; release_name: string};
 let pending: Promise<BankBundle> | undefined;
 export const startupMetrics = {source: '', readMs: 0, indexMs: 0, saveMs: 0, totalMs: 0, cacheSaved: false};
 
@@ -98,13 +100,13 @@ export function activeBankId():string {
   return selected||bundledManifest.bank_id;
 }
 export function selectBank(id:string):void {selected=id;try{wx.setStorageSync(ACTIVE_BANK_KEY,id)}catch{/* Current session still switches. */}}
-export async function listBanks():Promise<{id:string;name:string;display_name:string}[]> {
+export async function listBanks():Promise<BankSummary[]> {
   if(!catalogReady)catalogReady=restoreCatalog();await catalogReady;
   const local=await readLocal(),all=[{id:bundledManifest.bank_id,name:bundledManifest.name},...local.banks,...cloudCatalog().map(b=>({id:b.bank_id,name:b.name}))];
   return Promise.all([...new Map(all.map(b=>[b.id,b])).values()].map(async b=>{
     const snapshot=await cachedSnapshot(b.id),m=snapshot?.manifest;
     const own=local.banks.find(v=>v.id===b.id),embedded=b.id===bundledManifest.bank_id;
-    return {...b,display_name:m?.release_name||own?.release_name||resultName(null,b.name,'历史迁移','v'+(m?.release_version||(embedded?bundledManifest.release_version:1)),b.id,embedded?bundledManifest.release_id:sha256(b.id))};
+    return {...b,release_name:m?.release_name||own?.release_name||resultName(null,b.name,'历史迁移','v'+(m?.release_version||(embedded?bundledManifest.release_version:1)),b.id,embedded?bundledManifest.release_id:sha256(b.id))};
   }));
 }
 export function invalidateBank(id:string):void {banks.delete(id);}

@@ -1,5 +1,5 @@
 import {pauseUploads} from '../../services/cloud-intake';
-import {activeBankId,listBanks,selectBank,createBank} from '../../services/bank';
+import {activeBankId,listBanks,selectBank,createBank,type BankSummary} from '../../services/bank';
 import {IntakeController} from '../../services/intake-controller';
 import {changeQuestionType,toggleAnswer,reorderOptions,type ModelReply} from '../../core/intake';
 import {cloud} from '../../services/cloud';
@@ -7,7 +7,7 @@ import {copyPrompt} from '../../services/prompt';
 import {importDelta} from '../../services/intake';
 let controller:IntakeController|undefined,alive=false,poll:ReturnType<typeof setInterval>|undefined,previousType:ModelReply|null=null;
 Page({
- data:{currentId:'',banks:[] as {id:string;name:string;display_name:string}[],bankIndex:0,tab:'edit',busy:false,ready:false,reply:null as ModelReply|null,locked:false,raw:'',records:[] as any[],visibleRecords:[] as any[],jobs:[] as any[],pendingCount:0,issues:[] as any[],sourceIssues:[] as any[],saved:'',error:'',notice:'',more:false,tools:false,canUndo:false,canUndoType:false,recordedAt:'',metadata:{} as any,editOptions:[] as any[],boolSelected:false,typeIndex:0,sourceIndex:2,warningsText:'',tagsText:'',difficultyIndex:0,filePath:'',fileName:'',query:'',loggedIn:false,
+ data:{currentId:'',banks:[] as BankSummary[],bankIndex:0,tab:'edit',busy:false,ready:false,reply:null as ModelReply|null,locked:false,raw:'',records:[] as any[],visibleRecords:[] as any[],jobs:[] as any[],pendingCount:0,issues:[] as any[],sourceIssues:[] as any[],saved:'',error:'',notice:'',more:false,tools:false,canUndo:false,canUndoType:false,recordedAt:'',metadata:{} as any,editOptions:[] as any[],boolSelected:false,typeIndex:0,sourceIndex:2,warningsText:'',tagsText:'',difficultyIndex:0,filePath:'',fileName:'',query:'',loggedIn:false,
   types:['单选','多选','判断'],versionSources:['平台提供','用户提供','未知'],difficulties:['未设置','简单','中等','困难']},
  onLoad(){alive=true;previousType=null;controller=new IntakeController(view=>{if(!alive)return;const changed=view.currentId!==this.data.currentId||view.raw!==this.data.raw;if(changed)previousType=null;this.setData({...view,...(changed?{canUndoType:false}:{}),visibleRecords:view.records.filter(r=>!this.data.query||r.stem.includes(this.data.query))})});void this.run(async()=>{const banks=await listBanks(),bank=activeBankId();this.setData({banks,bankIndex:Math.max(0,banks.findIndex(b=>b.id===bank))});await controller!.open(bank);this.setData({ready:true});});},
  onShow(){alive=true;this.setData({loggedIn:cloud.state().loggedIn});poll=setInterval(()=>void controller?.refreshJobs().catch(()=>{}),3000)},
