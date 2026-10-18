@@ -19,7 +19,7 @@ export function DetailResults({filters={},bankId, query, kind, trash, revision, 
   const [scrollTop, setScrollTop] = useState(0);
   const [height, setHeight] = useState(600);
   // Reserve space for a three-line preview at every supported font size.
-  const rowHeight = Math.ceil(62 + 89 * fontScale);
+  const rowHeight = Math.ceil(151 * fontScale);
 
   useLayoutEffect(() => {
     setScrollTop(0);

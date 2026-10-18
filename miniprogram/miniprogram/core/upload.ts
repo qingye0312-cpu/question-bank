@@ -4,7 +4,7 @@ import {parseDelta, sha256} from './intake';
 export type UploadEnvelope = {format:'qbank-upload-1'; encoding:'gzip+base64'; uncompressed_size:number; sha256:string; data:string};
 export type UploadReceipt = {submission_id:string; bank_id:string; batch_id:string; sha256:string;
   payload_sha256:string; question_count:number; status:'pending_review'|'pending_merge'; accepted_at:string};
-export const UPLOAD_LIMITS = {questions:100, expandedBytes:4194304, compressedBytes:524288, requestBytes:786432};
+export const UPLOAD_LIMITS = {questions:1000, expandedBytes:4194304, compressedBytes:524288, requestBytes:786432};
 
 // WeChat does not guarantee TextEncoder. Match the shared SHA-256 UTF-8 rules,
 // including non-BMP code points and replacement of lone surrogates.
@@ -34,7 +34,7 @@ function base64(bytes:Uint8Array):string {
 export function prepareUpload(text:string){
   if(text.length>UPLOAD_LIMITS.expandedBytes)throw new Error('本批次超过上传大小限制，请拆分后上传');
   const {delta,questions}=parseDelta(text);
-  if(questions.length>UPLOAD_LIMITS.questions)throw new Error('每个上传批次最多 100 题，请拆分后上传');
+  if(questions.length>UPLOAD_LIMITS.questions)throw new Error('一次上传最多 1000 题；记录保留在本地，不会自动拆包');
   const raw=encodeUtf8(text);
   if(raw.length>UPLOAD_LIMITS.expandedBytes)throw new Error('本批次压缩前超过 4 MiB，请拆分后上传');
   const compressed=gzipSync(raw,{level:6,mtime:0});

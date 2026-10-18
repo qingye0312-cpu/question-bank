@@ -99,7 +99,9 @@ impl Store {
             tx.commit().map_err(err)?;
         }
         crate::intake::initialize(&s.conn()?)?;
+        crate::drafts::initialize(&s.conn()?)?;
         crate::cloud::initialize(&s.conn()?)?;
+        crate::promotion::initialize(&s.conn()?)?;
         crate::import_jobs::initialize(&s.conn()?)?;
         s.conn()?
             .execute_batch("PRAGMA user_version=4;")
@@ -377,12 +379,23 @@ impl Store {
         if bank.read_only {
             return Err("发布题库只读，请先建立可编辑副本".into());
         }
+        let is_draft: bool = self
+            .conn()?
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM draft_records WHERE id=?1)",
+                [&q.question_id],
+                |r| r.get(0),
+            )
+            .map_err(err)?;
+        if is_draft {
+            return Err("请在录题记录中编辑本题，避免覆盖未上传草稿".into());
+        }
         q.validate(false)?;
         q.prepare();
         q.bank = bank.name;
         let mut c = self.conn()?;
         let tx = c.transaction().map_err(err)?;
-        let frozen:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM intake_entries e JOIN intake_transfers t ON t.batch_id=e.batch_id WHERE e.bank_id=?1 AND e.question_id=?2)",params![bank_id,q.question_id],|r|r.get(0)).map_err(err)?;
+        let frozen:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM intake_entries e JOIN intake_transfers t ON t.batch_id=e.batch_id WHERE e.bank_id=?1 AND e.question_id=?2 AND t.endpoint<>'')",params![bank_id,q.question_id],|r|r.get(0)).map_err(err)?;
         if frozen {
             return Err("本题所在批次已导出或提交，请通过新的录题批次提交修改".into());
         }
@@ -446,7 +459,7 @@ impl Store {
             return Err("发布题库只读，请先建立可编辑副本".into());
         }
         let q: Question = serde_json::from_str(&data).map_err(err)?;
-        let frozen:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM intake_entries e JOIN intake_transfers t ON t.batch_id=e.batch_id WHERE e.bank_id=?1 AND e.question_id=?2)",params![bank_id,q.question_id],|r|r.get(0)).map_err(err)?;
+        let frozen:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM intake_entries e JOIN intake_transfers t ON t.batch_id=e.batch_id WHERE e.bank_id=?1 AND e.question_id=?2 AND t.endpoint<>'')",params![bank_id,q.question_id],|r|r.get(0)).map_err(err)?;
         if frozen {
             return Err("本题所在批次已导出或提交，保留原题以便重试和核对回执".into());
         }
@@ -455,6 +468,7 @@ impl Store {
             params![!restore, bank_id, q.question_id],
         )
         .map_err(err)?;
+        tx.execute("UPDATE draft_records SET revision=revision+1,data=json_set(data,'$.removed',json(?3),'$.revision',revision+1,'$.updatedAt',?4) WHERE bank_id=?1 AND id=?2",params![bank_id,q.question_id,if restore {"false"}else{"true"},now()]).map_err(err)?;
         record(
             &tx,
             &bank_id,

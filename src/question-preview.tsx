@@ -20,7 +20,7 @@ export function QuestionPreview({id, anchor, fontScale, children}: Props) {
     const element = card.current;
     if (!element) return;
     const fit = () => {
-      const margin = 12, gap = 10;
+      const margin = 12 * fontScale, gap = 10 * fontScale;
       const viewportWidth = document.documentElement.clientWidth;
       const viewportHeight = document.documentElement.clientHeight;
       const maxWidth = Math.max(1, viewportWidth - margin * 2);
@@ -28,7 +28,7 @@ export function QuestionPreview({id, anchor, fontScale, children}: Props) {
       const below = Math.max(0, viewportHeight - margin - anchor.bottom - gap);
       const above = Math.max(0, anchor.top - gap - margin);
       const room = Math.max(above, below);
-      let width = Math.min(maxWidth, Math.max(360, 560 * fontScale));
+      let width = Math.min(maxWidth, Math.max(360 * fontScale, 560 * fontScale));
       const step = Math.max(120, (maxWidth - width) / 4);
 
       // Measure the complete content before painting. Widen the card until it

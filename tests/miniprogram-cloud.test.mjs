@@ -32,7 +32,7 @@ function mobile(s=server(),disk=new Map()){
     void s.handle({httpMethod:o.method,path:url.pathname,headers:o.header,body:o.data}).then(r=>{
       if(url.pathname==='/v1/uploads'&&mode==='lose-response'){mode='ok';o.fail({errMsg:'timeout'});return;}
       if(url.pathname==='/v1/uploads'&&mode==='disk-full')broken=true;
-      const data=JSON.parse(r.body);if(mode==='corrupt'&&url.pathname.endsWith('/snapshot'))data.payload+=' ';
+      const data=JSON.parse(r.body);if(mode==='corrupt'&&url.pathname.endsWith('/snapshot-file'))data.sha256='0'.repeat(64);if(mode==='corrupt'&&url.pathname.endsWith('/snapshot'))data.payload+=' ';
       if(url.pathname==='/v1/uploads'&&mode==='bad-receipt'&&data.receipt)data.receipt.bank_id=randomUUID();
       o.success({statusCode:r.statusCode,data});
     });},
@@ -66,7 +66,7 @@ test('Mini Program gzip envelope round-trips through the deployed server validat
  assert.equal(prepared.envelope.uncompressed_size,Buffer.byteLength(fixture));
  assert.equal(decodeUpload(prepared.envelope,parseDelta,parseModelReply).delta.batch_id,JSON.parse(fixture).batch_id);
  assert.equal(JSON.stringify(prepared.envelope),JSON.stringify(prepareUpload(fixture).envelope));
- const qs=Array.from({length:101},()=>toQuestion(modelReply,'测试题库',randomUUID,new Date().toISOString()));
+ const qs=Array.from({length:1001},()=>toQuestion(modelReply,'测试题库',randomUUID,new Date().toISOString()));
  assert.throws(()=>prepareUpload(deltaPackage(randomUUID(),'测试题库',randomUUID(),qs,new Date().toISOString())),/100/);
  assert.throws(()=>prepareUpload(' '.repeat(4194305)),/大小限制/);
  const q=toQuestion({...modelReply,stem:'中文🧪'.repeat(500)},'测试题库',randomUUID,new Date().toISOString());
@@ -113,16 +113,16 @@ test('lost response freezes exact bytes before POST and retry after restart reco
  assert.equal((await reopened.load('services/intake-store').readLocal()).batches[0].upload.text,text);
  assert.equal((await reopened.load('services/intake-store').readLocal()).entries[1].uploadStatus,'pending');
 });
-test('export seals stable bytes before sharing; importing the whole package preserves its upload identity',async()=>{
- const {m,intake,store,upload,bankId,batchId}=await setup();
- const exported=await intake.exportBatch(batchId),original=m.disk.get(exported.filePath);
- assert.equal((await store.readLocal()).batches[0].sealedText,original);
- const next=await intake.saveReply(bankId,batchId,JSON.stringify({...modelReply,stem:'导出后的新题'}));assert.notEqual(next.batchId,batchId);
- assert.equal(m.disk.get((await intake.exportBatch(batchId)).filePath),original);
+test('new export creates an independent snapshot without sealing the editable local records',async()=>{
+ const {m,intake,store,bankId,batchId}=await setup();
+ const exported=await intake.exportBatch(batchId),original=m.disk.get(exported.filePath),packet=parseDelta(original);
+ assert.equal((await store.readLocal()).batches[0].sealedText,undefined);assert.notEqual(packet.delta.batch_id,batchId);
+ const next=await intake.saveReply(bankId,batchId,JSON.stringify({...modelReply,stem:'导出后继续录题'}));assert.equal(next.batchId,batchId);
+ assert.equal(parseDelta(m.disk.get((await intake.exportBatch(batchId)).filePath)).questions.length,2);
  const recipient=mobile(m.s),imported=await recipient.load('services/intake').importDelta(original);assert.equal(imported.added,1);
  assert.equal((await recipient.load('services/intake-store').readLocal()).batches[0].sealedText,original);
- assert.equal((await recipient.load('services/cloud-intake').uploadBatch(bankId,batchId)).duplicate,false);
- assert.equal((await upload(bankId,batchId)).duplicate,true);assert.equal(m.s.records.size,1);
+ assert.equal((await recipient.load('services/cloud-intake').uploadBatch(bankId,packet.delta.batch_id)).duplicate,false);
+ assert.equal(m.s.records.size,1);assert.equal((await store.readLocal()).entries.every(e=>e.uploadStatus==='pending'),true);
 });
 test('partial imports get a new batch identity, while local entry continues past 100 without uploading',async()=>{
  const {m,intake,store,bankId,batchId}=await setup();
@@ -138,7 +138,7 @@ test('partial imports get a new batch identity, while local entry continues past
 test('invalid receipt and failed local persistence never mark uploaded; same-batch retries recover',async()=>{
  const {m,store,upload,bankId,batchId}=await setup();m.mode('bad-receipt');
  await assert.rejects(upload(bankId,batchId),/回执与本批次不一致/);assert.equal((await store.readLocal()).entries[0].uploadStatus,'pending');
- m.mode('disk-full');await assert.rejects(upload(bankId,batchId),/本地回执保存失败/);
+ m.mode('disk-full');await assert.rejects(upload(bankId,batchId),/找回回执/);
  assert.equal((await store.readLocal()).entries[0].uploadStatus,'pending');
  m.diskBroken(false);m.mode('ok');assert.equal((await upload(bankId,batchId)).duplicate,true);
  assert.equal((await store.readLocal()).entries[0].uploadStatus,'uploaded');assert.equal(m.s.records.size,1);
@@ -175,7 +175,7 @@ test('anonymous sync updates pending layers, skips unchanged versions, survives 
  const q=toQuestion({...modelReply,stem:'远端候选'},'测试题库',randomUUID,new Date().toISOString());
  const state={format:'qbank-state-1',bank_id:bankId,name:'测试题库',revision:1,release_version:1,formal:[],pending:[{id:'test',question:q,decision:'pending'}],resolved:[],batches:[],updated_at:new Date().toISOString()};m.s.states.set(bankId,state);
  await sync.refreshCatalog();assert.equal(await sync.syncBank(bankId),true);banks.invalidateBank(bankId);assert.equal((await banks.loadBank(bankId)).bank.count,2);assert.ok(!m.calls.includes('wx.login'));
- const downloads=()=>m.calls.filter(p=>p.endsWith('/snapshot')).length;const oldCount=downloads();assert.equal(await sync.syncBank(bankId),false);assert.equal(downloads(),oldCount);
+ const downloads=()=>m.calls.filter(p=>p.endsWith('/snapshot-file')).length;const oldCount=downloads();assert.equal(await sync.syncBank(bankId),false);assert.equal(downloads(),oldCount);
  state.revision=2;state.pending=[];state.resolved=[{id:'test',question_id:q.question_id,status:'rejected'}];
  m.mode('corrupt');await assert.rejects(sync.syncBank(bankId));assert.equal((await sync.cachedSnapshot(bankId)).manifest.revision,1);
  m.mode('ok');m.diskBroken(true);await assert.rejects(sync.syncBank(bankId));assert.equal((await sync.cachedSnapshot(bankId)).manifest.revision,1);
@@ -184,28 +184,31 @@ test('anonymous sync updates pending layers, skips unchanged versions, survives 
  const other=await banks.createBank('高级认证');await intake.saveReply(other,'',JSON.stringify({...modelReply,stem:'另一题库独立题'}));assert.equal((await banks.loadBank(other)).bank.count,1);assert.equal((await banks.loadBank(bankId)).bank.count,1);
 });
 
-test('final confirmation splits 205 local questions atomically, survives lost receipts, and never submits later drafts',async()=>{
+test('final confirmation compresses all 205 questions into one atomic request, survives lost receipts, and never submits later drafts',async()=>{
  const {m,store,bankId,batchId,intake}=await setup(),queue=m.load('services/cloud-intake');
  await store.updateLocal(d=>{for(let n=1;n<205;n++)d.entries.push({...d.entries[0],question:toQuestion({...modelReply,stem:`整批题 ${n}`},'测试题库',randomUUID,new Date().toISOString())});});
  assert.equal(m.calls.length,0);await queue.enqueueBatches(bankId,[batchId]);let local=await store.readLocal();
- assert.equal(local.jobs.length,3);assert.deepEqual(Array.from(local.jobs,j=>parseDelta(local.batches.find(b=>b.id===j.id).upload.text).questions.length),[100,100,5]);
+ assert.equal(local.jobs.length,1);assert.deepEqual(Array.from(local.jobs,j=>parseDelta(local.batches.find(b=>b.id===j.id).upload.text).questions.length),[205]);
  assert.equal(m.s.records.size,0);const frozen=local.jobs.map(j=>local.batches.find(b=>b.id===j.id).upload.text);
  m.load('services/bank').invalidateBank(bankId);await intake.saveReply(bankId,'',JSON.stringify({...modelReply,stem:'确认后才录的新题'}));
- m.mode('lose-response');await queue.runUploadQueue();local=await store.readLocal();assert.equal(local.jobs.filter(j=>j.status==='done').length,2);assert.equal(m.s.records.size,3);
+ m.mode('lose-response');await queue.runUploadQueue();local=await store.readLocal();assert.equal(local.jobs.filter(j=>j.status==='done').length,0);assert.equal(m.s.records.size,1);
  const reopened=mobile(m.s,m.disk),again=reopened.load('services/cloud-intake'),cloud=reopened.load('services/cloud').cloud;
  await cloud.login();await again.retryUploads();await again.runUploadQueue();local=await reopened.load('services/intake-store').readLocal();
- assert.ok(local.jobs.every(j=>j.status==='done'));assert.equal(m.s.records.size,3);assert.equal(local.entries.filter(e=>e.uploadStatus==='pending').length,1);
- for(let n=0;n<3;n++)assert.equal(local.batches.find(b=>b.id===local.jobs[n].id).upload.text,frozen[n]);
+ assert.ok(local.jobs.every(j=>j.status==='done'));assert.equal(m.s.records.size,1);assert.equal(local.entries.filter(e=>e.uploadStatus==='pending').length,1);
+ for(let n=0;n<1;n++)assert.equal(local.batches.find(b=>b.id===local.jobs[n].id).upload.text,frozen[n]);
  for(const record of m.s.records.values())assert.equal(record.status,'pending_merge');
 });
 test('logout and revoked grants pause confirmed jobs; unconfirmed drafts survive page recreation and failed bank switches',async()=>{
  const {m,store,bankId,batchId,cloud}=await setup(),queue=m.load('services/cloud-intake');
  await queue.enqueueBatches(bankId,[batchId]);cloud.logout();await queue.pauseUploads();const before=m.calls.length;await queue.runUploadQueue();assert.equal(m.calls.length,before);
  await cloud.login();await queue.retryUploads();m.s.env.QBANK_DEVELOPERS='{}';await queue.runUploadQueue();assert.equal((await store.readLocal()).jobs[0].status,'paused');assert.equal(m.s.records.size,0);
- m.load('pages/intake/intake');const page=m.page();page.setData=function(v){Object.assign(this.data,v)};page.data.bankId=bankId;page.data.reply={...modelReply,answer:[]};await page.persistDraft();
- const reopened=mobile(m.s,m.disk);reopened.load('pages/intake/intake');const next=reopened.page();next.setData=function(v){Object.assign(this.data,v)};next.data.bankId=bankId;await next.restoreDraft();assert.deepEqual(Array.from(next.data.reply.answer),[]);assert.equal(next.data.reply.stem,modelReply.stem);
- const other=await m.load('services/bank').createBank('另一个库');page.data.banks=[{id:bankId,name:'测试题库'},{id:other,name:'另一个库'}];m.diskBroken(true);
- page.onBankChange({detail:{value:'1'}});for(let n=0;n<20&&page.locked;n++)await new Promise(r=>setTimeout(r,0));assert.equal(page.data.bankId,bankId);assert.match(page.data.error,/草稿/);
+ const {IntakeController}=m.load('services/intake-controller');let view;
+ const control=new IntakeController(v=>view=v);await control.open(bankId);control.paste(JSON.stringify({...modelReply,stem:'未完成新题',answer:[]}));await control.flush();
+ const reopened=mobile(m.s,m.disk),Next=reopened.load('services/intake-controller').IntakeController;let restored;
+ const next=new Next(v=>restored=v);await next.open(bankId);assert.deepEqual(Array.from(restored.reply.answer),[]);assert.equal(restored.reply.stem,'未完成新题');
+ const other=await m.load('services/bank').createBank('另一个库');control.change({reply:{...view.reply,stem:'磁盘失败仍保留'}});m.diskBroken(true);
+ await assert.rejects(control.open(other));assert.equal(control.bankId,bankId);assert.equal(control.current.reply.stem,'磁盘失败仍保留');control.dispose();next.dispose();
+
 });
 test('editing a saved mini question preserves its first recording time and metadata',async()=>{
  const {intake,store,bankId}=await setup();const first=(await store.readLocal()).entries[0];
@@ -222,15 +225,52 @@ test('editing a local question cannot duplicate a question already in the formal
  assert.equal((await store.readLocal()).entries[0].question.stem,original);banks.loadBank=load;
 });
 
-test('intake page combines all unuploaded records into one list while isolating other banks and receipts',async()=>{
- const {m,intake,store,bankId,batchId}=await setup();
- await intake.exportBatch(batchId);
- const second=await intake.saveReply(bankId,batchId,JSON.stringify({...modelReply,stem:'同一题库下一次录入'}));
- assert.notEqual(second.batchId,batchId);
- const other=await m.load('services/bank').createBank('另一个题库');
- await intake.saveReply(other,'',JSON.stringify({...modelReply,stem:'不混入当前列表'}));
- m.load('pages/intake/intake');const page=m.page();page.setData=function(v){Object.assign(this.data,v)};page.data.bankId=bankId;
- await page.refresh();assert.equal(page.data.entries.length,2);assert.ok(page.data.entries.every(e=>e.statusLabel.startsWith('待上传')));assert.equal(m.s.records.size,0);
- await store.updateLocal(d=>{d.entries.find(e=>e.batchId===batchId).uploadStatus='uploaded'});
- await page.refresh();assert.equal(page.data.entries.length,1);assert.equal(page.data.entries[0].stem,'同一题库下一次录入');
+test('intake controller shows one pending list while isolating banks and preserving removed drafts',async()=>{
+ const {m,intake,bankId,batchId}=await setup();await intake.exportBatch(batchId);
+ const second=await intake.saveReply(bankId,batchId,JSON.stringify({...modelReply,stem:'同一题库下一次录入'}));assert.equal(second.batchId,batchId);
+ const other=await m.load('services/bank').createBank('另一个题库');await intake.saveReply(other,'',JSON.stringify({...modelReply,stem:'不混入当前列表'}));
+ const {IntakeController}=m.load('services/intake-controller');let view;const c=new IntakeController(v=>view=v);await c.open(bankId);
+ assert.equal(view.records.length,2);assert.equal(view.pendingCount,2);assert.equal(m.s.records.size,0);
+ const id=view.records[0].id;await c.remove(id);assert.equal(view.pendingCount,1);await c.remove(id,false);assert.equal(view.pendingCount,2);c.dispose();
+});
+
+test('modern drafts persist incomplete input, revoke stale search projections and keep CAS/time/removal stable',async()=>{
+ const {m,bankId,banks}=await setup(),repo=m.load('services/drafts'),core=m.load('core/draft');
+ let rows=await repo.listDrafts(bankId),original=rows[0];
+ let invalid=core.reviseDraft(original,{reply:{...original.reply,answer:[]},raw:'完整但未作答的原文'});
+ invalid=await repo.saveDraft(invalid,original.revision);
+ assert.ok(invalid.issues.length);assert.equal((await banks.loadBank(bankId)).bank.count,0);
+ await assert.rejects(repo.submitDrafts(bankId,[{id:invalid.id,revision:invalid.revision}]),/补全/);
+ await assert.rejects(repo.saveDraft(core.reviseDraft(original,{raw:'stale'}),original.revision),/已改变/);
+ m.diskBroken(true);await assert.rejects(repo.saveDraft(core.reviseDraft(invalid,{reply:original.reply}),invalid.revision));m.diskBroken(false);
+ const fresh=mobile(m.s,m.disk),read=(await fresh.load('services/drafts').listDrafts(bankId))[0];
+ assert.equal(read.raw,invalid.raw);assert.equal(read.revision,invalid.revision);
+ let fixed=await repo.saveDraft(core.reviseDraft(invalid,{reply:original.reply,recordedAt:'2000-01-01T00:00:00Z'}),invalid.revision);
+ assert.equal(fixed.recordedAt,original.recordedAt);assert.equal((await banks.loadBank(bankId)).bank.count,1);
+ let removed=await repo.saveDraft(core.reviseDraft(fixed,{removed:true}),fixed.revision);
+ assert.equal((await banks.loadBank(bankId)).bank.count,0);
+ await repo.saveDraft(core.reviseDraft(removed,{removed:false}),removed.revision);
+ assert.equal((await banks.loadBank(bankId)).bank.count,1);
+});
+test('explicit legacy recovery uses the old bytes and confirmation state without claiming exports',async()=>{
+ const {m,bankId,batchId,upload,store,cloud}=await setup();
+ m.mode('lose-response');await assert.rejects(upload(bankId,batchId));
+ const previous=(await store.readLocal()).batches[0].upload.text;
+ const queue=m.load('services/cloud-intake');await queue.recoverLegacyUploads(bankId);await queue.recoverLegacyUploads(bankId);
+ assert.equal((await store.readLocal()).jobs.length,1);assert.equal((await store.readLocal()).jobs[0].confirmed,false);
+ await queue.runUploadQueue();assert.equal((await store.readLocal()).jobs[0].status,'done');
+ assert.equal((await store.readLocal()).batches[0].upload.text,previous);assert.equal(m.s.records.size,1);
+ assert.equal([...m.s.records.values()][0].status,'pending_review');
+});
+
+test('mini page clears answer-type undo across bank navigation and ignores input while navigation is pending',async()=>{
+ const {m,banks,bankId}=await setup();banks.selectBank(bankId);const other=await banks.createBank('另一库');banks.selectBank(bankId);
+ m.load('pages/intake/intake');const page=m.page();page.data=structuredClone(page.data);page.setData=patch=>Object.assign(page.data,patch);
+ const settle=async()=>{for(let i=0;i<100&&page.data.busy;i++)await new Promise(r=>setTimeout(r,5));assert.equal(page.data.busy,false);};
+ page.onLoad();await settle();assert.equal(page.data.ready,true);assert.equal(page.data.reply.type,'single');
+ page.onType({detail:{value:2}});assert.equal(page.data.reply.type,'true_false');assert.equal(page.data.canUndoType,true);
+ page.onBankChange({detail:{value:page.data.banks.findIndex(b=>b.id===other)}});
+ page.onField({currentTarget:{dataset:{field:'stem'}},detail:{value:'迟到的输入不能覆盖下一题'}});
+ await settle();assert.equal(page.data.reply,null);assert.equal(page.data.canUndoType,false);
+ page.onUndoType();assert.equal(page.data.reply,null);page.onUnload();
 });

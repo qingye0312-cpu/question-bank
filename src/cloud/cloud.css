@@ -1,0 +1,9 @@
+.cloud-access{border:0.076923rem solid var(--line,#dce4dd);padding:1.230769rem;margin:1.230769rem 0;border-radius:0.923077rem}
+.cloud-bank{display:flex;align-items:center;gap:0.923077rem;padding:0.923077rem 0;flex-wrap:wrap}
+.cloud-bank span{color:var(--muted)}
+.candidate-list{max-height:21.538462rem;overflow:auto}
+.candidate-list>div{display:flex;align-items:center;border-bottom:0.076923rem solid #dce4dd;padding:0.615385rem;gap:0.923077rem}
+.candidate-list button{text-align:left;flex:1}
+.pending-label{display:block;font-size:0.769231rem;line-height:1.2;color:#8b5a19}
+.cloud-maintenance{max-height:92vh;overflow:auto}
+.cloud-maintenance input[type=checkbox]{width:auto;margin-right:.6rem}

@@ -1,8 +1,8 @@
 export const fontSizes = [
-  {id: 'small', label: '小', scale: .9},
-  {id: 'medium', label: '中', scale: 1},
-  {id: 'large', label: '大', scale: 1.2},
-  {id: 'xlarge', label: '超大', scale: 1.4},
+  {id: 'small', label: '小', scale: 1.2},
+  {id: 'medium', label: '标准', scale: 1.4},
+  {id: 'large', label: '大', scale: 1.6},
+  {id: 'xlarge', label: '超大', scale: 1.8},
 ] as const;
 
 export const themes = [
@@ -24,12 +24,15 @@ export type Preferences = {
   searchCollapsed: boolean;
   speedPreview: boolean;
 };
-export const preferenceKey = 'question-bank.appearance.v1';
+export const preferenceKey = 'question-bank.appearance.v2';
 export const defaults: Preferences = {fontSize: 'medium', theme: 'forest', mode: 'detail', bankId: '', sidebarCollapsed: false, searchCollapsed: false, speedPreview: false};
 
 export function loadPreferences(): Preferences {
   try {
-    const value = JSON.parse(localStorage.getItem(preferenceKey) || '{}');
+    const saved=localStorage.getItem(preferenceKey);
+    const value = JSON.parse(saved || localStorage.getItem('question-bank.appearance.v1') || '{}');
+    // The old largest size becomes the new standard without enlarging it twice.
+    if(!saved&&value.fontSize==='xlarge')value.fontSize='medium';
     return {
       fontSize: fontSizes.some(f => f.id === value.fontSize) ? value.fontSize : defaults.fontSize,
       theme: themes.some(t => t.id === value.theme) ? value.theme : defaults.theme,

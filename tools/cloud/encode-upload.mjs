@@ -7,8 +7,8 @@ import { parseDelta } from '../../shared/intake.ts';
 export function encodeUpload(text) {
   const { questions } = parseDelta(text);
   const raw = Buffer.from(text), compressed = gzipSync(raw);
-  if (questions.length > 100 || raw.length > 4 * 1024 * 1024 || compressed.length > 512 * 1024)
-    throw new Error('每包最多 100 题，压缩前最多 4 MiB，压缩后最多 512 KiB');
+  if (questions.length > 1000 || raw.length > 4 * 1024 * 1024 || compressed.length > 512 * 1024)
+    throw new Error('每次最多 1000 题，不会自动拆包，压缩前最多 4 MiB，压缩后最多 512 KiB');
   return { format: 'qbank-upload-1', encoding: 'gzip+base64', uncompressed_size: raw.length,
     sha256: createHash('sha256').update(raw).digest('hex'), data: compressed.toString('base64') };
 }

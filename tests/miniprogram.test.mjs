@@ -85,7 +85,7 @@ async function loadService(readResource, extra = {}) {
   const exports = {};
   const intake = await import('../shared/intake.ts');
   const sync = await import('../shared/sync.ts');
-  vm.runInNewContext(outputText, {exports, require: name => name==='./sync'?{cachedSnapshot:async()=>null,cloudCatalog:()=>[],restoreCatalog:async()=>{}}:name.endsWith('/core/sync')||name==='../core/sync'?sync:name.endsWith('/manifest') ? {bundledManifest: manifest} : name.endsWith('/compact') ? compact : name.endsWith('/intake-store') ? {readLocal:async()=>({version:1,banks:[],entries:[],batches:[]})} : name.endsWith('/intake') ? intake : core,
+  vm.runInNewContext(outputText, {exports, require: name => name==='./draft-repository'?{readDraftFile:async()=>[]}:name==='./sync'?{cachedSnapshot:async()=>null,cloudCatalog:()=>[],restoreCatalog:async()=>{}}:name.endsWith('/core/sync')||name==='../core/sync'?sync:name.endsWith('/manifest') ? {bundledManifest: manifest} : name.endsWith('/compact') ? compact : name.endsWith('/intake-store') ? {readLocal:async()=>({version:1,banks:[],entries:[],batches:[]})} : name.endsWith('/intake') ? intake : core,
     wx: {env: {USER_DATA_PATH: '/cache'}, getFileSystemManager: () => ({readFile: readResource, readCompressedFile: readCompressed(readResource)}), ...extra}, console: {error() {}, info() {}, warn() {}}, Error});
   return exports;
 }

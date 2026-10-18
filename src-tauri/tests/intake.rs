@@ -98,8 +98,11 @@ fn delta_round_trip_is_additive_idempotent_and_upload_state_is_local() {
     assert_eq!(d.questions(&same_name).unwrap().len(), 0);
     assert_eq!(intake::import(&d, &file).unwrap().skipped, 1);
     assert_eq!(d.questions(&bank).unwrap().len(), 1);
+    let exported: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    let export_id = exported["batch_id"].as_str().unwrap();
+    assert_ne!(export_id, first.batch_id);
     assert_eq!(
-        intake::entries(&d, &first.batch_id).unwrap()[0].upload_status,
+        intake::entries(&d, export_id).unwrap()[0].upload_status,
         "pending"
     );
     let mut delta: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();

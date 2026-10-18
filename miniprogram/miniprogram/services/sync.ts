@@ -1,5 +1,5 @@
 import {authOrigin} from '../config/cloud';
-import {readManifest,readSnapshot,type CloudManifest,type CloudSnapshot} from '../core/sync';
+import {readManifest,readSnapshot,snapshotPath,type CloudManifest,type CloudSnapshot} from '../core/sync';
 import {buildPostings} from '../core/search';
 import {sha256} from '../core/intake';
 const inflight=new Map<string,Promise<boolean>>();
@@ -35,7 +35,7 @@ export function syncBank(id:string):Promise<boolean>{
   const previous=await cachedSnapshot(id);
   if(previous){if(manifest.revision<previous.manifest.revision)throw Error('云端版本倒退，旧版仍然保留');
    if(manifest.revision===previous.manifest.revision){if(manifest.sha256!==previous.manifest.sha256)throw Error('相同版本内容发生变化');return false;}}
-  const wrapper=await request(`/v1/banks/${id}/snapshot`),snapshot=readSnapshot(wrapper,manifest);
+  const wrapper=await request(snapshotPath(manifest)),snapshot=readSnapshot(wrapper,manifest);
   // A concurrent server update produces a mismatch: retry on the next sync,
   // never install formal and pending snapshots from different revisions.
   if(snapshot.revision===0)return false;

@@ -51,7 +51,7 @@ export function validateStandardQuestion(value:unknown,bank:string,legacy=false)
   return;
  }
  parseModelReply(JSON.stringify({format:'qbank-photo-question-1',type:q.type,stem:q.stem,options:q.options.map(o=>({key:o.key,content:o.content})),answer:q.answer,
-  answer_origin:'inferred',explanation:q.explanation,model:{name:'未知',version:'未知',version_source:'unknown'},warnings:[]}));
+  answer_origin:'inferred',explanation:q.explanation,model:{name:'未知',version:'未知',version_source:'unknown'},warnings:[]}),{historical:legacy});
 }
 const clean = (text: string) => text.replace(/\r\n?/g, '\n').trim();
 function object(value: unknown): value is Record<string, unknown> {
@@ -61,7 +61,7 @@ function fields(value: Record<string, unknown>, names: string[], label: string) 
   if (Object.keys(value).length !== names.length || names.some(key => !(key in value)))
     throw new Error(`${label}字段不完整或含多余字段，请重新复制规范回复`);
 }
-export function parseModelReply(input: string): ModelReply {
+export function parseModelReply(input: string, compatibility:{historical?:boolean}={}): ModelReply {
   if (input.length > 250_000) throw new Error('回复过长，请每次粘贴一道文字题');
   let text = input.trim().replace(/^\uFEFF/, '');
   if (text.startsWith('```')) {
@@ -77,8 +77,9 @@ export function parseModelReply(input: string): ModelReply {
   if (!['single','multiple','true_false'].includes(String(value.type))) throw new Error('题型未确定，仅支持单选、多选、判断');
   if (typeof value.stem !== 'string' || !value.stem.trim() || typeof value.explanation !== 'string') throw new Error('题干不能为空，解析必须是文字');
   if (!Array.isArray(value.options) || value.options.some((o, i) => !object(o)
-    || Object.keys(o).length !== 2 || o.key !== 'ABCDEFGH'[i] || typeof o.content !== 'string' || !o.content.trim()))
+    || Object.keys(o).length !== 2 || o.key !== String.fromCharCode(65+i) || typeof o.content !== 'string' || !o.content.trim()))
     throw new Error('选项须从 A 连续编号，每项只能包含 key 和非空 content');
+  if (!compatibility.historical && value.type !== 'true_false' && new Set(value.options.map(o=>clean(o.content))).size !== value.options.length) throw new Error('选项内容重复，请核对后修改');
   if (value.type === 'true_false') {
     if (value.options.length || typeof value.answer !== 'boolean') throw new Error('判断题选项必须为 []，答案必须为 true 或 false');
   } else {
@@ -108,15 +109,15 @@ export function parseDraft(input:string):ModelReply {
  let v:Record<string,unknown>;try{v=JSON.parse(text)}catch{throw Error('JSON 尚不完整，原文已保存；可继续修改或手工录题');}
  if(!object(v))throw Error('每次粘贴一道题的 JSON 对象');
  const r=emptyReply(),str=(v:unknown)=>typeof v==='string'?v:'';
- r.type=['single','multiple','true_false'].includes(String(v.type))?v.type as ModelReply['type']:'single';
+ r.type=(typeof v.type==='string'?v.type:'') as ModelReply['type'];
  r.stem=str(v.stem);r.explanation=str(v.explanation);
- r.options=r.type==='true_false'?[]:Array.isArray(v.options)?v.options.slice(0,8).map((o,i)=>({key:'ABCDEFGH'[i],content:object(o)?str(o.content):str(o)})):r.options;
+ r.options=Array.isArray(v.options)?v.options.map((o,i)=>({key:String.fromCharCode(65+i),content:object(o)?str(o.content):str(o)})):r.type==='true_false'?[]:r.options;
  r.answer=r.type==='true_false'?(typeof v.answer==='boolean'?v.answer:[]):Array.isArray(v.answer)?v.answer.filter((a):a is string=>typeof a==='string'):[];
  // Repair option labels only when their original identity is unambiguous.
  if(r.type!=='true_false'&&Array.isArray(v.options)&&Array.isArray(r.answer)){
-  const original=v.options.slice(0,8).map((o,i)=>object(o)&&typeof o.key==='string'?o.key:'ABCDEFGH'[i]);
+  const original=v.options.map((o,i)=>object(o)&&typeof o.key==='string'?o.key:String.fromCharCode(65+i));
   if(new Set(original).size!==original.length)r.answer=[];
-  else r.answer=r.answer.map(k=>{const i=original.indexOf(k);return i<0?k:'ABCDEFGH'[i]});
+  else r.answer=r.answer.map(k=>{const i=original.indexOf(k);return i<0?k:String.fromCharCode(65+i)});
  }
  if(object(v.model))r.model={name:str(v.model.name)||'未知',version:str(v.model.version)||'未知',version_source:['platform','user','unknown'].includes(String(v.model.version_source))?v.model.version_source as ModelReply['model']['version_source']:'unknown'};
  r.warnings=Array.isArray(v.warnings)?v.warnings.filter((w):w is string=>typeof w==='string'):[];
@@ -154,8 +155,8 @@ export function resultName(at:string|null|undefined,name:string,stage:string,ver
 // the ordinary validator requires the user to make an explicit new choice.
 export function reorderOptions(reply: ModelReply, order: number[]): ModelReply {
   const selected = new Set(Array.isArray(reply.answer) ? reply.answer : []);
-  const options = order.map((old, i) => ({key:'ABCDEFGH'[i], content:reply.options[old].content}));
-  const answer = order.flatMap((old, i) => selected.has(reply.options[old].key) ? ['ABCDEFGH'[i]] : []);
+  const options = order.map((old, i) => ({key:String.fromCharCode(65+i), content:reply.options[old].content}));
+  const answer = order.flatMap((old, i) => selected.has(reply.options[old].key) ? [String.fromCharCode(65+i)] : []);
   return {...reply, options, answer};
 }
 export function changeQuestionType(reply: ModelReply, type: ModelReply['type']): ModelReply {

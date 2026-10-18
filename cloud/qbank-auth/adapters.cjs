@@ -1,5 +1,6 @@
 'use strict';
 
+const {packText,unpackText,FORMAT}=require('./codec.cjs');
 const { HttpError, LIMITS, sha256 } = require('./service.cjs');
 
 function createCosStore({ clientFactory, env = () => process.env }) {
@@ -14,6 +15,7 @@ function createCosStore({ clientFactory, env = () => process.env }) {
       const data=await cos.getObject({Bucket,Region,Key,Range:'bytes=0-8388608'});
       const bytes=Buffer.from(data.Body);if(bytes.length>8388608)throw new Error('State too large');
       const wrapper=JSON.parse(bytes.toString('utf8'));
+      if(wrapper.format===FORMAT)wrapper.payload=unpackText(wrapper);
       if(typeof wrapper.payload!=='string'||sha256(wrapper.payload)!==wrapper.sha256)throw new Error('Invalid state checksum');
       const state=JSON.parse(wrapper.payload);
       if(state.format!=='qbank-state-1'||state.bank_id!==bankId||!Number.isSafeInteger(state.revision)||state.revision<1
@@ -27,7 +29,7 @@ function createCosStore({ clientFactory, env = () => process.env }) {
       const cos=clientFactory(settings);
       const versioning=await cos.getBucketVersioning({Bucket,Region});
       if(!versioning.VersioningConfiguration||versioning.VersioningConfiguration.Status)throw new Error('State bucket versioning must never have been enabled');
-      const payload=JSON.stringify(state),Body=Buffer.from(JSON.stringify({payload,sha256:sha256(payload)}));
+      const payload=JSON.stringify(state),Body=Buffer.from(JSON.stringify(packText(payload)));
       const Key=`states/${state.bank_id}/${String(999999999999-state.revision).padStart(12,'0')}.json`;
       try {await cos.putObject({Bucket,Region,Key,Body,ContentLength:Body.length,ContentType:'application/json; charset=utf-8',
         CacheControl:'no-store',Headers:{'x-cos-forbid-overwrite':'true'}});return true;}
@@ -44,7 +46,7 @@ function createCosStore({ clientFactory, env = () => process.env }) {
       const versioning = await cos.getBucketVersioning(params);
       if (!versioning.VersioningConfiguration || versioning.VersioningConfiguration.Status)
         throw new Error('Inbox versioning must never have been enabled');
-      const Body = Buffer.from(JSON.stringify(record));
+      const Body = Buffer.from(JSON.stringify(packText(JSON.stringify(record))));
       try {
         await cos.putObject({ ...params, Key: key, Body, ContentLength: Body.length,
           ContentType: 'application/json; charset=utf-8', CacheControl: 'no-store',
@@ -53,10 +55,11 @@ function createCosStore({ clientFactory, env = () => process.env }) {
       } catch (error) {
         if (error.statusCode !== 409 || error.code !== 'FileAlreadyExists') throw error;
         // Atomic create lost a race or this is a retry; compare with the durable first record.
-        const saved = await cos.getObject({ ...params, Key: key, Range: `bytes=0-${LIMITS.requestBytes + 4096}` });
+        const saved = await cos.getObject({ ...params, Key: key, Range: `bytes=0-${2 * LIMITS.requestBytes + 4096}` });
         const bytes = Buffer.isBuffer(saved.Body) ? saved.Body : Buffer.from(saved.Body);
-        if (bytes.length > LIMITS.requestBytes + 4096) throw new Error('Stored record exceeds limit');
-        return { created: false, record: JSON.parse(bytes.toString('utf8')) };
+        if (bytes.length > 2 * LIMITS.requestBytes + 4096) throw new Error('Stored record exceeds limit');
+        const savedRecord=JSON.parse(bytes.toString('utf8'));
+        return { created: false, record: savedRecord.format===FORMAT?JSON.parse(unpackText(savedRecord)):savedRecord };
       }
     },
   };

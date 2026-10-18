@@ -2,7 +2,7 @@ import {deltaPackage} from '../core/intake';
 import {prepareUpload,verifyReceipt} from '../core/upload';
 import {cloud} from './cloud';
 import {loadBank} from './bank';
-import {readLocal,updateLocal,createIds} from './intake-store';
+import {readLocal,updateLocal} from './intake-store';
 
 const uploading=new Set<string>();
 export async function uploadBatch(bankId:string,batchId:string,confirmed=false,actor?:string){
@@ -40,7 +40,7 @@ export async function uploadBatch(bankId:string,batchId:string,confirmed=false,a
         current.upload.receipt=receipt;
         for(const entry of entries)entry.uploadStatus='uploaded';
       });
-    }catch{throw new Error('云端已接收，本地回执保存失败；请重试同一批次以找回回执，不要重新录入');}
+    }catch{throw new UploadError('云端已接收，将使用原包找回回执',0,'RECEIPT_SAVE_FAILED');}
     return {...result,receipt};
   }finally{uploading.delete(batchId);}
 }
@@ -49,34 +49,27 @@ import {failedJob,readyJob,UploadError} from '../core/queue';
 import {syncBank} from './sync';
 import {invalidateBank} from './bank';
 let running:Promise<void>|undefined;
-export async function enqueueBatches(bankId:string,batchIds:string[]){
+// Compatibility entry point: all pending records now form one session request.
+export async function enqueueBatches(bankId:string,_batchIds:string[]){
+ const {listDrafts,submitDrafts}=await import('./drafts');
+ const records=(await listDrafts(bankId)).filter(r=>!r.removed&&!r.submissionId);
+ return submitDrafts(bankId,records.map(r=>({id:r.id,revision:r.revision})));
+}
+export async function recoverLegacyUploads(bankId:string){
  const {manifest}=await loadBank(bankId),endpoint=await cloud.authorize(bankId,manifest.name),actor=cloud.state().openid;
- if(!actor)throw new UploadError('请先验证开发者身份',401);
- const health=await cloud.health();if(!Array.isArray(health.capabilities)||!health.capabilities.includes('confirmed-upload-v1'))throw new UploadError('云端需部署支持整批确认的新版本',409,'UPGRADE_REQUIRED');
- const ids=await createIds((await readLocal()).entries.length+batchIds.length+1),at=new Date().toISOString();
- await updateLocal(data=>{data.jobs=data.jobs||[];
-  for(const groupId of batchIds){
-   if(data.jobs.some(j=>j.groupId===groupId))continue;
-   const batch=data.batches.find(b=>b.id===groupId&&b.bankId===bankId);if(!batch)throw Error('批次不存在');
-   const entries=data.entries.filter(e=>e.batchId===groupId&&e.bankId===bankId);if(!entries.length)continue;
-   if(batch.upload?.receipt)continue;
-   const chunks:typeof entries[]=[[]];
-   for(const e of entries){const current=chunks[chunks.length-1],trial=[...current,e];
-    try{prepareUpload(deltaPackage(bankId,manifest.name,groupId,trial.map(e=>e.question),batch.createdAt));current.push(e);}
-    catch(error){if(!current.length)throw error;prepareUpload(deltaPackage(bankId,manifest.name,groupId,[e.question],batch.createdAt));chunks.push([e]);}}
-   if(chunks.length>1&&batch.upload)throw Error('历史已提交批次不能重新拆分，请找回原回执');
-   for(const chunk of chunks){const id=chunks.length>1?ids():groupId;
-    let current=data.batches.find(b=>b.id===id);if(!current){current={id,bankId,createdAt:batch.createdAt};data.batches.push(current);}
-    const text=current.upload?.text||current.sealedText||deltaPackage(bankId,manifest.name,id,chunk.map(e=>e.question),batch.createdAt);prepareUpload(text);
-    if(current.upload&&current.upload.endpoint!==endpoint)throw Error('服务地址改变，不能迁移已冻结任务');
-    current.upload={...current.upload,endpoint,text};current.sealedText=text;for(const e of chunk)e.batchId=id;
-    data.jobs.push({id,groupId,bankId,endpoint,actor,confirmedAt:at,status:'queued',attempts:0,nextAt:0,error:''});
-   }
-  }
- });
+ if(!actor)throw Error('请使用原上传身份登录');
+ await updateLocal(data=>{data.jobs=data.jobs||[];for(const b of data.batches){
+  if(b.bankId!==bankId||!b.upload||b.upload.endpoint!==endpoint||data.jobs.some(j=>j.id===b.id))continue;
+  prepareUpload(b.upload.text);
+  data.jobs.push({id:b.id,groupId:b.id,bankId,endpoint,actor,confirmedAt:b.createdAt,confirmed:false,status:b.upload.receipt?'done':'queued',attempts:0,nextAt:0,error:''});
+ }});
 }
 export async function pauseUploads(){await updateLocal(data=>{for(const job of data.jobs||[])if(!['done','failed'].includes(job.status)){job.status='paused';job.error='已退出登录，任务保留';}});}
-export async function retryUploads(){const actor=cloud.state().openid;if(!actor)return;await updateLocal(data=>{for(const j of data.jobs||[])if(j.actor===actor&&!['done','failed'].includes(j.status)){j.status='queued';j.nextAt=0;j.error='';}});}
+export async function retryUploads(includeFailed=false){const actor=cloud.state().openid;if(!actor)return;await updateLocal(data=>{for(const j of data.jobs||[])if(j.actor===actor&&j.status!=='done'&&(includeFailed||j.status!=='failed')){j.status='queued';j.nextAt=0;j.error='';}});}
+export async function syncUploadedBank(bankId:string){
+ try{await syncBank(bankId);invalidateBank(bankId);await updateLocal(d=>{for(const j of d.jobs||[])if(j.bankId===bankId&&j.status==='done')j.syncError='';});}
+ catch(e){await updateLocal(d=>{for(const j of d.jobs||[])if(j.bankId===bankId&&j.status==='done')j.syncError=String(e);});throw e;}
+}
 export function runUploadQueue():Promise<void>{
  if(running)return running;
  const task=(async()=>{for(const job of (await readLocal()).jobs||[]){
@@ -86,9 +79,9 @@ export function runUploadQueue():Promise<void>{
    const latest=(await readLocal()).jobs?.find(j=>j.id===job.id);if(latest?.status==='paused')continue;
    await updateLocal(d=>{const j=d.jobs!.find(j=>j.id===job.id)!;if(j.status!=='paused')j.status='uploading';});
    if((await readLocal()).jobs?.find(j=>j.id===job.id)?.status==='paused')continue;
-   await uploadBatch(job.bankId,job.id,true,job.actor);
+   await uploadBatch(job.bankId,job.id,job.confirmed!==false,job.actor);
    await updateLocal(d=>{const j=d.jobs!.find(j=>j.id===job.id)!;j.status='done';j.error='';});
-   await syncBank(job.bankId).then(()=>invalidateBank(job.bankId)).catch(()=>{});
+   await syncUploadedBank(job.bankId).catch(()=>{});
   }catch(e){await updateLocal(d=>{const i=d.jobs!.findIndex(j=>j.id===job.id);if(i>=0&&!['done','paused'].includes(d.jobs![i].status))d.jobs![i]=failedJob(d.jobs![i],e);});}
  }})();running=task;void task.finally(()=>{running=undefined}).catch(()=>{});return task;
 }

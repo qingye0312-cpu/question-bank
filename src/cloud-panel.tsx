@@ -1,31 +1,20 @@
+import './cloud/cloud.css';
 import {useEffect,useState} from 'react';
 import {invoke} from '@tauri-apps/api/core';
-import {cloudAccess,cloudCall,cloudLogin,cloudLogout,cloudOrigin,setCloudOrigin,fetchCatalog,syncDesktop,cloudMutation,publishJobs,type PublishJob,remembersMachine,resumeDesktop,cloudForget} from './cloud-client';
+import {cloudAccess,cloudCall,fetchCatalog,syncDesktop,cloudMutation,publishJobs,type PublishJob} from './cloud-client';
 import {identityKey,sameAnswer} from '../shared/intake';
 import {answerText} from './speed-results';
+import {CloudLogin} from './cloud/login';
 import type {Bank,Question} from './types';
 type Candidate={id:string;question:Question;decision:'pending'|'accepted'|'confirmed';note?:string};
-type Review={revision:number;release_version:number;candidates:Candidate[];formal:Question[]|null};
-export function CloudLogin({onChange=()=>{},disabled=false}:{onChange?:()=>void;disabled?:boolean}){
- const [origin,setOrigin]=useState(cloudOrigin),[key,setKey]=useState(''),[busy,setBusy]=useState(false),[message,setMessage]=useState(''),[,render]=useState(0);
- const [remember,setRemember]=useState(remembersMachine);
- const access=cloudAccess();
- async function login(){if(busy)return;setBusy(true);setMessage('');const secret=key;setKey('');try{if(origin!==cloudOrigin())setCloudOrigin(origin);await cloudLogin(secret,remember);setMessage(remember?'维护者登录成功；已确认任务可自动续取短期会话':'维护者登录成功，仅用于本次会话');render(n=>n+1);onChange();}catch(e){setMessage(String(e));}finally{setBusy(false);}}
- return <div className="cloud-access"><p>日常搜题与本地录题无需登录。开发者上传、维护者合并按题库分别授权。</p>
-  <label>云端 HTTPS 地址<input value={origin} disabled={disabled||busy} onChange={e=>setOrigin(e.target.value)}/></label>
-  <button disabled={disabled||busy||!origin} onClick={()=>{try{setCloudOrigin(origin);render(n=>n+1);setMessage('地址已保存');onChange();}catch(e){setMessage(String(e));}}}>保存服务地址</button>
-  {access?<><p>已授权：{access.banks.map(b=>b.name).join('、')}</p><button disabled={disabled||busy} onClick={()=>{cloudLogout();render(n=>n+1);onChange();}}>退出维护者登录</button></>:<><label><input type="checkbox" checked={remember} onChange={e=>setRemember(e.target.checked)} disabled={disabled||busy}/>记住本机（系统钥匙串／凭据管理器）</label><label>维护者密钥<input type="password" autoComplete="off" spellCheck={false} value={key} disabled={disabled||busy} onChange={e=>setKey(e.target.value)}/></label><button disabled={disabled||busy||!key} onClick={()=>void login()}>{busy?'正在验证…':'维护者登录'}</button></>}
-  {remembersMachine()&&<><button disabled={disabled||busy} onClick={()=>{void resumeDesktop().then(()=>{render(n=>n+1);onChange()}).catch(e=>setMessage(String(e)))}}>使用本机凭据登录</button><button disabled={disabled||busy} onClick={()=>{void cloudForget().then(()=>{setRemember(false);render(n=>n+1)}).catch(e=>setMessage(String(e)))}}>移除本机凭据</button></>}
-  {message&&<p role="status">{message}</p>}
- </div>;
-}
+type Review={revision:number;release_version:number;candidates:Candidate[];formal:Question[]|null;capacity?:{used_bytes:number;limit_bytes:number}};
 export function CloudPanel({banks,onChanged,onClose,onBusy}:{banks:Bank[];onChanged:()=>Promise<unknown>;onClose:()=>void;onBusy:(value:boolean)=>void}){
  const [catalog,setCatalog]=useState<{bank_id:string;name:string;revision:number;release_version:number;release_name?:string|null}[]>([]),[selected,setSelected]=useState(banks[0]?.id||''),[review,setReview]=useState<Review|null>(null);
  const [candidate,setCandidate]=useState(''),[edited,setEdited]=useState(''),[note,setNote]=useState(''),[picked,setPicked]=useState<string[]>([]),[busy,setBusy]=useState(false),[message,setMessage]=useState(''),[,render]=useState(0);
  const [operations,setOperations]=useState<PublishJob[]>([]);
  useEffect(()=>{void publishJobs().then(setOperations).catch(()=>{})},[]);
  const roles=cloudAccess()?.grants[selected]||[],current=review?.candidates.find(p=>p.id===candidate);
- const canMerge=roles.includes('merge')||roles.includes('publish');
+ const canMerge=roles.includes('merge')||roles.includes('publish'),canCreate=cloudAccess()?.capabilities?.includes('cloud_bank:create');
  let preview=current?.question;let invalid=false;
  try{if(current){const q=JSON.parse(edited) as Question;if(!q||typeof q.stem!=='string'||!Array.isArray(q.options)||q.options.some(o=>!o||typeof o.content!=='string')||!(Array.isArray(q.answer)||typeof q.answer==='boolean'))throw Error();preview=q;}}catch{invalid=true;}
  const matches=preview?(review?.formal||[]).filter(q=>q.question_id===preview.question_id||identityKey(q)===identityKey(preview)):[];
@@ -38,8 +27,8 @@ export function CloudPanel({banks,onChanged,onClose,onBusy}:{banks:Bank[];onChan
   {catalog.map(b=><div className="cloud-bank" key={b.bank_id}><b>{b.release_name||b.name}</b><span>正式 v{b.release_version} · 修订 {b.revision}</span><button disabled={busy} onClick={()=>void task(async()=>{const changed=await syncDesktop(b.bank_id);await onChanged();setMessage(changed?'题库及待合并题已同步':'已是最新版本');})}>{banks.some(k=>k.id===b.bank_id)?'检查更新':'下载题库'}</button></div>)}
   <label>维护题库<select value={selected} disabled={busy} onChange={e=>{setSelected(e.target.value);setReview(null);setCandidate('');}}>{[...new Map([...banks.map(b=>({id:b.id,name:b.name})),...(cloudAccess()?.banks||[]).map(b=>({id:b.bank_id,name:b.name}))].map(b=>[b.id,b])).values()].map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select></label>
   <button disabled={busy||!roles.some(r=>r==='review'||r==='publish'||r==='merge')} onClick={()=>void task(refreshReview)}>读取待合并题和正式版本</button>
-  {review&&<><p>正式版本 {review.release_version} · 状态修订 {review.revision} · 候选 {review.candidates.length} 题</p>
-   {review.formal===null&&<button disabled={busy||!canMerge||!banks.some(b=>b.id===selected)} onClick={()=>void task(async()=>{
+  {review&&<>{review.capacity&&<p>云端容量 {(review.capacity.used_bytes/1048576).toFixed(2)} / {(review.capacity.limit_bytes/1048576).toFixed(0)} MiB</p>}<p>正式版本 {review.release_version} · 状态修订 {review.revision} · 候选 {review.candidates.length} 题</p>
+   {review.formal===null&&canCreate&&<button disabled={busy||!canMerge||!banks.some(b=>b.id===selected)} onClick={()=>void task(async()=>{
     const questions=await invoke<Question[]>('bank_questions',{bankId:selected});
     if(!window.confirm(`将本机「${banks.find(b=>b.id===selected)?.name}」的 ${questions.length} 道正式题初始化为云端首版？本地录入的新题不计入。`))return;
     await cloudMutation(`/v1/banks/${selected}/seed`,{base_revision:review.revision,questions});await refreshReview();await syncDesktop(selected);await onChanged();setMessage('云端正式首版已创建');

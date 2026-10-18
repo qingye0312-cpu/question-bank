@@ -1,13 +1,16 @@
 pub mod backup;
 pub mod cloud;
+mod commands;
 mod credentials;
 pub mod db;
 mod desktop;
+pub mod drafts;
 pub mod exchange;
 pub mod import_jobs;
 pub mod intake;
 pub mod model;
 pub mod ocr;
+pub mod promotion;
 pub mod updater;
 use db::{Query, Results, Store};
 use model::*;
@@ -25,440 +28,6 @@ struct AppState {
 }
 async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T> + Send + 'static) -> Result<T> {
     tauri::async_runtime::spawn_blocking(f).await.map_err(err)?
-}
-#[tauri::command]
-async fn backup_database(s: State<'_, AppState>, path: String, restore: bool) -> Result<usize> {
-    if restore {
-        for control in s.controls.lock().map_err(err)?.values() {
-            control.cancel();
-        }
-    }
-    let d = s.store.clone();
-    let lock = s.writes.clone();
-    blocking(move || {
-        let _g = lock.lock().map_err(err)?;
-        if restore {
-            backup::restore(&d, &PathBuf::from(path))
-        } else {
-            backup::save(&d, &PathBuf::from(path))
-        }
-    })
-    .await
-}
-#[tauri::command]
-async fn client_state(
-    s: State<'_, AppState>,
-    key: String,
-    value: Option<serde_json::Value>,
-) -> Result<serde_json::Value> {
-    let d = s.store.clone();
-    let lock = s.writes.clone();
-    blocking(move || {
-        let _g = lock.lock().map_err(err)?;
-        cloud::client_state(&d, &key, value)
-    })
-    .await
-}
-#[tauri::command]
-async fn intake_prepare(s: State<'_, AppState>, batch_id: String) -> Result<Vec<String>> {
-    let d = s.store.clone();
-    let lock = s.writes.clone();
-    blocking(move || {
-        let _g = lock.lock().map_err(err)?;
-        cloud::prepare_batches(&d, &batch_id)
-    })
-    .await
-}
-#[tauri::command]
-async fn credential_save(origin: String, key: Option<String>) -> Result<()> {
-    blocking(move || credentials::save(&origin, key)).await
-}
-#[tauri::command]
-async fn credential_login(origin: String) -> Result<serde_json::Value> {
-    blocking(move || credentials::login(&origin)).await
-}
-#[tauri::command]
-async fn cloud_request(
-    origin: String,
-    path: String,
-    body: Option<serde_json::Value>,
-    token: Option<String>,
-) -> Result<serde_json::Value> {
-    blocking(move || cloud::request(&origin, &path, body, token)).await
-}
-#[tauri::command]
-async fn cloud_transfer(
-    s: State<'_, AppState>,
-    batch_id: String,
-    endpoint: String,
-) -> Result<serde_json::Value> {
-    let d = s.store.clone();
-    let lock = s.writes.clone();
-    blocking(move || {
-        let _g = lock.lock().map_err(err)?;
-        cloud::transfer(&d, &batch_id, &endpoint)
-    })
-    .await
-}
-#[tauri::command]
-async fn cloud_receipt(
-    s: State<'_, AppState>,
-    batch_id: String,
-    receipt: serde_json::Value,
-) -> Result<()> {
-    let d = s.store.clone();
-    let lock = s.writes.clone();
-    blocking(move || {
-        let _g = lock.lock().map_err(err)?;
-        cloud::acknowledge(&d, &batch_id, receipt)
-    })
-    .await
-}
-#[tauri::command]
-async fn cloud_versions(s: State<'_, AppState>) -> Result<Vec<serde_json::Value>> {
-    let d = s.store.clone();
-    blocking(move || cloud::versions(&d)).await
-}
-#[tauri::command]
-async fn cloud_apply(s: State<'_, AppState>, payload: String, sha256: String) -> Result<()> {
-    let d = s.store.clone();
-    let lock = s.writes.clone();
-    blocking(move || {
-        let _g = lock.lock().map_err(err)?;
-        cloud::apply(&d, &payload, &sha256)
-    })
-    .await
-}
-#[tauri::command]
-async fn bank_questions(s: State<'_, AppState>, bank_id: String) -> Result<Vec<Question>> {
-    let d = s.store.clone();
-    blocking(move || cloud::formal_questions(&d, &bank_id)).await
-}
-#[tauri::command]
-async fn banks(s: State<'_, AppState>) -> Result<Vec<Bank>> {
-    let d = s.store.clone();
-    blocking(move || d.banks()).await
-}
-#[tauri::command]
-async fn search(s: State<'_, AppState>, query: Query) -> Result<Results> {
-    let d = s.store.clone();
-    blocking(move || d.search(&query)).await
-}
-#[tauri::command]
-async fn ocr_image_file(path: String) -> Result<ocr::ImageInput> {
-    blocking(move || ocr::image_file(&PathBuf::from(path))).await
-}
-#[tauri::command]
-async fn ocr_recognize(data_url: String) -> Result<ocr::Recognition> {
-    blocking(move || ocr::recognize(&data_url)).await
-}
-#[tauri::command]
-async fn ocr_clipboard() -> Result<ocr::ClipboardInput> {
-    blocking(ocr::clipboard).await
-}
-#[tauri::command]
-async fn clipboard_write_text(text: String) -> Result<()> {
-    blocking(move || ocr::write_clipboard(&text)).await
-}
-#[tauri::command]
-async fn intake_preview(
-    s: State<'_, AppState>,
-    bank_id: String,
-    text: String,
-) -> Result<intake::Comparison> {
-    let d = s.store.clone();
-    blocking(move || intake::preview(&d, &bank_id, &text)).await
-}
-#[tauri::command]
-async fn intake_save(
-    s: State<'_, AppState>,
-    bank_id: String,
-    batch_id: String,
-    text: String,
-    metadata: Option<intake::Metadata>,
-) -> Result<intake::Saved> {
-    let d = s.store.clone();
-    let lock = s.writes.clone();
-    blocking(move || {
-        let _g = lock.lock().map_err(err)?;
-        intake::save_with_metadata(&d, &bank_id, &batch_id, &text, metadata.unwrap_or_default())
-    })
-    .await
-}
-#[tauri::command]
-async fn intake_batches(s: State<'_, AppState>) -> Result<Vec<intake::Batch>> {
-    let d = s.store.clone();
-    blocking(move || intake::batches(&d)).await
-}
-#[tauri::command]
-async fn intake_edit(
-    s: State<'_, AppState>,
-    bank_id: String,
-    question_id: String,
-    text: String,
-    metadata: intake::Metadata,
-) -> Result<()> {
-    let d = s.store.clone();
-    let lock = s.writes.clone();
-    blocking(move || {
-        let _g = lock.lock().map_err(err)?;
-        intake::edit_entry(&d, &bank_id, &question_id, &text, metadata)
-    })
-    .await
-}
-#[tauri::command]
-async fn intake_entries(s: State<'_, AppState>, batch_id: String) -> Result<Vec<intake::Entry>> {
-    let d = s.store.clone();
-    blocking(move || intake::entries(&d, &batch_id)).await
-}
-#[tauri::command]
-async fn intake_mark_upload(
-    s: State<'_, AppState>,
-    bank_id: String,
-    question_id: String,
-    uploaded: bool,
-) -> Result<()> {
-    let d = s.store.clone();
-    let lock = s.writes.clone();
-    blocking(move || {
-        let _g = lock.lock().map_err(err)?;
-        intake::mark_upload(&d, &bank_id, &question_id, uploaded)
-    })
-    .await
-}
-#[tauri::command]
-async fn intake_export(s: State<'_, AppState>, batch_id: String, path: String) -> Result<usize> {
-    let d = s.store.clone();
-    let lock = s.writes.clone();
-    blocking(move || {
-        let _g = lock.lock().map_err(err)?;
-        intake::export(&d, &batch_id, &PathBuf::from(path))
-    })
-    .await
-}
-#[tauri::command]
-async fn import_delta(s: State<'_, AppState>, path: String) -> Result<intake::Imported> {
-    let d = s.store.clone();
-    let lock = s.writes.clone();
-    blocking(move || {
-        let _g = lock.lock().map_err(err)?;
-        intake::import(&d, &PathBuf::from(path))
-    })
-    .await
-}
-#[tauri::command]
-async fn ocr_capture(window: tauri::WebviewWindow) -> Result<Option<ocr::ImageInput>> {
-    blocking(move || ocr::capture(window)).await
-}
-#[tauri::command]
-fn ocr_cancel_capture() {
-    ocr::cancel_capture();
-}
-#[tauri::command]
-async fn ocr_match(
-    s: State<'_, AppState>,
-    bank_id: String,
-    text: String,
-) -> Result<ocr::matching::Matches> {
-    let store = s.store.clone();
-    blocking(move || ocr::matching::find(&store, &bank_id, &text)).await
-}
-#[tauri::command]
-async fn create_bank(s: State<'_, AppState>, name: String) -> Result<String> {
-    let d = s.store.clone();
-    blocking(move || d.create(&name)).await
-}
-#[tauri::command]
-async fn save_question(
-    s: State<'_, AppState>,
-    bank_id: String,
-    question: Question,
-) -> Result<String> {
-    let d = s.store.clone();
-    let lock = s.writes.clone();
-    blocking(move || {
-        let _g = lock.lock().map_err(err)?;
-        d.save(&bank_id, question)
-    })
-    .await
-}
-#[tauri::command]
-async fn delete_question(s: State<'_, AppState>, rowid: i64, restore: bool) -> Result<()> {
-    let d = s.store.clone();
-    let lock = s.writes.clone();
-    blocking(move || {
-        let _g = lock.lock().map_err(err)?;
-        d.delete(rowid, restore)
-    })
-    .await
-}
-#[tauri::command]
-async fn fork_bank(s: State<'_, AppState>, bank_id: String) -> Result<String> {
-    let d = s.store.clone();
-    let lock = s.writes.clone();
-    blocking(move || {
-        let _g = lock.lock().map_err(err)?;
-        d.fork(&bank_id)
-    })
-    .await
-}
-#[tauri::command]
-fn import_status(
-    s: State<'_, AppState>,
-    job_id: String,
-    cancel: bool,
-) -> Result<serde_json::Value> {
-    let controls = s.controls.lock().map_err(err)?;
-    if let Some(control) = controls.get(&job_id) {
-        if cancel {
-            control.cancel();
-        }
-        return Ok(control.status());
-    }
-    Ok(serde_json::Value::Null)
-}
-#[tauri::command]
-async fn import_jobs_list(s: State<'_, AppState>) -> Result<Vec<serde_json::Value>> {
-    let d = s.store.clone();
-    blocking(move || import_jobs::list(&d)).await
-}
-#[tauri::command]
-async fn import_runs(s: State<'_, AppState>, bank_id: String) -> Result<Vec<serde_json::Value>> {
-    let d = s.store.clone();
-    blocking(move || import_jobs::history(&d, &bank_id)).await
-}
-#[tauri::command]
-async fn import_undo(s: State<'_, AppState>, run_id: String) -> Result<usize> {
-    let d = s.store.clone();
-    let lock = s.writes.clone();
-    blocking(move || {
-        let _g = lock.lock().map_err(err)?;
-        import_jobs::undo(&d, &run_id)
-    })
-    .await
-}
-#[tauri::command]
-async fn import_preview(
-    s: State<'_, AppState>,
-    path: String,
-    bank_id: String,
-    job_id: String,
-) -> Result<exchange::Preview> {
-    let control = Arc::new(import_jobs::Control::default());
-    s.controls
-        .lock()
-        .map_err(err)?
-        .insert(job_id.clone(), control.clone());
-    let d = s.store.clone();
-    let lock = s.writes.clone();
-    let result = blocking(move || {
-        let p = exchange::preview_controlled(&d, &PathBuf::from(path), &bank_id, &control)?;
-        let _g = lock.lock().map_err(err)?;
-        control.step("保存预览", p.questions.len(), p.questions.len())?;
-        import_jobs::save(&d, &p)?;
-        Ok(p.preview)
-    })
-    .await;
-    s.controls.lock().map_err(err)?.remove(&job_id);
-    result
-}
-#[tauri::command]
-async fn import_commit(s: State<'_, AppState>, token: String) -> Result<String> {
-    let control = Arc::new(import_jobs::Control::default());
-    s.controls
-        .lock()
-        .map_err(err)?
-        .insert(token.clone(), control.clone());
-    let d = s.store.clone();
-    let lock = s.writes.clone();
-    let job = token.clone();
-    let result = blocking(move || {
-        let _g = lock.lock().map_err(err)?;
-        let p = import_jobs::load(&d, &job)?;
-        exchange::commit_controlled(&d, &p, &control)
-    })
-    .await;
-    s.controls.lock().map_err(err)?.remove(&token);
-    result
-}
-#[tauri::command]
-async fn export_name(s: State<'_, AppState>, bank_id: String) -> Result<String> {
-    let d = s.store.clone();
-    blocking(move || exchange::export_name(&d.bank(&bank_id)?, &d.questions(&bank_id)?)).await
-}
-#[tauri::command]
-async fn export_bank(
-    s: State<'_, AppState>,
-    bank_id: String,
-    path: String,
-    format: String,
-    filter: Option<Query>,
-) -> Result<usize> {
-    let d = s.store.clone();
-    let lock = s.writes.clone();
-    blocking(move || {
-        let _g = lock.lock().map_err(err)?;
-        exchange::export_filtered(&d, &bank_id, &PathBuf::from(path), &format, filter)
-    })
-    .await
-}
-#[tauri::command]
-async fn rollback_bank(s: State<'_, AppState>, bank_id: String) -> Result<()> {
-    let d = s.store.clone();
-    let lock = s.writes.clone();
-    blocking(move || {
-        let _g = lock.lock().map_err(err)?;
-        d.rollback(&bank_id)
-    })
-    .await
-}
-#[tauri::command]
-async fn history(
-    s: State<'_, AppState>,
-    bank_id: String,
-    question_id: String,
-) -> Result<Vec<serde_json::Value>> {
-    let d = s.store.clone();
-    blocking(move || d.history(&bank_id, &question_id)).await
-}
-#[tauri::command]
-async fn rebuild_index(s: State<'_, AppState>) -> Result<()> {
-    let d = s.store.clone();
-    let lock = s.writes.clone();
-    blocking(move || {
-        let _g = lock.lock().map_err(err)?;
-        d.reindex()
-    })
-    .await
-}
-#[tauri::command]
-fn app_info(app: tauri::AppHandle, s: State<'_, AppState>) -> serde_json::Value {
-    serde_json::json!({"version":env!("CARGO_PKG_VERSION"),"global_shortcut":app.state::<desktop::Features>().shortcut,"tray":app.state::<desktop::Features>().tray.to_string(),"database":s.store.path,"platform":std::env::consts::OS,"arch":std::env::consts::ARCH,"benchmark_enabled":if std::env::var("QBANK_BENCHMARK").as_deref()==Ok("1"){"true"}else{"false"}})
-}
-#[tauri::command]
-async fn save_benchmark(s: State<'_, AppState>, report: serde_json::Value) -> Result<String> {
-    if std::env::var("QBANK_BENCHMARK").as_deref() != Ok("1") {
-        return Err("性能验证模式未启用".into());
-    }
-    let path = s.store.path.with_file_name("ui-benchmark-report.json");
-    blocking(move || {
-        exchange::atomic_write(&path, &serde_json::to_vec_pretty(&report).map_err(err)?)?;
-        Ok(path.display().to_string())
-    })
-    .await
-}
-#[tauri::command]
-async fn download_template(path: String, format: String) -> Result<()> {
-    blocking(move || {
-        let bytes: &[u8] = match format.as_str() {
-            "docx" => include_bytes!("../../templates/题库导入模板_v1.docx"),
-            "xlsx" => include_bytes!("../../templates/题库导入模板_v1.xlsx"),
-            "jsonl" => include_bytes!("../../templates/题库导入示例_v1.jsonl"),
-            _ => return Err("未知模板格式".into()),
-        };
-        exchange::atomic_write(&PathBuf::from(path), &bytes)
-    })
-    .await
 }
 
 pub fn run() {
@@ -498,52 +67,59 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             updater::software_update_check,
             updater::software_update_install,
-            backup_database,
-            cloud_request,
-            credential_save,
-            credential_login,
-            client_state,
-            intake_prepare,
-            cloud_transfer,
-            cloud_receipt,
-            cloud_versions,
-            cloud_apply,
-            bank_questions,
-            banks,
-            search,
-            ocr_image_file,
-            ocr_recognize,
-            ocr_clipboard,
-            clipboard_write_text,
-            intake_preview,
-            intake_save,
-            intake_edit,
-            intake_batches,
-            intake_entries,
-            intake_mark_upload,
-            intake_export,
-            import_delta,
-            ocr_capture,
-            ocr_cancel_capture,
-            ocr_match,
-            create_bank,
-            save_question,
-            delete_question,
-            fork_bank,
-            import_status,
-            import_jobs_list,
-            import_runs,
-            import_undo,
-            import_preview,
-            import_commit,
-            export_name,
-            export_bank,
-            rollback_bank,
-            history,
-            rebuild_index,
-            app_info,
-            download_template,
-            save_benchmark
+            commands::exchange::backup_database,
+            commands::cloud::cloud_request,
+            commands::cloud::credential_save,
+            commands::cloud::credential_login,
+            commands::cloud::client_state,
+            commands::intake::intake_prepare,
+            commands::intake::draft_records,
+            commands::cloud::promotion_tasks,
+            commands::cloud::promotion_prepare,
+            commands::intake::draft_export,
+            commands::intake::draft_save,
+            commands::intake::draft_submit,
+            commands::cloud::cloud_transfer,
+            commands::cloud::cloud_recover_legacy,
+            commands::cloud::cloud_receipt,
+            commands::cloud::cloud_versions,
+            commands::cloud::cloud_apply,
+            commands::library::bank_questions,
+            commands::library::banks,
+            commands::library::search,
+            commands::ocr::ocr_image_file,
+            commands::ocr::ocr_recognize,
+            commands::ocr::ocr_clipboard,
+            commands::ocr::clipboard_write_text,
+            commands::intake::intake_preview,
+            commands::intake::intake_save,
+            commands::intake::intake_edit,
+            commands::intake::intake_batches,
+            commands::intake::intake_entries,
+            commands::intake::intake_mark_upload,
+            commands::intake::intake_export,
+            commands::intake::import_delta,
+            commands::ocr::ocr_capture,
+            commands::ocr::ocr_cancel_capture,
+            commands::ocr::ocr_match,
+            commands::library::create_bank,
+            commands::library::save_question,
+            commands::library::delete_question,
+            commands::library::fork_bank,
+            commands::exchange::import_status,
+            commands::exchange::import_jobs_list,
+            commands::exchange::import_runs,
+            commands::exchange::import_undo,
+            commands::exchange::import_preview,
+            commands::exchange::import_commit,
+            commands::exchange::export_name,
+            commands::exchange::export_bank,
+            commands::library::rollback_bank,
+            commands::library::history,
+            commands::library::rebuild_index,
+            commands::library::app_info,
+            commands::exchange::download_template,
+            commands::library::save_benchmark
         ])
         .build(tauri::generate_context!())
         .expect("题库启动失败")

@@ -1,6 +1,7 @@
+import {unpackText,CLOUD_FILE_FORMAT} from './codec.ts';
 import {validTime,validateStandardQuestion,sha256,identityKey,type IntakeQuestion} from './intake.ts';
 export type SyncQuestion=Omit<IntakeQuestion,'answer'> & {answer:string[]|boolean|null; cloud_layer?:string};
-export type CloudManifest={bank_id:string;name:string;revision:number;release_version:number;sha256:string;bytes:number;minimum_client:string;updated_at:string;protocol?:number;merged_at?:string|null;release_name?:string|null;release_id?:string|null};
+export type CloudManifest={bank_id:string;name:string;revision:number;release_version:number;sha256:string;bytes:number;minimum_client:string;updated_at:string;snapshot_format?:string;protocol?:number;merged_at?:string|null;release_name?:string|null;release_id?:string|null};
 export type CloudSnapshot={format:'qbank-snapshot-1'|'qbank-snapshot-2';merged_at?:string|null;release_name?:string|null;release_id?:string|null;bank_id:string;name:string;revision:number;release_version:number;updated_at:string;
  formal:SyncQuestion[]|null;pending:SyncQuestion[];removed:{question_id:string;status:'merged'|'rejected'}[]};
 export function reviewStates(snapshot:CloudSnapshot|null):Map<string,string>{
@@ -21,8 +22,13 @@ export function readManifest(value:unknown):CloudManifest{
  if(m.protocol===2&&(m.merged_at!=null&&!validTime(m.merged_at)||m.release_id!=null&&!/^[a-f0-9]{64}$/.test(m.release_id)||m.release_name!=null&&(typeof m.release_name!=='string'||m.release_name.length>220||/[\\/:*?"<>|\x00-\x1f]/.test(m.release_name))))throw Error('云端结果名称或时间无效');
  return m;
 }
+export function snapshotPayload(value:unknown):{payload:string;sha256:string}{
+ const v=value as {format?:string;payload:string;sha256:string};
+ return v?.format===CLOUD_FILE_FORMAT?{payload:unpackText(v),sha256:v.sha256}:v;
+}
+export function snapshotPath(m:CloudManifest){return `/v1/banks/${m.bank_id}/${m.snapshot_format===CLOUD_FILE_FORMAT?'snapshot-file':'snapshot'}`;}
 export function readSnapshot(value:unknown,m:CloudManifest):CloudSnapshot{
- const w=value as {payload:string;sha256:string};
+ const w=snapshotPayload(value);
  if(!w||typeof w.payload!=='string'||w.payload.length>4194304||w.sha256!==m.sha256||sha256(w.payload)!==m.sha256)throw Error('云端题库摘要校验失败，旧版仍然保留');
  // UTF-8 byte length without TextEncoder in the Mini Program.
  let bytes=0;for(const c of w.payload){const p=c.codePointAt(0)!;bytes+=p<128?1:p<2048?2:p<65536?3:4;}

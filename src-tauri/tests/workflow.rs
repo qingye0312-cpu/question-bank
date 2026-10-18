@@ -384,7 +384,7 @@ fn software_updates_require_embedded_https_endpoint_and_a_public_signing_key() {
 }
 
 #[test]
-fn entry_time_survives_edit_and_confirmed_split_is_atomic_and_frozen() {
+fn entry_time_survives_edit_and_session_package_is_atomic_and_frozen() {
     let (_d, s, b) = setup();
     let mut batch = String::new();
     for n in 0..103 {
@@ -395,7 +395,7 @@ fn entry_time_survives_edit_and_confirmed_split_is_atomic_and_frozen() {
     }
     assert_eq!(intake::entries(&s, &batch).unwrap().len(), 103);
     let parts = cloud::prepare_batches(&s, &batch).unwrap();
-    assert_eq!(parts.len(), 2);
+    assert_eq!(parts.len(), 1);
     let mut sizes = vec![];
     for id in &parts {
         let transfer = cloud::transfer(&s, id, "https://test.example").unwrap();
@@ -406,7 +406,7 @@ fn entry_time_survives_edit_and_confirmed_split_is_atomic_and_frozen() {
             transfer
         );
     }
-    assert_eq!(sizes, vec![100, 3]);
+    assert_eq!(sizes, vec![103]);
 }
 #[test]
 fn recording_time_sort_cursor_is_stable_and_local_exports_do_not_fake_merge_time() {

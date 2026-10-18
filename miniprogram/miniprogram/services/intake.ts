@@ -32,12 +32,10 @@ export async function markUpload(bankId:string,id:string,uploaded:boolean){
 export async function exportBatch(batchId:string,compressed=false):Promise<{filePath:string;fileName:string}>{
  const data=await readLocal(),batch=data.batches.find(b=>b.id===batchId);if(!batch)throw new Error('请选择录入批次');
  const {manifest}=await loadBank(batch.bankId),at=new Date().toISOString();
- const payload=await updateLocal(next=>{
-  const current=next.batches.find(b=>b.id===batchId&&b.bankId===batch.bankId);if(!current)throw new Error('批次不存在');
-  current.sealedText=current.upload?.text||current.sealedText||deltaPackage(batch.bankId,manifest.name,batchId,
-   next.entries.filter(e=>e.bankId===batch.bankId&&e.batchId===batchId).map(e=>e.question),current.createdAt);
-  return current.sealedText;
- });
+ // Export is an independent exchange snapshot, never a submission lock.
+ const exportId=(await createIds(1))();
+ const payload=batch.upload?.text||batch.sealedText||deltaPackage(batch.bankId,manifest.name,exportId,
+  data.entries.filter(e=>e.bankId===batch.bankId&&e.batchId===batchId).map(e=>e.question),at);
  const fileName=resultName(batch.createdAt,manifest.name,'增量','b'+batchId.slice(0,8),batch.bankId,sha256(payload))+`.${compressed?'qbank-upload':'qbank-delta'}.json`;
  const filePath=`${wx.env.USER_DATA_PATH}/${fileName}`;
  const fs=wx.getFileSystemManager();

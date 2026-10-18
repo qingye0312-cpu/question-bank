@@ -101,7 +101,7 @@ const request:Transport=(origin,path,method,body,token)=>new Promise((resolve,re
     success:r=>{try{const text=typeof r.data==='string'?r.data:JSON.stringify(r.data);
       if(!text||text.length>65536)throw new Error('云端响应无效');
       resolve({status:r.statusCode,body:JSON.parse(text)});}catch{reject(new Error('云端响应无法识别，请保留本地批次后重试'));}},
-    fail:e=>reject(new Error(/url not in domain|不在.*合法域名|domain list/i.test(e.errMsg)?'上传域名尚未加入小程序合法域名，请联系维护者配置':'网络请求未完成，本地题目已保留；请重试本批次'))});
+    fail:e=>reject(new UploadError(/url not in domain|不在.*合法域名|domain list/i.test(e.errMsg)?'上传域名尚未加入小程序合法域名，请联系维护者配置':'网络请求未完成，稍后自动重试',0,/url not in domain|不在.*合法域名|domain list/i.test(e.errMsg)?'DOMAIN_CONFIGURATION':'NETWORK'))});
 });
 export const cloud=createCloudClient({origin:authOrigin,request,login:()=>new Promise((resolve,reject)=>wx.login({timeout:10000,
   success:r=>r.code?resolve(r.code):reject(new Error('微信登录失败，请重试')),fail:()=>reject(new Error('微信登录失败，请确认网络后重试'))}))});

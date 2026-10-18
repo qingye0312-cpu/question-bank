@@ -1,3 +1,4 @@
+import {readDraftFile} from './draft-repository';
 import {resultName,sha256} from '../core/intake';
 import {LocalBank, SearchIndex, buildPostingsFromLines} from '../core/search';
 import {CompactBank, decodeCompact, decodeUtf8} from '../core/compact';
@@ -131,7 +132,9 @@ export function loadBank(id=activeBankId()):Promise<BankBundle>{
         bank:new LocalBank(lines,{schema_version:'qbank-index-1',release_id:cached.manifest.sha256,question_count:lines.length,postings:await buildPostingsFromLines(lines)})};
     }
     const formal=Array.from({length:bundle.bank.count},(_,i)=>bundle.bank.question(i)) as unknown as SyncQuestion[];
-    const merged=combineLayers(formal,cached?.snapshot.pending||[],local.entries.filter(e=>e.bankId===id).map(e=>e.question));
+    const drafts=await readDraftFile(id),ids=new Set(drafts.map(r=>r.id));
+    const working=[...local.entries.filter(e=>e.bankId===id&&!ids.has(e.question.question_id)).map(e=>e.question),...drafts.filter(r=>!r.removed&&!r.issues.length&&r.question).map(r=>r.question!)];
+    const merged=combineLayers(formal,cached?.snapshot.pending||[],working);
     bundle.bank.append(merged.filter(q=>q.cloud_layer!=='formal'));
 
     return {bank:bundle.bank,manifest:{...bundle.manifest,question_count:bundle.bank.count}};

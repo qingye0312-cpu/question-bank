@@ -22,7 +22,7 @@ pub struct Metadata {
     pub external_id: String,
 }
 impl Metadata {
-    fn apply(self, q: &mut Question) -> Result<()> {
+    pub(crate) fn apply(self, q: &mut Question) -> Result<()> {
         if [&self.chapter, &self.applicable_version, &self.external_id]
             .iter()
             .any(|s| s.chars().count() > 1000)
@@ -109,6 +109,15 @@ pub fn parse_reply(text: &str) -> Result<Question> {
         || !["platform", "user", "unknown"].contains(&r.model.version_source.as_str())
     {
         return Err("请保留实际模型名称和版本，无法确认时填未知".into());
+    }
+    if r.options
+        .iter()
+        .map(|o| clean(&o.content))
+        .collect::<HashSet<_>>()
+        .len()
+        != r.options.len()
+    {
+        return Err("选项内容重复，请核对后修改".into());
     }
     if std::iter::once(r.stem.as_str())
         .chain(r.options.iter().map(|o| o.content.as_str()))
@@ -241,7 +250,7 @@ pub struct Saved {
     pub comparison: Comparison,
     pub added: bool,
 }
-fn add_batch(c: &Connection, id: &str, bank_id: &str) -> Result<()> {
+pub(crate) fn add_batch(c: &Connection, id: &str, bank_id: &str) -> Result<()> {
     if uuid::Uuid::parse_str(id).is_err() {
         return Err("录入批次 ID 无效".into());
     }
@@ -428,7 +437,7 @@ pub struct Entry {
 }
 pub fn batches(store: &Store) -> Result<Vec<Batch>> {
     let c = store.conn()?;
-    let mut s=c.prepare("SELECT b.id,b.bank_id,k.name,b.created_at,COUNT(e.question_id),COALESCE(SUM(e.question_id IS NOT NULL AND e.upload_status='pending'),0) FROM intake_batches b JOIN banks k ON k.id=b.bank_id LEFT JOIN intake_entries e ON e.batch_id=b.id LEFT JOIN questions q ON q.bank_id=e.bank_id AND q.id=e.question_id AND q.deleted=0 GROUP BY b.id ORDER BY b.created_at DESC").map_err(err)?;
+    let mut s=c.prepare("SELECT b.id,b.bank_id,k.name,b.created_at,COUNT(e.question_id),COALESCE(SUM(e.question_id IS NOT NULL AND e.upload_status='pending'),0) FROM intake_batches b JOIN banks k ON k.id=b.bank_id LEFT JOIN (SELECT e.* FROM intake_entries e LEFT JOIN questions q ON q.bank_id=e.bank_id AND q.id=e.question_id LEFT JOIN intake_originals o ON o.bank_id=e.bank_id AND o.question_id=e.question_id WHERE COALESCE(o.deleted,q.deleted,0)=0 AND COALESCE(o.data,q.data) IS NOT NULL) e ON e.batch_id=b.id GROUP BY b.id ORDER BY b.created_at DESC").map_err(err)?;
     let rows = s
         .query_map([], |r| {
             Ok(Batch {
@@ -528,9 +537,26 @@ pub struct Delta {
 pub fn export(store: &Store, batch_id: &str, path: &Path) -> Result<usize> {
     let transfer = crate::cloud::transfer(store, batch_id, "")?;
     let raw = transfer["raw"].as_str().ok_or("批次无效")?;
-    let delta: Delta = serde_json::from_str(raw).map_err(err)?;
+    let mut delta: Delta = serde_json::from_str(raw).map_err(err)?;
+    let frozen: bool = store
+        .conn()?
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM intake_transfers WHERE batch_id=?1)",
+            [batch_id],
+            |r| r.get(0),
+        )
+        .map_err(err)?;
+    if !frozen {
+        delta.batch_id = uid();
+        delta.created_at = now();
+    }
+    let raw = if frozen {
+        raw.to_string()
+    } else {
+        serde_json::to_string(&delta).map_err(err)?
+    };
     let bytes = if path.to_string_lossy().ends_with(".qbank-upload.json") {
-        serde_json::to_vec_pretty(&crate::cloud::encode(raw)?).map_err(err)?
+        serde_json::to_vec_pretty(&crate::cloud::encode(&raw)?).map_err(err)?
     } else {
         raw.as_bytes().to_vec()
     };

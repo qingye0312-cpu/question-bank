@@ -2,20 +2,12 @@
 // One immutable state object is the commit point for both the formal release and
 // its pending overlay. Contending writers create the same revision key: only one
 // succeeds. No last-writer-wins manifest and no separate removal/download gap.
-const {HttpError,sha256}=require('./service.cjs');
+const {HttpError,sha256}=require('./common.cjs');
+const {packText}=require('./codec.cjs');
+const {key,answer,releaseName,projected,manifest}=require('./projection.cjs');
 const MAX_STATE_BYTES=4*1024*1024;
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const deny=(status,code,message)=>{throw new HttpError(status,code,message)};
-const clean=s=>s.replace(/\r\n?/g,'\n').trim();
-const key=q=>{const options=q.options.map(o=>clean(o.content));if(new Set(options).size===options.length)options.sort();return JSON.stringify([q.type,clean(q.stem),options]);};
-const answer=q=>{if(!Array.isArray(q.answer))return JSON.stringify(q.answer);const repeated=new Set(q.options.map(o=>clean(o.content))).size!==q.options.length;return JSON.stringify(q.answer.map(k=>repeated?k:clean(q.options.find(o=>o.key===k)?.content||'')).sort());};
-const safeQuestion=q=>{
- const sources=q.sources.filter(s=>s.kind==='model_reply'&&s.model&&typeof s.model.name==='string'&&typeof s.model.version==='string').map(s=>({kind:'model_reply',model:{name:s.model.name,version:s.model.version,version_source:['user','platform','unknown'].includes(s.model.version_source)?s.model.version_source:'unknown'},answer_origin:'inferred',...(s.recorded_at?{recorded_at:s.recorded_at}:{})}));
- if(!sources.length&&q.status==='needs_review')sources.push({kind:'published_legacy'});
- const model=sources.find(s=>s.model)?.model;
- return {...q,sources,source_note:model?`原始模型 · ${model.name} / ${model.version}`:'正式题库来源',extensions:undefined};
-};
-function releaseName(at,name,stage,version,id,digest){const stamp=new Date(Date.parse(at)+28800000).toISOString().replace(/[-:TZ.]/g,'').slice(0,17).replace(/^(\d{8})(.*)$/,'$1-$2')+'+0800';const title=Array.from(name.replace(/[\\/:*?"<>|\x00-\x1f]/g,'_').replace(/[. ]+$/,'')).slice(0,36).join('');return `${stamp}_${title}_${stage}_v${version}_${id.slice(0,8)}-${digest.slice(0,8)}`;}
 function createWorkflow({store,validateStandardQuestion,clock}){
  const bank=(config,id)=>{const b=config.banks.find(b=>b.bank_id===id);if(!b)deny(404,'BANK_UNKNOWN','题库不存在');return b;};
  const enabled=config=>{if(!config.syncEnabled)deny(503,'SYNC_DISABLED','云端版本同步尚未启用，本地题库仍可使用');};
@@ -24,23 +16,20 @@ function createWorkflow({store,validateStandardQuestion,clock}){
   try{validateStandardQuestion(q,name,legacy);}catch{deny(422,'QUESTION_INVALID','请核对题目结构、题库身份、选项和答案');}
  }
 
- function projected(s){return {format:'qbank-snapshot-2',bank_id:s.bank_id,name:s.name,revision:s.revision,release_version:s.release_version,
-   updated_at:s.updated_at,merged_at:s.merged_at||null,release_name:s.release_name||null,release_id:s.release_id||null,formal:s.formal===null?null:s.formal.map(safeQuestion),pending:[...new Map(s.pending.map(p=>[p.question.question_id,safeQuestion({...p.question,status:p.decision==='confirmed'||p.decision==='accepted'?'verified':'unreviewed'})])).values()],
-   removed:s.resolved.map(r=>({question_id:r.question_id,status:r.status}))};}
- function manifest(s){const payload=JSON.stringify(projected(s));return {bank_id:s.bank_id,name:s.name,revision:s.revision,release_version:s.release_version,
-   sha256:sha256(payload),bytes:Buffer.byteLength(payload),minimum_client:'0.2.7',protocol:2,merged_at:s.merged_at||null,release_name:s.release_name||null,release_id:s.release_id||null,updated_at:s.updated_at};}
  async function commit(s,at=new Date(clock()).toISOString()){s.revision++;s.updated_at=at;
   if(Buffer.byteLength(JSON.stringify(s))>MAX_STATE_BYTES)deny(413,'BANK_TOO_LARGE','当前题库超过单次同步上限，请先归档处理记录或拆分题库');
   if(!await store.createState(s))deny(409,'REVISION_CONFLICT','云端题库已更新，请刷新后重新核对');return manifest(s);
  }
+ const catalog=require('./catalog.cjs').createCatalog({store,validateStandardQuestion,clock,releaseName,manifest});
  return {
+  resolve:catalog.resolve, promote:catalog.promote,
   async read(method,path,config){
    if(method!=='GET')return;
    if(path==='/v1/catalog'){enabled(config);return {banks:await Promise.all(config.banks.map(async b=>manifest(await latest(b))))};}
-   const match=/^\/v1\/banks\/([0-9a-f-]{36})\/(manifest|snapshot)$/.exec(path||'');if(!match)return;
+   const match=/^\/v1\/banks\/([0-9a-f-]{36})\/(manifest|snapshot|snapshot-file)$/.exec(path||'');if(!match)return;
    enabled(config);const s=await latest(bank(config,match[1]));
    if(match[2]==='manifest')return manifest(s);
-   const payload=JSON.stringify(projected(s));return {payload,sha256:sha256(payload)};
+   const payload=JSON.stringify(projected(s));return match[2]==='snapshot-file'?packText(payload):{payload,sha256:sha256(payload)};
   },
   async register(config,record,delta){
    const b=bank(config,delta.bank_id);
@@ -61,13 +50,14 @@ function createWorkflow({store,validateStandardQuestion,clock}){
    const role=['publish','seed'].includes(action)?'merge':'review';
    if(!auth.desktop||!(action==='candidates'?roles.includes('review')||roles.includes('publish')||roles.includes('merge'):roles.includes(role)||role==='merge'&&roles.includes('publish')||action==='review'&&body?.decision==='reject'&&(roles.includes('merge')||roles.includes('publish'))))deny(403,'ROLE_FORBIDDEN',`没有此题库的${role==='merge'?'合并发布':'历史核对'}权限`);
    const s=await latest(b);
-   if(action==='candidates'&&method==='GET')return {revision:s.revision,release_version:s.release_version,candidates:s.pending,formal:s.formal};
+   if(action==='candidates'&&method==='GET')return {capacity:{used_bytes:Buffer.byteLength(JSON.stringify(s)),limit_bytes:MAX_STATE_BYTES},revision:s.revision,release_version:s.release_version,candidates:s.pending,formal:s.formal};
    if(method!=='POST')deny(405,'METHOD_NOT_ALLOWED','不支持此请求方法');
    const operation=body?.operation_id,operationHash=sha256(JSON.stringify({actor:auth.openid,action,body}));
    if(operation){if(!UUID.test(operation))deny(422,'OPERATION_INVALID','合并任务 ID 无效');const old=(s.operations||[]).find(o=>o.id===operation);if(old){if(old.hash!==operationHash)deny(409,'OPERATION_CONFLICT','任务 ID 已用于不同内容');return old.result;}}
    let released=false;
    if(!body||body.base_revision!==s.revision)deny(409,'REVISION_CONFLICT','云端题库已更新，请刷新后重新核对');
    if(action==='seed'){
+    if(!auth.capabilities?.includes('cloud_bank:create'))deny(403,'CREATE_FORBIDDEN','首版初始化需要桌面最高权限');
     if(s.formal!==null)deny(409,'ALREADY_INITIALIZED','正式题库已初始化，请通过候选审核发布后续题目');
     if(!Array.isArray(body.questions)||!body.questions.length||body.questions.length>10000)deny(422,'SEED_INVALID','初始正式题库须包含 1 至 10000 题');
     const ids=new Set();for(const q of body.questions){validateQuestion(q,b.name,true);if(ids.has(q.question_id))deny(422,'DUPLICATE_ID','正式题库含重复 ID');ids.add(q.question_id);}

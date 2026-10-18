@@ -1,3 +1,4 @@
+import {packText,unpackText} from '../shared/codec.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -11,7 +12,7 @@ const fixture=fs.readFileSync(new URL('./fixtures/intake/mobile-delta.json',impo
 function setup(){
  const states=new Map(),records=new Map(),key='b'.repeat(64),otherKey='c'.repeat(64);
  const env={WX_APP_ID:'wx0000000000000000',WX_APP_SECRET:'test',QBANK_SESSION_SECRET:'a'.repeat(64),QBANK_UPLOAD_ENABLED:'true',QBANK_SYNC_ENABLED:'true',
-  QBANK_BANKS:JSON.stringify([{bank_id:id,name:delta.name}]),QBANK_DEVELOPERS:JSON.stringify({'openid-developer-tests':[id]}),
+  QBANK_CLOUD_CREATORS:JSON.stringify(['maintainer-tests']),QBANK_BANKS:JSON.stringify([{bank_id:id,name:delta.name}]),QBANK_DEVELOPERS:JSON.stringify({'openid-developer-tests':[id]}),
   QBANK_MAINTAINERS:JSON.stringify([{id:'maintainer-tests',key_sha256:sha256(key),grants:{[id]:['upload','review','publish']}},{id:'upload-only-tests',key_sha256:sha256(otherKey),grants:{[id]:['upload']}}])};
  const store={async readState(bank){const s=[...states.values()].filter(s=>s.bank_id===bank).sort((a,b)=>b.revision-a.revision)[0];return s?structuredClone(s):null;},
   async createState(s){const k=s.bank_id+'/'+s.revision;if(states.has(k))return false;states.set(k,structuredClone(s));return true;},
@@ -27,7 +28,7 @@ test('anonymous catalogue, per-bank desktop roles and immediate revocation',asyn
  assert.equal((await s.call('POST',`/v1/banks/${id}/seed`,{base_revision:0,questions},token)).status,403);
  assert.equal((await s.call('POST','/v1/uploads',encodeUpload(fixture))).status,401);
  const me=await s.call('GET','/v1/me',undefined,token);assert.deepEqual(me.data.grants[id],['upload']);
- s.env.QBANK_MAINTAINERS='[]';assert.equal((await s.call('GET','/v1/me',undefined,token)).status,403);
+ s.env.QBANK_MAINTAINERS='[]';s.env.QBANK_CLOUD_CREATORS='[]';assert.equal((await s.call('GET','/v1/me',undefined,token)).status,403);
 });
 test('upload, review, atomic publish, full pending removal and public privacy',async()=>{
  const s=setup(),token=await s.login();
@@ -129,4 +130,25 @@ test('legacy submissions cannot be upgraded by resending confirmed and quarantin
  const packet=deltaPackage(id,delta.name,'770cb0d2-b0db-4a52-ae91-98df473d20f5',[{...questions[0],question_id:randomUUID(),stem:'never public'}],new Date().toISOString());
  await s.call('POST','/v1/uploads',{format:'qbank-confirmed-upload-1',package:encodeUpload(packet)},token);
  assert.ok(!(await s.call('GET',`/v1/banks/${id}/snapshot`)).data.payload.includes('never public'));
+});
+
+test('cloud creation requires explicit desktop capability, verifies first state before directory activation and retries the same task',async()=>{
+ const s=setup(),admin=await s.login(),uploader=await s.login(s.otherKey),bank=randomUUID();
+ const q={...questions[0],bank:'新云库'},body={operation_id:randomUUID(),package:packText(JSON.stringify({bank_id:bank,name:'新云库',questions:[q]}))};
+ assert.equal((await s.call('POST','/v1/banks/promote',body,uploader)).status,403);
+ const wx=(await s.call('POST','/v1/auth/wechat',{code:'new-code'})).data.access_token;
+ assert.equal((await s.call('POST','/v1/banks/promote',{...body,platform:'desktop'},wx)).status,403);
+ s.env.QBANK_CLOUD_CREATORS='[]';assert.equal((await s.call('POST','/v1/banks/promote',body,admin)).status,403);
+ s.env.QBANK_CLOUD_CREATORS='["maintainer-tests"]';
+ const create=s.store.createState;let failRegistry=true;
+ s.store.createState=async state=>{if(state.bank_id.startsWith('00000000-0000-0000')&&failRegistry)throw Error('COS temporarily unavailable');return create(state)};
+ assert.equal((await s.call('POST','/v1/banks/promote',body,admin)).status,500);
+ assert.ok(await s.store.readState(bank));assert.ok(!(await s.call('GET','/v1/catalog')).data.banks.some(b=>b.bank_id===bank));
+ failRegistry=false;const success=await s.call('POST','/v1/banks/promote',body,admin);assert.equal(success.status,200,JSON.stringify(success));assert.equal(success.data.revision,1);
+ assert.deepEqual(await s.call('POST','/v1/banks/promote',body,admin),success);
+ assert.equal(s.states.size,2);assert.equal((await s.call('POST','/v1/banks/promote',{...body,operation_id:randomUUID()},admin)).status,409);
+ const me=(await s.call('GET','/v1/me',undefined,admin)).data;assert.deepEqual(me.grants[bank],['upload','merge']);
+ const envelope=(await s.call('GET',`/v1/banks/${bank}/snapshot-file`)).data;
+ assert.equal(envelope.encoding,'gzip+base64');assert.equal(JSON.parse(unpackText(envelope)).formal[0].stem,q.stem);
+ assert.equal(readSnapshot(envelope,success.data).formal.length,1);
 });
