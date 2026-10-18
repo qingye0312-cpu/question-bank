@@ -8,6 +8,7 @@ pub mod drafts;
 pub mod exchange;
 pub mod import_jobs;
 pub mod intake;
+pub mod library;
 pub mod model;
 pub mod ocr;
 pub mod promotion;
@@ -106,6 +107,7 @@ pub fn run() {
             commands::library::save_question,
             commands::library::delete_question,
             commands::library::fork_bank,
+            commands::library::delete_bank,
             commands::exchange::import_status,
             commands::exchange::import_jobs_list,
             commands::exchange::import_runs,

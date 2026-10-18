@@ -85,30 +85,34 @@ button.primary:hover {
   flex-shrink:0;
   background:var(--sidebar);
   border-right:0.076923rem solid var(--border);
-  padding:2.076923rem 1.230769rem 1.076923rem;
+  padding:1rem 1rem .8rem;
   display:flex;
   flex-direction:column;
   transition:opacity .18s ease,transform .24s cubic-bezier(.2,.75,.25,1)}
+.sidebar > * { flex-shrink:0; }
+.sidebar-library { display:flex; flex-direction:column; flex:1 0 14rem; min-height:14rem; margin-top:.7rem; }
+.sidebar-library > .nav-item,.sidebar-library > .section-label { flex-shrink:0; }
+.sidebar-library .section-label { margin:.3rem .769231rem .4rem; }
 .brand {
   display:flex;
   align-items:center;
   gap:0.846154rem;
-  padding:0 0.461538rem 2.538462rem}
+  padding:0 0.461538rem .6rem}
 .brand-mark {
-  width:2.923077rem;
-  height:3.076923rem;
+  width:2.3rem;
+  height:2.3rem;
   display:grid;
   place-items:center;
   background:var(--accent);
   color:var(--on-accent);
   border-radius:0.846154rem}
 .brand b {
-  font-size:1.692308rem;
+  font-size:1.35rem;
   font-weight:650;
   letter-spacing:0.153846rem}
 .brand small {
   display:block;
-  font-size:0.769231rem;
+  font-size:0.7rem;
   color:var(--secondary);
   margin-top:0.230769rem}
 .version {
@@ -118,23 +122,14 @@ button.primary:hover {
   margin-left:auto;
   align-self:flex-start;
   margin-top:0.384615rem}
-.workspace-label {
-  font-size:0.846154rem;
-  letter-spacing:0.076923rem;
-  color:var(--muted);
-  padding:0 0.769231rem 0.923077rem;
-  display:flex;
-  justify-content:space-between}
-.workspace-label span {
-  font-size:0.692308rem}
 .nav-item {
   border:0;
   background:transparent;
   border-radius:0.461538rem;
   justify-content:flex-start;
-  min-height:3.076923rem;
+  min-height:2.4rem;
   font-size:0.923077rem;
-  padding:0.769231rem 0.846154rem;
+  padding:0.45rem 0.75rem;
   width:100%;
   color:var(--secondary)}
 .nav-item span {
@@ -157,8 +152,11 @@ button.primary:hover {
   padding:0.230769rem;
   color:var(--secondary)}
 .bank-nav {
-  max-height:31vh;
-  overflow-y:auto}
+  flex:1 1 0;
+  min-height:9rem;
+  overflow-y:auto;
+  scrollbar-gutter:stable;
+  overscroll-behavior:contain}
 .bank-item {
   width:100%;
   border:0;
@@ -166,18 +164,23 @@ button.primary:hover {
   justify-content:flex-start;
   padding:0.923077rem 0.769231rem;
   text-align:left;
-  gap:0.769231rem}
+  gap:0.6rem;
+  flex-shrink:0;
+  min-height:4.2rem}
+.bank-item > svg { flex-shrink:0; }
 .bank-item.selected {
   background:var(--selected)}
 .bank-item div {
   min-width:0;
   flex:1}
 .bank-item b {
-  display:block;
+  display:-webkit-box;
   font-size:0.923077rem;
   overflow:hidden;
-  text-overflow:ellipsis;
-  white-space:nowrap;
+  -webkit-box-orient:vertical;
+  -webkit-line-clamp:2;
+  overflow-wrap:anywhere;
+  line-height:1.45;
   font-weight:500}
 .bank-item small {
   font-size:0.769231rem;
@@ -195,37 +198,14 @@ button.primary:hover {
 .nav-divider {
   height:0.076923rem;
   background:var(--border);
-  margin:1.230769rem 0.769231rem}
-.share-card {
-  margin: auto 0.153846rem 1.384615rem;
-  background:var(--tint);
-  border:0.076923rem solid var(--border);
-  border-radius:0.692308rem;
-  padding:1.307692rem 1.153846rem;
-  color:var(--ink)}
-.share-card>b {
-  display:block;
-  margin-top:0.692308rem;
-  font-size:0.923077rem;
-  font-weight:550}
-.share-card p {
-  font-size:0.846154rem;
-  color:var(--secondary);
-  line-height:1.8;
-  margin:0.538462rem 0 1rem}
-.share-card button {
-  background:var(--surface-soft);
-  border-color:var(--border);
-  width:100%;
-  font-size:0.846154rem;
-  padding:0.615385rem}
+  margin:.6rem 0.769231rem}
 .local-status {
   font-size:0.769231rem;
   display:flex;
   gap:0.461538rem;
   justify-content:center;
   color:var(--muted);
-  margin-top:1.076923rem}
+  margin-top:.4rem}
 .local-status i,.offline span {
   width:0.384615rem;
   height:0.384615rem;
@@ -1071,7 +1051,6 @@ input,select,textarea,fieldset { min-width:0; }
 }
 @media(max-width:700px) {
  .sidebar-shell { --sidebar-width:12rem; }
- .share-card { display:none; }
  .form-grid { grid-template-columns:1fr; }
  .search-area.is-collapsed { flex-wrap:wrap; }
 }

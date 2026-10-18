@@ -7,3 +7,18 @@
 .pending-label{display:block;font-size:0.769231rem;line-height:1.2;color:var(--warning)}
 .cloud-maintenance{max-height:92vh;overflow:auto}
 .cloud-maintenance input[type=checkbox]{width:auto;margin-right:.6rem}
+.library-banks{display:grid;gap:.8rem;margin-block:1.2rem}
+.library-bank{padding:1rem;border:1px solid var(--border);border-radius:.7rem;background:var(--surface-soft);min-width:0}
+.library-bank-summary{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap}
+.library-bank-summary>div:first-child{flex:1;min-width:12rem;overflow-wrap:anywhere}
+.library-bank-summary b{font-size:1rem}
+.library-bank-summary p{margin:.5rem 0 0;font-size:.85rem;color:var(--muted)}
+.library-bank-actions{display:flex;gap:.6rem;flex-wrap:wrap;align-items:center}
+.library-protected{font-size:.85rem;color:var(--muted)}
+.library-delete-confirm{margin-top:1rem;padding:1rem;border:1px solid var(--danger);border-radius:.6rem;background:var(--danger-bg)}
+.library-delete-confirm p{color:var(--secondary);line-height:1.7}
+.library-delete-confirm .library-bank-actions{justify-content:flex-end}
+.library-message{overflow-wrap:anywhere}
+.library-cloud-settings{border-top:1px solid var(--border);margin-top:1.4rem;padding-top:1rem}
+.library-cloud-settings summary{cursor:pointer;color:var(--secondary);font-weight:600;padding:.4rem 0}
+.library-cloud-settings input[type=checkbox]{width:auto;margin-right:.6rem}

@@ -62,6 +62,20 @@ pub(crate) async fn fork_bank(s: State<'_, AppState>, bank_id: String) -> Result
     .await
 }
 #[tauri::command]
+pub(crate) async fn delete_bank(
+    s: State<'_, AppState>,
+    bank_id: String,
+    version: i64,
+) -> Result<String> {
+    let d = s.store.clone();
+    let lock = s.writes.clone();
+    blocking(move || {
+        let _g = lock.lock().map_err(err)?;
+        crate::library::delete_local_bank(&d, &bank_id, version)
+    })
+    .await
+}
+#[tauri::command]
 pub(crate) async fn rollback_bank(s: State<'_, AppState>, bank_id: String) -> Result<()> {
     let d = s.store.clone();
     let lock = s.writes.clone();

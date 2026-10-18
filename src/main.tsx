@@ -60,6 +60,7 @@ function App(){
  const benchPending=useRef<null|((r:Results)=>void)>(null);
  const bank=banks.find(b=>b.id===bankId),detailBank=banks.find(b=>b.id===active?.bank_id),total=banks.reduce((n,b)=>n+b.count,0);
  async function refresh(){const all=await invoke<Bank[]>('banks');setBanks(all);setRevision(r=>r+1);return all;}
+ async function bankDeleted(id:string){if(bankId===id){setBankId('');setTrash(false)}if(active?.bank_id===id)setActive(null);setResults(r=>({...r,items:r.items.filter(h=>h.bank_id!==id)}));await refresh();}
  async function work<T,>(label:string,fn:()=>Promise<T>):Promise<T|undefined>{setBusy(label);setError('');try{return await fn()}catch(e){setError(String(e));return undefined}finally{setBusy('')}}
  useEffect(()=>{
   document.documentElement.style.setProperty('--font-scale',String(fontScale));
@@ -137,16 +138,17 @@ function App(){
  return <div className={`app ${mode==='speed'?'speed-mode':''}`}>
   {mode==='detail'&&<div id="workspace-sidebar" className={`sidebar-shell ${preferences.sidebarCollapsed?'is-collapsed':''}`} aria-hidden={preferences.sidebarCollapsed} inert={preferences.sidebarCollapsed}><aside className="sidebar">
    <div className="brand"><div className="brand-mark"><Layers size={24}/></div><div><b>题库</b><small>离线知识工作台</small></div><span className="version">01</span></div>
-   <div className="workspace-label">我的工作空间 <span>LOCAL</span></div>
    <button className={`nav-item ${!bankId&&!trash?'selected':''}`} onClick={()=>switchBank('')}><Library size={18}/>全部题目 <span>{total.toLocaleString()}</span></button>
+   <section className="sidebar-library" aria-label="题库列表">
    <div className="section-label">题库 <button title="新建题库" aria-label="新建题库" onClick={()=>{setName('');setModal('create')}}><Plus size={15}/></button></div>
-   <div className="bank-nav">{banks.map(b=><button className={`bank-item ${bankId===b.id&&!trash?'selected':''}`} key={b.id} onClick={()=>switchBank(b.id)}><span className={`bank-dot ${b.read_only?'readonly':''}`}/><div><b title={b.release_name||b.name}>{b.release_name||b.name}</b><small>{b.read_only?'发布题库':'可编辑'} · {b.count.toLocaleString()} 题</small></div>{b.read_only&&<Lock size={12}/>}</button>)}</div>
+   <nav className="bank-nav" aria-label="切换题库">{banks.map(b=><button className={`bank-item ${bankId===b.id&&!trash?'selected':''}`} key={b.id} onClick={()=>switchBank(b.id)}><span className={`bank-dot ${b.read_only?'readonly':''}`}/><div><b title={b.name}>{b.name}</b><small>{b.read_only?'发布题库':'可编辑'} · {b.count.toLocaleString()} 题</small></div>{b.read_only&&<Lock size={12}/>}</button>)}</nav>
    <button className="nav-item" onClick={()=>setModal('library')}><Library size={17}/>题库管理</button>
+   </section>
    <div className="nav-divider"/>
    <button className={`nav-item ${trash?'selected':''}`} onClick={()=>{setTrash(true)}}><Trash2 size={17}/>回收站</button>
    <button className="nav-item" onClick={()=>setModal('templates')}><FileDown size={17}/>录题模板 <ArrowUpRight className="muted" size={14}/></button>
    <button className="nav-item" onClick={()=>openIntake()}><Plus size={17}/>大模型录题</button>
-   <div className="share-card"><Package size={23}/><b>把题库带到任何电脑</b><p>制作离线包，分享给同事。<br/>每台客户端都可以制包。</p><button onClick={()=>openExport()}>制作题库包 <ArrowUpRight size={15}/></button></div>
+   <button className="nav-item" onClick={()=>openExport()}><Package size={17}/>制作题库包 <ArrowUpRight className="muted" size={14}/></button>
    <button className="nav-item settings" onClick={()=>setModal('settings')}><Settings size={17}/>设置与维护 <span>v{APP_VERSION}</span></button>
    <div className="local-status"><i/> 数据保存在本机</div>
   </aside></div>}
@@ -169,7 +171,7 @@ function App(){
   {(notice||error)&&<div className={`toast ${error?'error':''}`} role={error?'alert':'status'}><span>{error||notice}</span><button aria-label="关闭提示" onClick={()=>{setError('');setNotice('')}}><X size={16}/></button></div>}
   {busy&&<div className="busy" role="status"><RefreshCw size={16} className="spin"/>{busy}{importJob&&<><span>{importProgress?.phase} {importProgress?.total?`${importProgress.done} / ${importProgress.total}`:''}</span><button onClick={()=>void invoke('import_status',{jobId:importJob,cancel:true})}>取消导入</button></>}</div>}
   {dropping&&<div className="delta-drop-overlay">松开即可导入对应题库<br/><small>增量合并 · 自动跳过重复题</small></div>}
-  {modal==='library'&&<CloudLibrary banks={banks} onClose={()=>setModal('')} onChanged={refresh}/>}
+  {modal==='library'&&<CloudLibrary banks={banks} onClose={()=>setModal('')} onChanged={refresh} onDeleted={bankDeleted}/>}
   {modal==='cloud'&&<CloudPanel onBusy={value=>setBusy(value?'正在处理云端题库':'')} banks={banks} onChanged={refresh} onClose={()=>setModal('')}/>}
   {modal==='intake'&&<IntakePanel banks={banks} bankId={bankId||active?.bank_id||''} initial={intakeInitial} initialRecordId={intakeRecord} onClose={()=>setModal('')} onBusy={value=>setBusy(value?'正在处理录入':'')} onSaved={async id=>{await refresh();switchBank(id)}}/>}
   {modal==='ocr'&&<OcrPanel banks={banks} bankId={bankId||active?.bank_id||''} initial={ocrInitial} onClose={()=>setModal('')} onSearch={(value,id)=>{setModal('');switchBank(id);setText(value);setCommitted(value);input.current?.focus()}}/>}
