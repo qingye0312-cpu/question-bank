@@ -20,7 +20,7 @@
       ],
       "condition": {
         "string_like": {
-          "cos:prefix": "states/*"
+          "cos:prefix": "states%2F*"
         }
       }
     },
