@@ -221,6 +221,37 @@ try {
     await page.getByRole('button',{name:'恢复默认显示',exact:true}).click();
     await page.keyboard.press('Escape');
   });
+  await check('paired palette preview restores the chosen mode and follows system changes', async () => {
+    await page.getByRole('button',{name:/^设置与维护/}).click();
+    await page.locator('.theme-options').getByRole('button',{name:'海蓝',exact:true}).click();
+    await page.locator('.palette-tabs').getByRole('button',{name:/^黑夜颜色/}).click();
+    for (const [label,id] of [['海蓝','ocean'],['紫藤','violet'],['樱粉','pink'],['朱砂','red'],['暖杏','amber'],['秋金','yellow'],['松绿','forest'],['石墨','slate']]) {
+      await page.locator('.theme-options').getByRole('button',{name:label,exact:true}).click();
+      await page.waitForFunction(id=>document.documentElement.dataset.theme===id&&document.documentElement.dataset.colorScheme==='dark',id);
+    }
+    await page.locator('.theme-options').getByRole('button',{name:'樱粉',exact:true}).click();
+    assert.equal(await page.locator('html').getAttribute('data-theme-mode'),'light');
+    await screenshot('appearance-dark-preview');
+    await page.getByRole('button',{name:'关闭',exact:true}).click();
+    await page.waitForFunction(()=>document.documentElement.dataset.colorScheme==='light'&&document.documentElement.dataset.theme==='ocean');
+    let saved=await page.evaluate(()=>JSON.parse(localStorage.getItem('question-bank.appearance.v3')));
+    assert.equal(saved.lightTheme,'ocean'); assert.equal(saved.darkTheme,'pink'); assert.equal(saved.themeMode,'light');
+    await page.emulateMedia({colorScheme:'light'});
+    await page.getByRole('button',{name:/^设置与维护/}).click();
+    await page.locator('.appearance-modes').getByRole('button',{name:'跟随系统',exact:true}).click();
+    await page.keyboard.press('Escape');
+    await page.emulateMedia({colorScheme:'dark'});
+    await page.waitForFunction(()=>document.documentElement.dataset.colorScheme==='dark'&&document.documentElement.dataset.theme==='pink');
+    await page.emulateMedia({colorScheme:'light'});
+    await page.waitForFunction(()=>document.documentElement.dataset.colorScheme==='light'&&document.documentElement.dataset.theme==='ocean');
+    await stop(); await launch();
+    saved=await page.evaluate(()=>JSON.parse(localStorage.getItem('question-bank.appearance.v3')));
+    assert.equal(saved.lightTheme,'ocean'); assert.equal(saved.darkTheme,'pink'); assert.equal(saved.themeMode,'system');
+    await page.getByRole('button',{name:/^设置与维护/}).click();
+    await page.getByRole('button',{name:'恢复默认显示',exact:true}).click();
+    await page.keyboard.press('Escape');
+    return {palettesPerMode:8,light:'ocean',dark:'pink',systemMediaChanges:true,restart:true};
+  });
   await check('Word Excel JSONL template output and import via real IPC', async () => {
     for (const format of ['docx','xlsx','jsonl']) {
       const destination=path.join(files, `录题 模板.${format}`);
@@ -393,7 +424,7 @@ try {
     await page.locator('.model-editor textarea').first().waitFor();
     await page.getByLabel('B 选项操作',{exact:true}).click();
     await page.locator('.editable-option').nth(1).getByRole('button',{name:'上移',exact:true}).click();
-    assert.equal(await page.getByRole('button',{name:'A 正确答案',exact:true}).getAttribute('aria-pressed'),'true');
+    assert.equal(await page.getByRole('button',{name:'A 答案标记',exact:true}).getAttribute('aria-pressed'),'true');
     await page.getByRole('button',{name:'下一题',exact:true}).click();
     let records = await invoke('draft_records',{bankId:seedBank.id});
     assert.equal(records.length,1);
@@ -432,7 +463,7 @@ try {
     assert.equal(await page.getByRole('heading',{name:'上传授权',exact:true}).count(),0);
     await assert.rejects(invoke('draft_export',{bankId:seedBank.id,path:path.join(files,'不能导出.json')}));
     await page.locator('.intake-record-card').getByRole('button',{name:'修改',exact:true}).click();
-    await page.getByRole('button',{name:'B 正确答案',exact:true}).click();
+    await page.getByRole('button',{name:'B 答案标记',exact:true}).click();
     await page.getByRole('button',{name:/^录题记录/}).click();
     const exported=path.join(files,'本次录题.qbank-upload.json');
     assert.equal(await invoke('draft_export',{bankId:seedBank.id,path:exported}),2);
@@ -447,6 +478,52 @@ try {
     await page.getByRole('button',{name:'返回题库',exact:true}).click();
     return {records:2,answer:original.question.answer,exported:2,uploaded:false};
   });
+  await check('compact intake fields grow, shrink and preserve full options across viewport changes', async () => {
+    const bankId=await invoke('create_bank',{name:'Windows 录题自适应验证'});
+    await stop(); await launch();
+    await page.getByRole('button',{name:'大模型录题',exact:true}).click();
+    await page.getByLabel('录入题库').selectOption(bankId);
+    const longText=Array.from({length:7},(_,i)=>`第 ${i+1} 行：Windows 长文本完整显示与自动换行验证，保留中文内容、API 名称和段落。`).join('\n');
+    const reply={format:'qbank-photo-question-1',type:'single',stem:longText,options:[{key:'A',content:longText},{key:'B',content:'短选项'}],answer:['A'],answer_origin:'inferred',explanation:longText,model:{name:'Synthetic',version:'test',version_source:'user'},warnings:[]};
+    await page.getByLabel('题目原文',{exact:true}).fill(JSON.stringify(reply));
+    const stem=page.locator('.model-editor > label > textarea').nth(0);
+    const explanation=page.locator('.model-editor > label > textarea').nth(1);
+    const option=page.getByLabel('选项 A',{exact:true});
+    await option.waitFor();
+    const fit=()=>page.waitForFunction(()=>Array.from(document.querySelectorAll('.model-editor textarea')).filter(el=>el.clientWidth).every(el=>el.scrollHeight<=el.clientHeight+1&&el.scrollWidth<=el.clientWidth+1));
+    await fit();
+    const expanded=await option.evaluate(el=>el.getBoundingClientRect().height);
+    assert.ok(expanded>150);
+    const viewport=await page.evaluate(()=>({width:innerWidth,height:innerHeight}));
+    // Emulate content-viewport resizing without altering the user's desktop settings.
+    await page.setViewportSize({width:1000,height:850});
+    await fit();
+    assert.equal(await option.inputValue(),longText);
+    await page.setViewportSize(viewport);
+    await fit();
+    const alignment=await page.locator('.editable-option').first().evaluate(row=>{
+      const middle=el=>{const r=el.getBoundingClientRect();return r.y+r.height/2};
+      return ['.answer-dot','.option-key','.option-menu>summary'].map(selector=>Math.abs(middle(row.querySelector(selector))-middle(row)));
+    });
+    assert.ok(alignment.every(delta=>delta<=1));
+    await stem.fill('短题干'); await option.fill('短选项 A'); await explanation.fill('短解析');
+    await fit();
+    const compact=await option.evaluate(el=>el.getBoundingClientRect().height);
+    assert.ok(compact<expanded/2);
+    for (const field of [stem,option,explanation]) {
+      assert.ok(await field.evaluate(el=>el.clientHeight<=parseFloat(getComputedStyle(el).lineHeight)+parseFloat(getComputedStyle(el).paddingTop)+parseFloat(getComputedStyle(el).paddingBottom)+2));
+    }
+    await screenshot('intake-compact');
+    await stem.fill(longText); await option.fill(longText); await explanation.fill(longText);
+    await fit();
+    await page.getByRole('button',{name:'返回题库',exact:true}).click();
+    await stop(); await launch();
+    const records=await invoke('draft_records',{bankId});
+    assert.equal(records.length,1); assert.equal(records[0].reply.stem,longText);
+    assert.equal(records[0].reply.options[0].content,longText); assert.equal(records[0].reply.explanation,longText);
+    assert.deepEqual(records[0].reply.answer,['A']);
+    return {bankId,expanded,compact,viewportWidths:[viewport.width,1000],longTextCharacters:longText.length,alignment,restart:true};
+  });
   await check('import preview survives process restart and selective undo restores the bank', async () => {
     const bankId=await invoke('create_bank',{name:'Windows 持久导入'});
     const source=path.join(root,'templates','题库导入示例_v1.jsonl');
@@ -459,6 +536,54 @@ try {
     const runs=await invoke('import_runs',{bankId});
     await invoke('import_undo',{runId:runs[0].id});
     assert.equal((await all(bankId)).length,0);
+  });
+  await check('local library deletion confirms, clears navigation and search, and restores from its backup', async () => {
+    const name='Windows 删除恢复验证';
+    const bankId=await invoke('create_bank',{name});
+    const reply={format:'qbank-photo-question-1',type:'single',stem:'Windows 题库删除专属草稿',options:[{key:'A',content:'一'},{key:'B',content:'二'}],answer:['A'],answer_origin:'inferred',explanation:'隔离测试',model:{name:'Synthetic',version:'test',version_source:'user'},warnings:[]};
+    const record=await invoke('draft_save',{expected:0,record:{id:crypto.randomUUID(),bankId,revision:1,raw:JSON.stringify(reply),original:JSON.stringify(reply),reply,metadata:{chapter:'',tags:[],difficulty:'',external_id:'',applicable_version:''},sourceIssues:[],issues:[],removed:false,submissionId:''}});
+    await stop(); await launch();
+    const bankButton=page.getByRole('navigation',{name:'切换题库'}).getByRole('button').filter({hasText:name});
+    await bankButton.click();
+    await settledSearch(reply.stem,'.result');
+    const before=await invoke('banks');
+    const protectedBank=before.find(bank=>bank.id===seedBank.id);
+    await assert.rejects(invoke('delete_bank',{bankId:seedBank.id,version:protectedBank.version}),/不支持删除/);
+    const backups=path.join(data,'backups');
+    const existing=new Set(await fs.readdir(backups).catch(()=>[]));
+    await page.getByRole('button',{name:'题库管理',exact:true}).click();
+    const manager=page.getByRole('dialog',{name:'题库管理',exact:true});
+    assert.equal(await manager.getByRole('button',{name:`删除本地题库：${seedBank.name}`,exact:true}).count(),0);
+    assert.equal(await manager.locator('.library-cloud-settings').getAttribute('open'),null);
+    const remove=manager.getByRole('button',{name:`删除本地题库：${name}`,exact:true});
+    await remove.click();
+    await manager.getByRole('button',{name:'取消',exact:true}).click();
+    assert.deepEqual(await invoke('banks'),before);
+    assert.equal((await search(reply.stem,bankId)).items.length,1);
+    await remove.click();
+    await manager.getByRole('group',{name:`确认删除：${name}`,exact:true}).scrollIntoViewIfNeeded();
+    await screenshot('library-delete-confirm');
+    await manager.getByRole('button',{name:'确认删除本地题库',exact:true}).click();
+    await manager.getByRole('status').filter({hasText:`已删除「${name}」`}).waitFor();
+    const remaining=await invoke('banks');
+    assert.deepEqual(remaining,before.filter(bank=>bank.id!==bankId));
+    assert.equal((await search(reply.stem)).items.length,0);
+    await assert.rejects(invoke('draft_records',{bankId}));
+    await manager.getByRole('button',{name:'关闭题库管理',exact:true}).click();
+    await bankButton.waitFor({state:'hidden'});
+    await page.waitForFunction(()=>JSON.parse(localStorage.getItem('question-bank.appearance.v3')).bankId==='');
+    await page.locator('.result').filter({hasText:reply.stem}).waitFor({state:'hidden'});
+    const created=(await fs.readdir(backups)).filter(file=>!existing.has(file)&&file.startsWith('qbank-deleted-'));
+    assert.equal(created.length,1);
+    const backup=path.join(backups,created[0]);
+    await invoke('backup_database',{path:backup,restore:true});
+    assert.deepEqual(await invoke('banks'),before);
+    assert.equal((await invoke('draft_records',{bankId}))[0].id,record.id);
+    assert.equal((await search(reply.stem,bankId)).items.length,1);
+    await page.locator('.search-box input').fill('');
+    await stop(); await launch();
+    await page.getByRole('navigation',{name:'切换题库'}).getByRole('button').filter({hasText:name}).waitFor();
+    return {bankId,backup,protectedBankRejected:true,cancelPreservesData:true,otherBanksUnchanged:true,draftRestored:record.id};
   });
   await check('real SQLite backup restore preserves state and rejects corrupt input', async () => {
     const before=await invoke('banks');
@@ -476,7 +601,7 @@ try {
   });
   await check('second executable launch exits and focuses the existing instance', async () => {
     await page.getByRole('button',{name:'极速模式',exact:true}).click();
-    const second=spawn(executable,[],{cwd:launchDirectory,windowsHide:true,stdio:'ignore'});
+    const second=spawn(executable,[],{cwd:launchDirectory,windowsHide:true,stdio:'ignore',env:{...process.env,QBANK_DATA_DIR:data,WEBVIEW2_USER_DATA_FOLDER:path.join(output,'webview-profile')}});
     await new Promise((resolve,reject)=>{
       const timer=setTimeout(()=>{second.kill();reject(Error('Second instance did not exit'));},10000);
       second.once('error',e=>{clearTimeout(timer);reject(e)});
