@@ -2,6 +2,7 @@ import {themePageData,showPageTheme,hidePageTheme} from '../../services/appearan
 import {LocalBank, VirtualList, Segment, queryTerms, snippet, answerText, typeNames} from '../../core/search';
 import {loadBank,listBanks,activeBankId,selectBank,invalidateBank,type BankSummary} from '../../services/bank';
 import {refreshCatalog,syncBank} from '../../services/sync';
+import {foregroundGeneration} from '../../services/foreground';
 import {copyPrompt} from '../../services/prompt';
 import {APP_VERSION} from '../../generated/client-assets';
 
@@ -23,14 +24,25 @@ Page({
   loadEpoch:0, request: 0, renderEpoch: 0, start: -1, end: -1, scrollPosition: 0,
   viewport: 700, scrollTimer: undefined as number | undefined, alive: true,
   headerTimer: undefined as number | undefined,
+  foregroundSeen:-1,
   // Page() deep-clones free data; construct class instances after that clone.
   onLoad(): Promise<void> {
     this.layout = new VirtualList(0);
+    this.foregroundSeen=foregroundGeneration();
     try { this.setData({headerCollapsed: wx.getStorageSync(HEADER_COLLAPSED_KEY) === true}); }
     catch { /* A failed preference read must not prevent local search. */ }
     return this.initialize().then(()=>{void this.syncCloud();});
   },
-  onShow(){showPageTheme(this);if(this.data.ready&&!this.data.loading)void this.initialize().then(()=>this.syncCloud());},
+  onShow(){
+    showPageTheme(this);
+    const generation=foregroundGeneration();
+    if(this.foregroundSeen<0){this.foregroundSeen=generation;return;}
+    // Page onShow also fires when returning from detail; only app foreground entries sync.
+    if(generation!==this.foregroundSeen){
+      this.foregroundSeen=generation;
+      if(this.data.ready&&!this.data.loading)void this.syncCloud();
+    }
+  },
   onReady() { this.measureViewport(); },
   onResize() { this.measureViewport(); this.layout = new VirtualList(this.ids.length); this.renderRows(true); },
   onHide(){hidePageTheme(this);},

@@ -1,12 +1,12 @@
 import {refreshSystemTheme,systemThemeChanged} from './services/appearance';
 import {runUploadQueue} from './services/cloud-intake';
-import {activeBankId,invalidateBank} from './services/bank';
-import {syncBank} from './services/sync';
+import {markForegroundEntry} from './services/foreground';
 let timer:ReturnType<typeof setInterval>|undefined;
-function wake(){void runUploadQueue().catch(()=>{});const id=activeBankId();void syncBank(id).then(changed=>{if(changed)invalidateBank(id)}).catch(()=>{});}
+function wake(){void runUploadQueue().catch(()=>{});}
 App({
  onLaunch(){wx.onNetworkStatusChange(r=>{if(r.isConnected)wake()});},
- onShow(){refreshSystemTheme();wake();if(timer!==undefined)clearInterval(timer);timer=setInterval(()=>void runUploadQueue().catch(()=>{}),15000);},
+ // Catalog refresh is owned by the home page once per foreground entry.
+ onShow(){refreshSystemTheme();markForegroundEntry();wake();if(timer!==undefined)clearInterval(timer);timer=setInterval(()=>void runUploadQueue().catch(()=>{}),15000);},
  // Native close cannot await tasks. Only previously confirmed jobs may continue;
  // unsent editor drafts are persisted during input in the intake page.
  onThemeChange(event){systemThemeChanged(event);},
