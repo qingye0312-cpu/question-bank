@@ -101,11 +101,13 @@ button.primary:hover {
 .brand-mark {
   width:2.3rem;
   height:2.3rem;
+  flex-shrink:0;
   display:grid;
   place-items:center;
   background:var(--accent);
   color:var(--on-accent);
   border-radius:0.846154rem}
+.brand-name { min-width:0; }
 .brand b {
   font-size:1.2rem;
   font-weight:650;
@@ -113,15 +115,11 @@ button.primary:hover {
 .brand small {
   display:block;
   font-size:.65rem;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
   color:var(--secondary);
   margin-top:0.230769rem}
-.version {
-  font-family:ui-monospace,monospace;
-  font-size:0.846154rem;
-  color:var(--muted);
-  margin-left:auto;
-  align-self:flex-start;
-  margin-top:0.384615rem}
 .nav-item {
   border:0;
   background:transparent;
@@ -266,7 +264,7 @@ main {
 .search-area-shell {
   flex-shrink:0;
   min-height:0;
-  /* Search, headings and all filters share this viewport budget at every font size. */
+  /* Search, heading and type controls share this viewport budget at every font size. */
   max-height:calc(100vh / 3);
   max-height:calc(100dvh / 3);
   overflow-y:auto;
@@ -1055,8 +1053,6 @@ mark[data-term="11"] { background:var(--highlight-11); }
 .delta-drop-overlay { position:fixed; inset:1.538462rem; z-index:70; border:0.230769rem dashed var(--accent); border-radius:1.384615rem; background:var(--surface); opacity:.96; display:flex; flex-direction:column; justify-content:center; align-items:center; gap:1.538462rem; color:var(--accent); font-size:1.8rem; pointer-events:none; }
 .delta-drop-overlay small { font-size:1rem; }
 
-.advanced-filters{display:flex;gap:.4rem;padding:.2rem 2.461538rem .55rem;flex-wrap:wrap}
-.advanced-filters input,.advanced-filters select{min-width:7rem;max-width:13.846154rem;flex:1;padding:.4rem .5rem;font-size:.8rem;border:0.076923rem solid var(--border);border-radius:.4rem;background:var(--surface);color:inherit}
 /* The editable question is always the right-hand source of saved content. */
 /* Layout constraints follow the chosen font; viewport caps prevent off-screen controls. */
 .sidebar-shell { min-width:0; }
@@ -1074,7 +1070,6 @@ input,select,textarea,fieldset { min-width:0; }
  .content-grid { grid-template-columns:1fr; grid-template-rows:minmax(12rem,.4fr) minmax(15rem,.6fr); overflow:auto; }
  .results-pane { border-right:0; border-bottom:1px solid var(--border); }
  .search-area { padding:.5rem 1rem 0; }
- .advanced-filters { padding-inline:1rem; }
  .library-stat,.offline { display:none; }
  .filter-row { gap:.5rem; padding:.35rem 0; }
  .search-actions { gap:.6rem; }

@@ -27,21 +27,7 @@ pub struct Query {
     #[serde(default)]
     pub kind: String,
     #[serde(default)]
-    pub status: String,
-    #[serde(default)]
     pub after_rowid: i64,
-    #[serde(default)]
-    pub chapter: String,
-    #[serde(default)]
-    pub tag: String,
-    #[serde(default)]
-    pub difficulty: String,
-    #[serde(default)]
-    pub applicable_version: String,
-    #[serde(default)]
-    pub layer: String,
-    #[serde(default)]
-    pub sort: String,
     #[serde(default)]
     pub trash: bool,
 }
@@ -274,33 +260,11 @@ impl Store {
             "SELECT q.rowid,q.bank_id,b.name,q.data,COALESCE((SELECT layer FROM question_layers l WHERE l.bank_id=q.bank_id AND l.question_id=q.id),(SELECT 'draft' FROM intake_entries e WHERE e.bank_id=q.bank_id AND e.question_id=q.id),'formal') FROM questions q JOIN banks b ON b.id=q.bank_id WHERE q.deleted=?".into()
         };
         values.push((q.trash as i64).into());
-        for (col, val) in [
-            ("q.bank_id", &q.bank_id),
-            ("q.kind", &q.kind),
-            ("q.status", &q.status),
-        ] {
+        for (col, val) in [("q.bank_id", &q.bank_id), ("q.kind", &q.kind)] {
             if !val.is_empty() {
                 sql.push_str(&format!(" AND {col}=?"));
                 values.push(val.clone().into());
             }
-        }
-        for (field, value) in [
-            ("chapter", &q.chapter),
-            ("difficulty", &q.difficulty),
-            ("applicable_version", &q.applicable_version),
-        ] {
-            if !value.is_empty() {
-                sql.push_str(&format!(" AND json_extract(q.data,'$.{field}')=?"));
-                values.push(value.clone().into());
-            }
-        }
-        if !q.tag.is_empty() {
-            sql.push_str(" AND EXISTS(SELECT 1 FROM json_each(q.data,'$.tags') WHERE value=?)");
-            values.push(q.tag.clone().into());
-        }
-        if !q.layer.is_empty() {
-            sql.push_str(" AND COALESCE((SELECT layer FROM question_layers l WHERE l.bank_id=q.bank_id AND l.question_id=q.id),(SELECT 'draft' FROM intake_entries e WHERE e.bank_id=q.bank_id AND e.question_id=q.id),'formal')=?");
-            values.push(q.layer.clone().into());
         }
         for (table, expr) in groups.iter().skip(1) {
             sql.push_str(&format!(" AND EXISTS(SELECT 1 FROM {table} WHERE {table}.rowid=q.rowid AND {table} MATCH ?)"));
@@ -310,39 +274,11 @@ impl Store {
             .first()
             .map(|(t, _)| format!("{t}.rowid"))
             .unwrap_or("q.rowid".into());
-        if q.sort == "newest" {
-            // Unknown historical timestamps sort last. The cursor is looked up
-            // locally; it never trusts a client-provided display time.
-            let time = "COALESCE(julianday(json_extract(q.data,'$.recorded_at')),julianday(json_extract(q.data,'$.sources[0].recorded_at')),0)";
-            if q.after_rowid > 0 {
-                let (at, id, bank): (f64, String, String) = c
-                    .query_row(
-                        &format!("SELECT {time},q.id,q.bank_id FROM questions q WHERE q.rowid=?1"),
-                        [q.after_rowid],
-                        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-                    )
-                    .map_err(err)?;
-                sql.push_str(&format!(
-                    " AND ({time}<? OR ({time}=? AND (q.id>? OR (q.id=? AND q.bank_id>?))))"
-                ));
-                values.extend([
-                    at.into(),
-                    at.into(),
-                    id.clone().into(),
-                    id.into(),
-                    bank.into(),
-                ]);
-            }
-            sql.push_str(&format!(
-                " ORDER BY {time} DESC,q.id ASC,q.bank_id ASC LIMIT 51"
-            ));
-        } else {
-            if q.after_rowid > 0 {
-                sql.push_str(&format!(" AND {order}>?"));
-                values.push(q.after_rowid.into());
-            }
-            sql.push_str(&format!(" ORDER BY {order} ASC LIMIT 51"));
+        if q.after_rowid > 0 {
+            sql.push_str(&format!(" AND {order}>?"));
+            values.push(q.after_rowid.into());
         }
+        sql.push_str(&format!(" ORDER BY {order} ASC LIMIT 51"));
         let mut st = c.prepare(&sql).map_err(err)?;
         let rows = st
             .query_map(rusqlite::params_from_iter(values), |r| {

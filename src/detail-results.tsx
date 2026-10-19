@@ -7,14 +7,13 @@ import type {Hit, Results} from './types';
 const kinds: Record<string, string> = {single: '单选', multiple: '多选', true_false: '判断'};
 type Props = {
   bankId: string; query: string; kind: string; trash: boolean; revision: number;
-  filters?:Record<string,string>;
   fontScale: number; active: Hit | null; keyboardEnabled: boolean;
   onSelect: (hit: Hit) => void;
   onResults: (result: Results, initial: boolean) => void;
 };
 
-export function DetailResults({filters={},bankId, query, kind, trash, revision, fontScale, active, keyboardEnabled, onSelect, onResults}: Props) {
-  const {items, more, loading, error, loadMore} = useQuestionResults({...filters,text: query, bank_id: bankId, kind, trash}, revision, onResults);
+export function DetailResults({bankId, query, kind, trash, revision, fontScale, active, keyboardEnabled, onSelect, onResults}: Props) {
+  const {items, more, loading, error, loadMore} = useQuestionResults({text: query, bank_id: bankId, kind, trash}, revision, onResults);
   const viewport = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [height, setHeight] = useState(600);
@@ -24,7 +23,7 @@ export function DetailResults({filters={},bankId, query, kind, trash, revision, 
   useLayoutEffect(() => {
     setScrollTop(0);
     viewport.current?.scrollTo(0, 0);
-  }, [bankId, query, kind, trash, revision,JSON.stringify(filters)]);
+  }, [bankId, query, kind, trash, revision]);
   useLayoutEffect(() => {
     const element = viewport.current;
     if (!element) return;

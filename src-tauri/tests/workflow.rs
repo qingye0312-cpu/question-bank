@@ -106,7 +106,7 @@ fn persisted_preview_cancel_and_selective_undo_keep_later_unrelated_edits() {
         .any(|q| q.stem == "后来人工修改"));
 }
 #[test]
-fn filters_reverse_cursor_and_print_modes_respect_the_selected_questions() {
+fn keyword_type_cursor_and_print_modes_respect_the_selected_questions() {
     let (d, s, b) = setup();
     let mut c = s.conn().unwrap();
     let tx = c.transaction().unwrap();
@@ -122,12 +122,7 @@ fn filters_reverse_cursor_and_print_modes_respect_the_selected_questions() {
     tx.commit().unwrap();
     let mut query = Query {
         bank_id: b.clone(),
-        tag: "标签".into(),
-        chapter: "章节".into(),
-        difficulty: "easy".into(),
-        applicable_version: "6".into(),
-        layer: "formal".into(),
-        sort: "newest".into(),
+        kind: "single".into(),
         ..Default::default()
     };
     let mut ids = vec![];
@@ -272,12 +267,13 @@ fn cloud_layers_swap_atomically_preserve_drafts_trash_and_reject_bad_updates() {
     assert_eq!(
         s.search(&Query {
             bank_id: b.clone(),
-            layer: "pending".into(),
             ..Default::default()
         })
         .unwrap()
         .items
-        .len(),
+        .iter()
+        .filter(|hit| hit.layer == "pending")
+        .count(),
         1
     );
     let mut next = state.clone();
@@ -409,7 +405,7 @@ fn entry_time_survives_edit_and_session_package_is_atomic_and_frozen() {
     assert_eq!(sizes, vec![103]);
 }
 #[test]
-fn recording_time_sort_cursor_is_stable_and_local_exports_do_not_fake_merge_time() {
+fn default_cursor_preserves_recording_times_and_exports_do_not_fake_merge_time() {
     let (d, s, b) = setup();
     let mut qs = vec![];
     for n in 0..65 {
@@ -422,7 +418,6 @@ fn recording_time_sort_cursor_is_stable_and_local_exports_do_not_fake_merge_time
     import(&s, &b, &d.path().join("time.jsonl"), &qs);
     let mut query = Query {
         bank_id: b.clone(),
-        sort: "newest".into(),
         ..Default::default()
     };
     let first = s.search(&query).unwrap();
@@ -431,10 +426,14 @@ fn recording_time_sort_cursor_is_stable_and_local_exports_do_not_fake_merge_time
     let combined: Vec<_> = first.items.into_iter().chain(second.items).collect();
     assert_eq!(combined.len(), 65);
     for pair in combined.windows(2) {
-        assert!(pair[0].question.recorded_at >= pair[1].question.recorded_at);
-        if pair[0].question.recorded_at == pair[1].question.recorded_at {
-            assert!(pair[0].question.question_id < pair[1].question.question_id);
-        }
+        assert!(pair[0].rowid < pair[1].rowid);
+    }
+    for hit in &combined {
+        let original = qs
+            .iter()
+            .find(|q| q.question_id == hit.question.question_id)
+            .unwrap();
+        assert_eq!(hit.question.recorded_at, original.recorded_at);
     }
     let old = s.bank(&b).unwrap();
     let old_name = exchange::export_name(&old, &s.questions(&b).unwrap()).unwrap();
