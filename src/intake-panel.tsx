@@ -7,6 +7,7 @@ import {displayTime,emptyReply,type IntakeMetadata} from '../shared/intake';
 import type {DraftRecord} from '../shared/draft';
 import type {UploadJob} from '../shared/queue';
 import {ModelEditor} from './model-editor';
+import {dismissActionMenus} from './dismissible-menus';
 import {CloudLogin} from './cloud/login';
 import {cloudAccess,enqueueDrafts,desktopJobs,retryDesktopJobs,runDesktopQueue,syncUploadedBank,recoverLegacyJobs} from './cloud-client';
 import {useIntake} from './intake/use-intake';
@@ -27,7 +28,7 @@ export function IntakePanel({banks,bankId,initial='',initialRecordId='',onClose,
  const refreshJobs=()=>desktopJobs().then(setJobs);
  useEffect(()=>{void refreshJobs().catch(e=>model.setError(String(e)));const tick=()=>void refreshJobs().catch(()=>{});window.addEventListener('qbank-upload-change',tick);const t=setInterval(tick,3000);return()=>{clearInterval(t);window.removeEventListener('qbank-upload-change',tick)}},[]);
  async function flush(){await model.flush();}
- useEffect(()=>{const escape=(e:KeyboardEvent)=>{if(e.key!=='Escape')return;e.preventDefault();e.stopImmediatePropagation();if(preparing||navigating)return;if(login){setLogin(false);return;}void navigate(async()=>{await flush();await onSaved(target);onClose()})};window.addEventListener('keydown',escape,true);return()=>window.removeEventListener('keydown',escape,true)});
+ useEffect(()=>{const escape=(e:KeyboardEvent)=>{if(e.key!=='Escape')return;e.preventDefault();e.stopImmediatePropagation();if(dismissActionMenus(document,true))return;if(preparing||navigating)return;if(login){setLogin(false);return;}void navigate(async()=>{await flush();await onSaved(target);onClose()})};window.addEventListener('keydown',escape,true);return()=>window.removeEventListener('keydown',escape,true)});
  useEffect(()=>{const saveBeforeHide=()=>{void model.flush().catch(()=>{})};window.addEventListener('blur',saveBeforeHide);return()=>window.removeEventListener('blur',saveBeforeHide)},[model.flush]);
  async function upload(){if(preparing||navigating)return;setPreparing(true);onBusy(true);try{await action(async()=>{
   await flush();const items=await model.reload(),selection=items.filter(r=>!r.removed&&!r.submissionId);
