@@ -43,8 +43,18 @@ test('platform packaging retains the validated installers, deployment target and
   assert.deepEqual(windows.bundle.targets, ['nsis']);
   assert.deepEqual(windows.build.additionalWatchFolders, ['../windows']);
   assert.deepEqual(windows.bundle.windows.webviewInstallMode, {type: 'offlineInstaller', silent: true});
-  assert.deepEqual(windows.bundle.windows.nsis, {installMode: 'currentUser', languages: ['SimpChinese', 'English']});
+  assert.deepEqual(windows.bundle.windows.nsis, {
+    installMode: 'currentUser',
+    installerIcon: '../windows/icons/icon.ico',
+    uninstallerIcon: '../windows/icons/icon.ico',
+    installerHooks: '../windows/installer-hooks.nsh',
+    languages: ['SimpChinese', 'English'],
+  });
   for (const settings of [mac, windows]) {
     for (const icon of settings.bundle.icon) assert.ok(fs.existsSync(path.resolve(root, 'src-tauri', icon)), icon);
   }
+  assert.ok(fs.existsSync(path.resolve(root, 'src-tauri', windows.bundle.windows.nsis.installerHooks)));
+  const installerHooks = fs.readFileSync(path.resolve(root, 'src-tauri', windows.bundle.windows.nsis.installerHooks), 'utf8');
+  assert.match(installerHooks, /NSIS_HOOK_POSTINSTALL[\s\S]*Call CreateOrUpdateDesktopShortcut/);
+  assert.match(installerHooks, /\$UpdateMode = 1[\s\S]*\$NoShortcutMode = 0[\s\S]*IfFileExists[\s\S]*CreateShortcut/);
 });
