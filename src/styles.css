@@ -332,6 +332,7 @@ h1+p {
   padding:1.384615rem 0 1.538462rem}
 .segmented {
   display:flex;
+  flex-wrap:wrap;
   gap:0.307692rem}
 .segmented button {
   border:0;
@@ -347,8 +348,15 @@ h1+p {
 .search-meta {
   color:var(--muted);
   font-size:0.769231rem;
-  margin-left:auto;
   font-variant-numeric:tabular-nums}
+.search-actions {
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  flex-wrap:wrap;
+  gap:1.230769rem;
+  margin-left:auto;
+  max-width:100%}
 .text-button {
   border:0;
   background:none;
@@ -730,13 +738,19 @@ mark[data-term="11"] { background:var(--highlight-11); }
   justify-content:center;
   padding:2.461538rem}
 .modal {
+  --modal-padding:2.461538rem;
+  --modal-inset-block:0.769231rem;
+  --modal-inset-inline:0.384615rem;
   background:var(--surface);
   border-radius:1.153846rem;
+  /* Inset native scrollbars from the rounded edge without moving the content. */
+  border:solid var(--surface);
+  border-width:var(--modal-inset-block) var(--modal-inset-inline);
   box-shadow:0 1.923077rem 6.153846rem var(--shadow);
   width:min(41.538462rem,calc(100vw - 2rem));
   max-height:90vh;
   overflow:auto;
-  padding:2.461538rem;
+  padding:calc(var(--modal-padding) - var(--modal-inset-block)) calc(var(--modal-padding) - var(--modal-inset-inline));
   position:relative}
 .modal.large {
   width:min(56.923077rem,calc(100vw - 2rem))}
@@ -750,8 +764,8 @@ mark[data-term="11"] { background:var(--highlight-11); }
   margin:0 0 1.692308rem}
 .close-modal {
   position:absolute;
-  top:1.076923rem;
-  right:1.076923rem;
+  top:calc(1.076923rem - var(--modal-inset-block));
+  right:calc(1.076923rem - var(--modal-inset-inline));
   border:0;
   background:none;
   color:var(--muted);
@@ -935,13 +949,14 @@ mark[data-term="11"] { background:var(--highlight-11); }
 .search-collapse-toggle { flex-shrink: 0; white-space: nowrap; padding: 0.461538rem 0.692308rem; color: var(--secondary); font-size: 0.846154rem; }
 .search-collapse-toggle > svg { transition: transform .24s cubic-bezier(.2,.75,.25,1); }
 .search-area.is-collapsed .search-collapse-toggle > svg { transform: rotate(180deg); }
-.filter-row > button { flex-shrink: 0; white-space: nowrap; }
-.search-area.is-collapsed { display: flex; align-items: center; gap: 0.923077rem; padding-top: 0.923077rem; padding-bottom: 1.076923rem; }
+.search-actions > button { flex-shrink: 0; white-space: nowrap; }
+.search-area.is-collapsed { display: flex; flex-wrap: wrap; align-items: center; gap: 0.923077rem; padding-top: 0.923077rem; padding-bottom: 1.076923rem; }
 .search-area.is-collapsed .title-line { display: none; }
-.search-area.is-collapsed .search-box { flex: 1; min-width: 0; min-height: 3.230769rem; padding-left: 0.923077rem; padding-right: 0.923077rem; gap: 0.692308rem; }
+.search-area.is-collapsed .search-box { flex: 1 1 16rem; min-width: 0; min-height: 3.230769rem; padding-left: 0.923077rem; padding-right: 0.923077rem; gap: 0.692308rem; }
 .search-area.is-collapsed .search-box input { padding-top: 0.615385rem; padding-bottom: 0.615385rem; }
 .search-area.is-collapsed .search-box kbd { display: none; }
-.search-area.is-collapsed .filter-row { flex-shrink: 0; gap: 0.615385rem; padding: 0; }
+.search-area.is-collapsed .filter-row { justify-content: flex-end; margin-left: auto; max-width: 100%; gap: 0.615385rem; padding: 0; }
+.search-area.is-collapsed .search-actions { gap: 0.615385rem; }
 .search-area.is-collapsed .search-meta, .search-area.is-collapsed .add-question-label { display: none; }
 .search-area.is-collapsed .add-question { padding: 0.615385rem; }
 .compact-kind { width: auto; max-width: 10.769231rem; padding: 0.615385rem 0.769231rem; font-size: 0.846154rem; }
@@ -1041,9 +1056,9 @@ input,select,textarea,fieldset { min-width:0; }
  .content-grid { grid-template-columns:1fr; grid-template-rows:minmax(12rem,.4fr) minmax(15rem,.6fr); overflow:auto; }
  .results-pane { border-right:0; border-bottom:1px solid var(--border); }
  .search-area { padding:1rem 1rem 0; }
- .search-meta { margin-left:0; }
  .library-stat,.offline { display:none; }
  .filter-row { gap:.6rem; padding:.7rem 0; }
+ .search-actions { gap:.6rem; }
  .topbar { padding-inline:1rem; }
  .top-actions { gap:.35rem; }
  .top-actions button { padding:.5rem; }
@@ -1052,7 +1067,6 @@ input,select,textarea,fieldset { min-width:0; }
 @media(max-width:700px) {
  .sidebar-shell { --sidebar-width:12rem; }
  .form-grid { grid-template-columns:1fr; }
- .search-area.is-collapsed { flex-wrap:wrap; }
 }
 
 /* Separate stored day/night colors; editing an inactive palette previews it. */

@@ -1,4 +1,4 @@
-.ocr-modal { width:min(86.153846rem,96vw); padding:2.153846rem; max-height:94vh; }
+.ocr-modal { width:min(86.153846rem,96vw); --modal-padding:2.153846rem; max-height:94vh; }
 .ocr-heading { display:flex; align-items:center; gap:1.076923rem; padding-right:2.307692rem; }
 .ocr-heading h2 { margin:0 0 0.384615rem; font-size:1.55rem; }
 .ocr-heading p { margin:0; color:var(--muted); }
