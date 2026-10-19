@@ -185,6 +185,13 @@ button.primary:hover {
   display:block;
   color:var(--muted);
   margin-top:.2rem}
+.bank-item small .bank-lock {
+  display:inline-block;
+  width:.9em;
+  height:.9em;
+  margin-left:.2em;
+  vertical-align:-.12em;
+  color:var(--secondary)}
 .bank-dot {
   width:0.538462rem;
   height:0.538462rem;
@@ -838,6 +845,14 @@ mark[data-term="11"] { background:var(--highlight-11); }
   color:var(--muted);
   margin-top:0.461538rem;
   line-height:1.7}
+.settings-modal .template-card {
+  margin-top:.46rem;
+  padding:.62rem .78rem;
+  gap:.78rem}
+.settings-modal .template-card b { font-size:.88rem; }
+.settings-modal .template-card span {
+  margin-top:.18rem;
+  line-height:1.42}
 .preview-stats {
   display:flex;
   background:var(--surface-soft);
