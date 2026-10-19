@@ -250,14 +250,20 @@ test('variable-height windows bound rendered nodes and reach every row in both d
   assert.equal(layout.window(layout.offset(914) - 720, 720).end, 914);
 });
 
-async function loadPage(path, mocks = {}, searchCore = core) {
+async function loadPage(path, mocks = {}, searchCore = core, services = {}) {
   const source = await readFile(new URL(path, base), 'utf8');
   const {outputText} = ts.transpileModule(source, {compilerOptions: {module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020}});
   let page;
   const selection = {in() {return this;}, select() {return this;}, selectAll() {return this;}, boundingClientRect() {return this;}, exec() {}};
   const wx = {createSelectorQuery: () => selection, navigateTo: () => {}, ...mocks};
   vm.runInNewContext(outputText, {
-    exports: {}, require: name => name.endsWith('/appearance') ? {themePageData:()=>({}),showPageTheme:()=>{},hidePageTheme:()=>{}} : name.endsWith('/search') ? searchCore : name.endsWith('/intake') ? intakeCore : {loadBank: async () => ({bank: bank(), manifest}),listBanks:async()=>[{id:manifest.bank_id,name:manifest.name}],activeBankId:()=>manifest.bank_id,selectBank:()=>{},APP_VERSION:'0.2.7'},
+    exports: {}, require: name => name.endsWith('/appearance') ? {themePageData:()=>({}),showPageTheme:()=>{},hidePageTheme:()=>{}}
+      : name.endsWith('/foreground') ? {foregroundGeneration:()=>1}
+      : name.endsWith('/search') ? searchCore
+      : name.endsWith('/intake') ? intakeCore
+      : name.endsWith('/bank') ? (services.bank||{loadBank: async () => ({bank: bank(), manifest}),listBanks:async()=>[{id:manifest.bank_id,name:manifest.name}],activeBankId:()=>manifest.bank_id,selectBank:()=>{}})
+      : name.endsWith('/sync') ? (services.sync||{cloudCatalog:()=>[],refreshCatalog:async()=>{},syncBank:async()=>false})
+      : {APP_VERSION:'0.2.7'},
     Page: options => { page = options; }, wx, setTimeout, clearTimeout, Error,
   });
   // WeChat instantiates pages by cloning free data. Tests must not accidentally
@@ -292,6 +298,44 @@ test('page searches, scrolls, clears errors and navigates with current query con
   assert.equal(page.data.rows.length, 0);
   await page.runSearch('');
   assert.equal(page.data.count, 914);
+  page.onUnload();
+});
+
+test('home page share callbacks open the same public bank and restore its search query', async () => {
+  const sharedBankId='public-bank-id';let selectedBank='',catalogLoaded=false,refreshCalls=0;
+  const page = await loadPage('pages/index/index.ts', {}, core, {
+    bank:{loadBank:async id=>({bank:bank(),manifest:{...manifest,bank_id:id,name:id===sharedBankId?'共享题库':manifest.name}}),
+      listBanks:async()=>[{id:manifest.bank_id,name:manifest.name},...(catalogLoaded?[{id:sharedBankId,name:'共享题库'}]:[])],
+      activeBankId:()=>manifest.bank_id,selectBank:id=>{selectedBank=id;}},
+    sync:{cloudCatalog:()=>catalogLoaded?[{bank_id:sharedBankId}]:[],refreshCatalog:async()=>{catalogLoaded=true;refreshCalls++;},syncBank:async()=>false},
+  });
+  await page.onLoad({bank:sharedBankId,q:'云端 API'});
+  assert.equal(refreshCalls,1);
+  assert.equal(page.data.bankId,sharedBankId);
+  assert.equal(selectedBank,sharedBankId);
+  assert.equal(page.data.query,'云端 API');
+  const appShare=page.onShareAppMessage({from:'menu'});
+  assert.equal(appShare.path,`/pages/index/index?bank=${sharedBankId}&q=${encodeURIComponent('云端 API')}`);
+  assert.match(appShare.title,/共享题库/);
+  const timelineShare=page.onShareTimeline();
+  assert.equal(timelineShare.query,`bank=${sharedBankId}&q=${encodeURIComponent('云端 API')}`);
+  assert.match(timelineShare.title,/共享题库/);
+  page.onUnload();
+});
+
+test('home page share links do not expose a private local bank id or its query', async () => {
+  const privateBankId='private-local-bank-id';
+  const page = await loadPage('pages/index/index.ts', {}, core, {
+    bank:{loadBank:async id=>({bank:bank(),manifest:{...manifest,bank_id:id,name:'私人本地题库',release_id:'local'}}),
+      listBanks:async()=>[{id:manifest.bank_id,name:manifest.name},{id:privateBankId,name:'私人本地题库'}],
+      activeBankId:()=>privateBankId,selectBank:()=>{}},
+    sync:{cloudCatalog:()=>[],refreshCatalog:async()=>{},syncBank:async()=>false},
+  });
+  await page.onLoad({q:'仅本机可见的搜索词'});
+  const share=page.onShareAppMessage({from:'menu'});
+  assert.equal(share.path,'/pages/index/index');
+  assert.equal(share.title,'知屿题库 · 离线题库');
+  assert.equal(page.onShareTimeline().query,'');
   page.onUnload();
 });
 

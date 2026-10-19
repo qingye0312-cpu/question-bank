@@ -1,7 +1,7 @@
 import {themePageData,showPageTheme,hidePageTheme} from '../../services/appearance';
 import {LocalBank, VirtualList, Segment, queryTerms, snippet, answerText, typeNames} from '../../core/search';
 import {loadBank,listBanks,activeBankId,selectBank,invalidateBank,type BankSummary} from '../../services/bank';
-import {refreshCatalog,syncBank} from '../../services/sync';
+import {cloudCatalog,refreshCatalog,syncBank} from '../../services/sync';
 import {foregroundGeneration} from '../../services/foreground';
 import {copyPrompt} from '../../services/prompt';
 import {APP_VERSION} from '../../generated/client-assets';
@@ -9,6 +9,34 @@ import {APP_VERSION} from '../../generated/client-assets';
 const HEADER_COLLAPSED_KEY = 'qbank-search-header-collapsed-v1';
 // Allow the 220 ms layout transition to finish before the final measurement.
 const HEADER_LAYOUT_DELAY = 260;
+const MAX_SHARED_QUERY_LENGTH = 300;
+
+function shareTitle(bankName: string): string {
+  const name = bankName && bankName !== '正在打开题库' ? `知屿题库 · ${bankName}` : '知屿题库';
+  return Array.from(name).slice(0, 32).join('');
+}
+
+function trimShareQuery(value: string): string {
+  let result='';
+  for(const character of value.trim()){
+    if(result.length+character.length>MAX_SHARED_QUERY_LENGTH)break;
+    result+=character;
+  }
+  return result;
+}
+
+function shareContent(bankId: string, bundledBankId: string | undefined, bankName: string, searchQuery: string) {
+  const isShareable=bankId===bundledBankId||cloudCatalog().some(bank=>bank.bank_id===bankId);
+  const params:string[]=[];
+  if(isShareable){
+    params.push(`bank=${encodeURIComponent(bankId)}`);
+    const query=trimShareQuery(searchQuery);
+    if(query)params.push(`q=${encodeURIComponent(query)}`);
+  }
+  const query=params.join('&');
+  return {title:isShareable?shareTitle(bankName):'知屿题库 · 离线题库',
+    path:`/pages/index/index${query?`?${query}`:''}`,query};
+}
 
 type Row = {id: number; questionId: string; number: string; kind: string; layer:string; answer: string; segments: Segment[]};
 Page({
@@ -26,12 +54,22 @@ Page({
   headerTimer: undefined as number | undefined,
   foregroundSeen:-1,
   // Page() deep-clones free data; construct class instances after that clone.
-  onLoad(): Promise<void> {
+  async onLoad(options: Record<string, string | undefined> = {}): Promise<void> {
     this.layout = new VirtualList(0);
     this.foregroundSeen=foregroundGeneration();
     try { this.setData({headerCollapsed: wx.getStorageSync(HEADER_COLLAPSED_KEY) === true}); }
     catch { /* A failed preference read must not prevent local search. */ }
-    return this.initialize().then(()=>{void this.syncCloud();});
+    const requestedBankId=options.bank||'';
+    const sharedQuery=trimShareQuery(options.q||'');
+    if(sharedQuery)this.setData({query:sharedQuery});
+    let catalogRefreshAttempted=false;
+    if(requestedBankId){
+      let known=false;
+      try{known=(await listBanks()).some(bank=>bank.id===requestedBankId)}catch{/* Continue with the saved/default bank. */}
+      if(!known){catalogRefreshAttempted=true;try{await refreshCatalog();}catch{/* An offline share still opens the locally available bank. */}}
+    }
+    await this.initialize(requestedBankId);
+    void this.syncCloud(catalogRefreshAttempted);
   },
   onShow(){
     showPageTheme(this);
@@ -52,12 +90,12 @@ Page({
     if (this.scrollTimer !== undefined) clearTimeout(this.scrollTimer);
     if (this.headerTimer !== undefined) clearTimeout(this.headerTimer);
   },
-  async initialize(): Promise<void> {
+  async initialize(preferredBankId=''): Promise<void> {
     const epoch=++this.loadEpoch;this.bank?.cancel();
     this.setData({loading: true, error: ''});
     try {
       const banks=await listBanks();
-      const id=banks.some(b=>b.id===activeBankId())?activeBankId():banks[0].id;
+      const id=banks.some(b=>b.id===preferredBankId)?preferredBankId:banks.some(b=>b.id===activeBankId())?activeBankId():banks[0].id;
       const {bank, manifest} = await loadBank(id);
       if (!this.alive||epoch!==this.loadEpoch) return;
       selectBank(id);
@@ -69,9 +107,9 @@ Page({
       if (this.alive&&epoch===this.loadEpoch) this.setData({loading: false, error: error instanceof Error ? error.message : '题库加载失败，请重试'});
     }
   },
-  async syncCloud(){
+  async syncCloud(catalogRefreshAttempted=false){
     if(this.data.syncing||!this.alive)return;this.setData({syncing:true});const id=this.data.bankId;
-    try{await refreshCatalog();const changed=await syncBank(id);if(!this.alive)return;
+    try{if(!catalogRefreshAttempted)await refreshCatalog();const changed=await syncBank(id);if(!this.alive)return;
       const banks=await listBanks();this.setData({banks,bankIndex:banks.findIndex(b=>b.id===this.data.bankId),bankName:banks.find(b=>b.id===this.data.bankId)?.name||this.data.bankName,syncNotice:'云端版本已核对'},()=>this.measureViewport());
       if(changed){invalidateBank(id);if(this.data.bankId===id)await this.initialize();}
     }catch(e){if(this.alive)this.setData({syncNotice:e instanceof Error?e.message:'同步暂未完成，本地题库仍可使用'});}
@@ -106,6 +144,8 @@ Page({
   onAppearance(){wx.navigateTo({url:"/pages/settings/settings"});},
   onCopyPrompt(){copyPrompt()},
   onIntake(){wx.navigateTo({url:`/pages/intake/intake?bank=${this.data.bankId||activeBankId()}`})},
+  onShareAppMessage(){const {title,path}=shareContent(this.data.bankId||activeBankId(),this.data.banks[0]?.id,this.data.bankName,this.data.query);return {title,path};},
+  onShareTimeline(){const {title,query}=shareContent(this.data.bankId||activeBankId(),this.data.banks[0]?.id,this.data.bankName,this.data.query);return {title,query};},
   onBankChange(event:WechatMiniprogram.PickerChange){const b=this.data.banks[Number(event.detail.value)];if(!b)return;selectBank(b.id);void this.initialize().then(()=>this.syncCloud())},
   onInput(event: WechatMiniprogram.Input) {
     this.setData({query: event.detail.value});
