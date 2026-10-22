@@ -1,0 +1,17 @@
+#!/sbin/openrc-run
+
+name="qbank-auth"
+description="Question bank self-hosted API"
+command="/usr/bin/node"
+command_args="/opt/qbank-auth/current/local-server.cjs"
+command_user="qbank:qbank"
+directory="/opt/qbank-auth/current"
+pidfile="/run/${RC_SVCNAME}.pid"
+command_background="yes"
+output_log="/var/log/qbank-auth.log"
+error_log="/var/log/qbank-auth.err"
+
+depend() {
+  need net
+  after firewall
+}
