@@ -1,0 +1,26 @@
+<view class="theme-page share-page" style="{{themeStyle}}">
+  <view class="share-heading">
+    <view class="title">分享题库</view>
+    <view class="muted">选择分享主页，或把当前题库作为 JSON 文件发送。</view>
+  </view>
+
+  <view class="share-card">
+    <view class="card-title">分享小程序主页</view>
+    <view class="muted">好友打开后进入题库首页，不会包含你的本地题目文件。</view>
+    <button class="primary" open-type="share">分享主页</button>
+  </view>
+
+  <view class="share-card">
+    <view class="card-title">分享本地题库</view>
+    <view class="muted">{{bankName}} · {{questionCount}} 道题。分享为 JSON 会生成独立副本，不覆盖接收方已有题库。</view>
+    <button class="mode-toggle" bindtap="onToggleJson">JSON 分享与导入 <text>{{jsonExpanded ? '⌃' : '⌄'}}</text></button>
+    <view wx:if="{{jsonExpanded}}" class="json-actions">
+      <button bindtap="onShareJson" disabled="{{busy || !ready}}">{{busy ? '正在准备…' : '仅分享 JSON'}}</button>
+      <view class="muted note">收到文件后，在题库中选择聊天里的 JSON；选中文件后会自动导入为新副本。</view>
+      <button class="accent-soft" bindtap="onImportJson" disabled="{{busy}}">用题库打开并自动导入</button>
+    </view>
+  </view>
+
+  <view wx:if="{{error}}" class="message error">{{error}}</view>
+  <view wx:if="{{notice}}" class="message notice">{{notice}}</view>
+</view>

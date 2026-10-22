@@ -142,6 +142,7 @@ Page({
     this.setData({advancedOpen: !this.data.advancedOpen}, () => this.measureViewport());
   },
   onAppearance(){wx.navigateTo({url:"/pages/settings/settings"});},
+  onSharePage(){const bank=this.data.bankId||activeBankId();wx.navigateTo({url:`/pages/share/share?bank=${encodeURIComponent(bank)}`});},
   onCopyPrompt(){copyPrompt()},
   onIntake(){wx.navigateTo({url:`/pages/intake/intake?bank=${this.data.bankId||activeBankId()}`})},
   onShareAppMessage(){const {title,path}=shareContent(this.data.bankId||activeBankId(),this.data.banks[0]?.id,this.data.bankName,this.data.query);return {title,path};},

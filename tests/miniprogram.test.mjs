@@ -263,6 +263,7 @@ async function loadPage(path, mocks = {}, searchCore = core, services = {}) {
       : name.endsWith('/intake') ? intakeCore
       : name.endsWith('/bank') ? (services.bank||{loadBank: async () => ({bank: bank(), manifest}),listBanks:async()=>[{id:manifest.bank_id,name:manifest.name}],activeBankId:()=>manifest.bank_id,selectBank:()=>{}})
       : name.endsWith('/sync') ? (services.sync||{cloudCatalog:()=>[],refreshCatalog:async()=>{},syncBank:async()=>false})
+      : name.endsWith('/share') ? (services.share||{})
       : {APP_VERSION:'0.2.7'},
     Page: options => { page = options; }, wx, setTimeout, clearTimeout, Error,
   });
@@ -336,6 +337,84 @@ test('home page share links do not expose a private local bank id or its query',
   assert.equal(share.path,'/pages/index/index');
   assert.equal(share.title,'知屿题库 · 离线题库');
   assert.equal(page.onShareTimeline().query,'');
+  page.onUnload();
+});
+
+test('shared bank JSON exports the current library and imports it as a separate local copy', async () => {
+  const source = await readFile(new URL('../miniprogram/miniprogram/services/share.ts', import.meta.url), 'utf8');
+  const {outputText} = ts.transpileModule(source, {compilerOptions: {module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020}});
+  const files = new Map();let selected='',serial=1;
+  const imported = {version:1,banks:[],batches:[],entries:[]};
+  const id = n => `00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
+  const wx = {env:{USER_DATA_PATH:'/user'},getFileSystemManager:()=>({
+    writeFile:options=>{files.set(options.filePath,options.data);options.success?.();},
+    rename:options=>{files.set(options.newPath,files.get(options.oldPath));files.delete(options.oldPath);options.success?.();},
+  })};
+  const exports={};
+  const bundle={bank:sampleBank(questions),manifest:{...manifest,name:'共享源题库'}};
+  const mocks={
+    bank:{loadBank:async()=>bundle,invalidateBank:()=>{},selectBank:value=>{selected=value;}},
+    store:{readLocal:async()=>imported,updateLocal:async change=>change(imported),createIds:async()=>()=>id(serial++)},
+  };
+  // Re-evaluate with dependency injection so the test uses the real checksum and schema validators.
+  vm.runInNewContext(outputText,{exports,wx,Date,JSON,Array,Set,Error,Math,Number,String,Object,RegExp,
+    require:name=>name.endsWith('/bank')?mocks.bank:name.endsWith('/intake-store')?mocks.store:intakeCore}, {filename:'services/share.ts'});
+  const output=await exports.exportBankJson(manifest.bank_id);
+  const document=JSON.parse(files.get(output.filePath));
+  assert.equal(document.format,'qbank-bank-json-1');
+  assert.equal(document.question_count,914);
+  assert.equal(document.questions[0].bank,'共享源题库');
+  const result=await exports.importSharedBankJson(files.get(output.filePath));
+  assert.equal(result.name,'共享源题库（分享副本）');
+  assert.equal(result.added,914);
+  assert.equal(selected,result.bankId);
+  assert.equal(imported.entries.length,914);
+  assert.ok(imported.entries.every(entry=>entry.bankId===result.bankId&&entry.uploadStatus==='uploaded_manual'));
+  assert.notEqual(result.bankId,document.source_bank.bank_id);
+});
+
+test('shared bank JSON rejects modified payloads before creating a local library', async () => {
+  const source = await readFile(new URL('../miniprogram/miniprogram/services/share.ts', import.meta.url), 'utf8');
+  const {outputText} = ts.transpileModule(source, {compilerOptions: {module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020}});
+  const local={version:1,banks:[],batches:[],entries:[]};
+  const exports={};
+  vm.runInNewContext(outputText,{exports,wx:{},Date,JSON,Array,Set,Error,Math,Number,String,Object,RegExp,
+    require:name=>name.endsWith('/bank')?{loadBank:async()=>{},invalidateBank:()=>{},selectBank:()=>{}}
+      :name.endsWith('/intake-store')?{readLocal:async()=>local,updateLocal:async change=>change(local),createIds:async()=>()=>id(3)}:intakeCore}, {filename:'services/share.ts'});
+  const file={format:'qbank-bank-json-1',source_bank:{bank_id:manifest.bank_id,name:manifest.name},exported_at:new Date().toISOString(),question_count:1,questions:[questions[0]],sha256:'0'.repeat(64)};
+  await assert.rejects(()=>exports.importSharedBankJson(JSON.stringify(file)),/校验失败/);
+  assert.equal(local.banks.length,0);
+  function id(n){return `00000000-0000-4000-8000-${String(n).padStart(12,'0')}`}
+});
+
+test('share page has separate homepage and JSON actions and automatically imports a selected chat file', async () => {
+  let chosen,importedText='',redirected='',sharedFile='';let resolveRedirect;
+  const redirectedPromise=new Promise(resolve=>{resolveRedirect=resolve});
+  const page=await loadPage('pages/share/share.ts',{
+    chooseMessageFile:options=>{chosen=options;options.success({tempFiles:[{path:'/chat/shared-bank.json'}]})},
+    getFileSystemManager:()=>({readFile:options=>options.success({data:'valid-bank-json'})}),
+    shareFileMessage:options=>{sharedFile=options.fileName;options.success?.()},
+    redirectTo:options=>{redirected=options.url;resolveRedirect()},
+  },core,{
+    bank:{loadBank:async()=>({bank:bank(),manifest})},
+    share:{importSharedBankJson:async text=>{importedText=text;return {bankId:'imported-copy-id'};},exportBankJson:async()=>({filePath:'/user/share.json',fileName:'share.json',questionCount:914})},
+  });
+  await page.onLoad({bank:manifest.bank_id});
+  assert.equal(page.onShareAppMessage().path,'/pages/index/index');
+  assert.equal(page.onShareTimeline().query,'');
+  assert.equal(page.data.questionCount,914);
+  const markup=await readFile(new URL('pages/share/share.wxml',base),'utf8');
+  assert.match(markup,/分享主页/);
+  assert.match(markup,/仅分享 JSON/);
+  assert.match(markup,/用题库打开并自动导入/);
+  await page.onShareJson();
+  assert.equal(sharedFile,'share.json');
+  assert.match(page.data.notice,/914 道题/);
+  page.onImportJson();
+  await redirectedPromise;
+  assert.equal(chosen.extension[0],'json');
+  assert.equal(importedText,'valid-bank-json');
+  assert.equal(redirected,'/pages/index/index?bank=imported-copy-id');
   page.onUnload();
 });
 
