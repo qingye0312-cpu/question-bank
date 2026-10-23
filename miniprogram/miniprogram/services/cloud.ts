@@ -28,6 +28,10 @@ const messages:Record<string,string>={
   BATCH_CONFLICT:'云端已有此批次的不同内容，请联系维护者核对；本地题目已保留',
   PACKAGE_INVALID:'上传包校验失败，本地批次已保留，请联系维护者',
   QUESTION_INVALID:'题目或模型来源不符合上传要求，请核对录入内容',
+  SEED_REQUIRED:'云端题库尚未初始化，请先由桌面端创建正式首版',
+  ANSWER_CONFLICT:'上传题目与正式题库答案冲突，未合并本批次',
+  MERGE_UNAVAILABLE:'云端已收到本批次，但合并尚未完成，请重试原批次',
+  REVISION_CONFLICT:'题库刚刚更新，请重试原批次',
   STORAGE_UNAVAILABLE:'云端保存未确认，请重试本批次，不要重新录入',
   ORIGIN_DENIED:'当前请求来源尚未配置，请联系维护者',
 };
@@ -85,7 +89,7 @@ export function createCloudClient(deps:{origin:()=>string;login:()=>Promise<stri
     if(!current.uploadsEnabled)throw new UploadError(messages.UPLOAD_DISABLED,503,'UPLOAD_DISABLED');
     return current.origin;
   }
-  async function upload(expected:ReturnType<typeof prepareUpload>,expectedOrigin:string,confirmed=false){
+  async function upload(expected:ReturnType<typeof prepareUpload>,expectedOrigin:string,confirmed=true){
     const current=active();if(!current||current.origin!==expectedOrigin)throw new Error('登录已失效或服务地址改变，请重新登录后重试');
     const response=await call('/v1/uploads','POST',confirmed?{format:'qbank-confirmed-upload-1',package:expected.envelope}:expected.envelope,current),body=object(response.body);
     if(!((response.status===201&&body.duplicate===false)||(response.status===200&&body.duplicate===true)))throw new Error('云端上传响应无效，请重试本批次');

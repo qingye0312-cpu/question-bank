@@ -7,6 +7,12 @@ pub struct Snapshot {
     pub release_name: Option<String>,
     #[serde(default)]
     pub release_id: Option<String>,
+    #[serde(default)]
+    pub rollback_at: Option<String>,
+    #[serde(default)]
+    pub rollback_of: Option<u64>,
+    #[serde(default)]
+    pub merges: Vec<Value>,
     pub format: String,
     pub bank_id: String,
     pub name: String,
@@ -37,6 +43,8 @@ pub fn apply(store: &Store, payload: &str, digest: &str) -> Result<()> {
         || s.revision > 9_007_199_254_740_991
         || s.release_version > 9_007_199_254_740_991
         || chrono::DateTime::parse_from_rfc3339(&s.updated_at).is_err()
+        || s.rollback_at.as_deref().is_some_and(|at| chrono::DateTime::parse_from_rfc3339(at).is_err())
+        || s.rollback_of.is_some_and(|revision| revision == 0)
     {
         return Err("云端题库身份无效".into());
     }
@@ -194,7 +202,8 @@ pub fn apply(store: &Store, payload: &str, digest: &str) -> Result<()> {
     )
     .map_err(err)?;
     if let (Some(name), Some(digest)) = (&s.release_name, &s.release_id) {
-        db::set_result(&tx, &s.bank_id, s.merged_at.as_deref(), name, digest)?;
+        let result_at = s.rollback_at.as_deref().or(s.merged_at.as_deref());
+        db::set_result(&tx, &s.bank_id, result_at, name, digest)?;
     }
     if converting {
         crate::promotion::finish_apply(&tx, &s.bank_id, digest)?;

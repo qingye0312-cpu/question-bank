@@ -245,7 +245,7 @@ pub fn acknowledge(store: &Store, batch: &str, receipt: Value) -> Result<()> {
         || receipt["sha256"] != hash(raw.as_bytes())
         || receipt["payload_sha256"] != d.sha256
         || receipt["question_count"].as_u64() != Some(d.question_count as u64)
-        || !["pending_review", "pending_merge"].contains(&receipt["status"].as_str().unwrap_or(""))
+        || !["merged", "duplicate", "pending_review", "pending_merge"].contains(&receipt["status"].as_str().unwrap_or(""))
         || chrono::DateTime::parse_from_rfc3339(receipt["accepted_at"].as_str().unwrap_or(""))
             .is_err()
     {

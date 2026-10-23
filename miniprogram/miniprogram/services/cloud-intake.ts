@@ -5,7 +5,7 @@ import {loadBank} from './bank';
 import {readLocal,updateLocal} from './intake-store';
 
 const uploading=new Set<string>();
-export async function uploadBatch(bankId:string,batchId:string,confirmed=false,actor?:string){
+export async function uploadBatch(bankId:string,batchId:string,confirmed=true,actor?:string){
   if(uploading.has(batchId))throw new Error('本批次正在上传，请稍候');
   uploading.add(batchId);
   try{

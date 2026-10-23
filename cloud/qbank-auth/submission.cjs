@@ -61,10 +61,13 @@ function decodeUpload(envelope, parseDelta, parseModelReply) {
   const canonical = { ...envelope, data: gzipSync(raw).toString('base64') };
   return { delta, envelope: canonical };
 }
-function receipt(record) {
+function receipt(record, merge = null, version = null) {
   return { submission_id: record.submission_id, bank_id: record.bank_id, batch_id: record.batch_id,
     sha256: record.sha256, payload_sha256: record.payload_sha256, question_count: record.question_count,
-    status: record.status, accepted_at: record.accepted_at };
+    status: merge ? (merge.duplicate ? 'duplicate' : 'merged') : record.status,
+    accepted_at: record.accepted_at,
+    ...(merge ? { merged_at: merge.merged_at, added_count: merge.added_count, duplicate_count: merge.duplicate_count,
+      revision: version?.revision, release_version: version?.release_version, release_name: version?.release_name || null } : {}) };
 }
 
 

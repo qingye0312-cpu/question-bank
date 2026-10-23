@@ -15,6 +15,8 @@ function setup(){
   QBANK_CLOUD_CREATORS:JSON.stringify(['maintainer-tests']),QBANK_BANKS:JSON.stringify([{bank_id:id,name:delta.name}]),QBANK_DEVELOPERS:JSON.stringify({'openid-developer-tests':[id]}),
   QBANK_MAINTAINERS:JSON.stringify([{id:'maintainer-tests',key_sha256:sha256(key),grants:{[id]:['upload','review','publish']}},{id:'upload-only-tests',key_sha256:sha256(otherKey),grants:{[id]:['upload']}}])};
  const store={async readState(bank){const s=[...states.values()].filter(s=>s.bank_id===bank).sort((a,b)=>b.revision-a.revision)[0];return s?structuredClone(s):null;},
+  async readStateAt(bank,revision){const s=states.get(bank+'/'+revision);return s?structuredClone(s):null;},
+  async listStates(bank){return [...states.values()].filter(s=>s.bank_id===bank).sort((a,b)=>b.revision-a.revision).map(s=>structuredClone(s));},
   async createState(s){const k=s.bank_id+'/'+s.revision;if(states.has(k))return false;states.set(k,structuredClone(s));return true;},
   async createSubmission(k,r){if(records.has(k))return {record:records.get(k),created:false};records.set(k,r);return {record:r,created:true};}};
  const handler=createHandler({env:()=>env,store,parseDelta,validateStandardQuestion,parseModelReply,exchangeCode:async()=>({openid:'openid-developer-tests'})});
@@ -30,26 +32,23 @@ test('anonymous catalogue, per-bank desktop roles and immediate revocation',asyn
  const me=await s.call('GET','/v1/me',undefined,token);assert.deepEqual(me.data.grants[id],['upload']);
  s.env.QBANK_MAINTAINERS='[]';s.env.QBANK_CLOUD_CREATORS='[]';assert.equal((await s.call('GET','/v1/me',undefined,token)).status,403);
 });
-test('upload, review, atomic publish, full pending removal and public privacy',async()=>{
+test('upload decodes, validates and merges immediately with public privacy',async()=>{
  const s=setup(),token=await s.login();
  const base={...questions[0],question_id:randomUUID(),stem:'Initial base question',status:'verified'};
  assert.equal((await s.call('POST',`/v1/banks/${id}/seed`,{base_revision:0,questions:[base]},token)).status,200);
  const upload=await s.call('POST','/v1/uploads',encodeUpload(fixture),token);assert.equal(upload.status,201);
  const m=readManifest((await s.call('GET',`/v1/banks/${id}/manifest`)).data),w=(await s.call('GET',`/v1/banks/${id}/snapshot`)).data;
- const snapshot=readSnapshot(w,m);assert.equal(snapshot.pending.length,1);assert.equal(snapshot.formal.length,1);
+ const snapshot=readSnapshot(w,m);assert.equal(snapshot.pending.length,0);assert.equal(snapshot.formal.length,2);
  assert.ok(!w.payload.includes('submitted_by'));assert.ok(w.payload.includes('recorded_at'));assert.ok(!w.payload.includes('confirmed_at'));assert.ok(!w.payload.includes('reviewer'));
  const p=(await s.call('GET',`/v1/banks/${id}/candidates`,undefined,token)).data;
- assert.equal((await s.call('POST',`/v1/banks/${id}/review`,{base_revision:p.revision,candidate_id:p.candidates[0].id,decision:'accept',note:'Checked answer'},token)).status,200);
- const accepted=await s.store.readState(id);
- const published=await s.call('POST',`/v1/banks/${id}/publish`,{base_revision:accepted.revision,release_version:accepted.release_version,candidate_ids:accepted.pending.map(p=>p.id)},token);
- assert.equal(published.status,200);
- const after=readSnapshot((await s.call('GET',`/v1/banks/${id}/snapshot`)).data,published.data);
- assert.equal(after.pending.length,0);assert.equal(after.formal.length,2);assert.equal(after.removed[0].status,'merged');
+ assert.equal(p.candidates.length,0);
+ const after=readSnapshot((await s.call('GET',`/v1/banks/${id}/snapshot`)).data,m);
+ assert.equal(after.pending.length,0);assert.equal(after.formal.length,2);assert.equal(after.removed.at(-1).status,'merged');
  const retry=await s.call('POST','/v1/uploads',encodeUpload(fixture),token);assert.equal(retry.status,200);assert.equal((await s.store.readState(id)).pending.length,0);
  const local={...questions[0],question_id:randomUUID(),stem:'Private local draft'};
  assert.equal(combineLayers(after.formal,after.pending,[questions[0],local]).length,3);
 });
-test('concurrent publishers cannot overwrite; rejection persists and corrupt snapshots never apply',async()=>{
+test('concurrent writers cannot overwrite; merge persists and corrupt snapshots never apply',async()=>{
  const s=setup(),token=await s.login();
  const seed={base_revision:0,questions};
  const both=await Promise.all([s.call('POST',`/v1/banks/${id}/seed`,seed,token),s.call('POST',`/v1/banks/${id}/seed`,seed,token)]);
@@ -57,7 +56,7 @@ test('concurrent publishers cannot overwrite; rejection persists and corrupt sna
  const q={...questions[0],question_id:randomUUID(),stem:'Candidate to reject'},text=deltaPackage(id,delta.name,randomUUID(),[q],new Date().toISOString());
  await s.call('POST','/v1/uploads',encodeUpload(text),token);
  const state=await s.store.readState(id);
- assert.equal((await s.call('POST',`/v1/banks/${id}/review`,{base_revision:state.revision,candidate_id:state.pending[0].id,decision:'reject',note:'Bad recognition'},token)).status,200);
+ assert.equal(state.pending.length,0);assert.ok(state.formal.some(q=>q.stem==='Candidate to reject'));
  const m=readManifest((await s.call('GET',`/v1/banks/${id}/manifest`)).data),w=(await s.call('GET',`/v1/banks/${id}/snapshot`)).data;
  assert.equal(readSnapshot(w,m).pending.length,0);
  assert.throws(()=>readSnapshot({...w,payload:w.payload+' '},m));
@@ -106,27 +105,26 @@ test('confirmed upload goes straight to merge, binds the actor, keeps time/name 
  const packet=encodeUpload(fixture),confirmed={format:'qbank-confirmed-upload-1',package:packet};
  assert.equal((await s.call('POST','/v1/uploads',confirmed,token)).status,201);
  assert.equal((await s.call('POST','/v1/uploads',confirmed,uploadOnly)).status,409);
- let state=await s.store.readState(id);assert.equal(state.pending[0].decision,'confirmed');
- const body={operation_id:randomUUID(),base_revision:state.revision,release_version:state.release_version,candidate_ids:state.pending.map(p=>p.id)};
- assert.equal((await s.call('POST',route+'/publish',body,uploadOnly)).status,403);
- const merged=await s.call('POST',route+'/publish',body,token);assert.equal(merged.status,200);assert.match(merged.data.release_name,/\d{8}-\d{9}\+0800_.*_合并_v2_/);
- const replay=await s.call('POST',route+'/publish',body,token);assert.deepEqual(replay,merged);
- assert.equal((await s.call('POST',route+'/publish',{...body,candidate_ids:[]},token)).status,409);
- const w=(await s.call('GET',route+'/snapshot')).data,snapshot=readSnapshot(w,merged.data);
- assert.equal(snapshot.formal.find(q=>q.question_id===questions[0].question_id).sources[0].recorded_at,questions[0].sources[0].recorded_at);
+ let state=await s.store.readState(id);assert.equal(state.pending.length,0);assert.equal(state.merge_history.length,1);
+ const merged=(await s.call('GET',route+'/manifest')).data;assert.match(merged.release_name,/\d{8}-\d{9}\+0800_.*_合并_v2_/);
+ const history=(await s.call('GET',route+'/history',undefined,token)).data;assert.equal(history.versions.length,2);assert.equal(history.versions[0].revision,merged.revision);
+ const rollback=await s.call('POST',route+'/rollback',{operation_id:randomUUID(),base_revision:state.revision,target_revision:1},token);assert.equal(rollback.status,200);assert.equal(rollback.data.release_version,1);
+ const rolled=readSnapshot((await s.call('GET',route+'/snapshot')).data,rollback.data);
+ assert.equal(rolled.formal.length,1);assert.equal(rolled.rollback_of,1);
+ const w=(await s.call('GET',route+'/snapshot')).data,snapshot=readSnapshot(w,rollback.data);
+ assert.equal(snapshot.formal.find(q=>q.question_id===base.question_id).sources[0].recorded_at,base.sources[0].recorded_at);
  assert.ok(!w.payload.includes('confirmation'));assert.equal(snapshot.pending.length,0);
- const duplicate=deltaPackage(id,delta.name,randomUUID(),questions,new Date().toISOString());
+ const duplicate=deltaPackage(id,delta.name,randomUUID(),[base],new Date().toISOString());
  await s.call('POST','/v1/uploads',{format:'qbank-confirmed-upload-1',package:encodeUpload(duplicate)},token);
- state=await s.store.readState(id);const noop=await s.call('POST',route+'/publish',{operation_id:randomUUID(),base_revision:state.revision,release_version:state.release_version,candidate_ids:state.pending.map(p=>p.id)},token);
- assert.equal(noop.status,200);for(const k of ['release_version','release_name','release_id','merged_at'])assert.equal(noop.data[k],merged.data[k]);
+ state=await s.store.readState(id);assert.equal(state.pending.length,0);assert.equal(state.merge_history.length,2);
+ const noop=(await s.call('GET',route+'/manifest')).data;assert.equal(noop.release_version,rollback.data.release_version);assert.equal(noop.release_name,rollback.data.release_name);
 });
 test('legacy submissions cannot be upgraded by resending confirmed and quarantined test batches stay private',async()=>{
  const s=setup(),token=await s.login();await s.call('POST',`/v1/banks/${id}/seed`,{base_revision:0,questions:[{...questions[0],question_id:randomUUID(),stem:'Baseline'}]},token);
- await s.call('POST','/v1/uploads',encodeUpload(fixture),token);
+ const first=await s.call('POST','/v1/uploads',encodeUpload(fixture),token);assert.equal(first.data.receipt.status,'merged');
  const res=await s.call('POST','/v1/uploads',{format:'qbank-confirmed-upload-1',package:encodeUpload(fixture)},token);
- assert.equal(res.status,200);assert.equal(res.data.receipt.status,'pending_review');
- let state=await s.store.readState(id);assert.equal(state.pending[0].decision,'pending');
- assert.equal((await s.call('POST',`/v1/banks/${id}/publish`,{base_revision:state.revision,release_version:state.release_version,candidate_ids:state.pending.map(p=>p.id)},token)).data.error.code,'REVIEW_REQUIRED');
+ assert.equal(res.status,200);assert.equal(res.data.receipt.status,'duplicate');
+ let state=await s.store.readState(id);assert.equal(state.pending.length,0);
  const packet=deltaPackage(id,delta.name,'770cb0d2-b0db-4a52-ae91-98df473d20f5',[{...questions[0],question_id:randomUUID(),stem:'never public'}],new Date().toISOString());
  await s.call('POST','/v1/uploads',{format:'qbank-confirmed-upload-1',package:encodeUpload(packet)},token);
  assert.ok(!(await s.call('GET',`/v1/banks/${id}/snapshot`)).data.payload.includes('never public'));

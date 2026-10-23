@@ -11,7 +11,7 @@ export function intakeView(record:DraftRecord|null,records:DraftRecord[],jobs:Up
   editOptions:reply?.options.map(o=>({...o,correct:Array.isArray(reply.answer)&&reply.answer.includes(o.key)}))||[],boolSelected:typeof reply?.answer==='boolean',typeIndex:Math.max(0,['single','multiple','true_false'].indexOf(reply?.type||'')),
   sourceIndex:['platform','user','unknown'].indexOf(reply?.model.version_source||'unknown'),warningsText:reply?.warnings.join('\n')||'',tagsText:record?.metadata.tags.join('|')||'',difficultyIndex:['','easy','medium','hard'].indexOf(record?.metadata.difficulty||''),pendingCount:pending.length,
   records:records.filter(r=>!r.removed).map(r=>{const job=jobs.find(j=>j.id===r.submissionId);return {id:r.id,stem:r.reply?.stem||'未完成的题目',recordedAt:displayTime(r.recordedAt),editable:!r.submissionId,invalid:!!r.issues.length&&!r.submissionId,
-   status:r.submissionId?(job?.status==='done'?'已上传 · 待合并':job?jobLabels[job.status]:'待找回原提交回执'):r.issues.length?'待补全':'待上传',issue:r.issues[0]?.message||''};}),
+   status:r.submissionId?(job?.status==='done'?'已上传 · 已自动合并':job?jobLabels[job.status]:'待找回原提交回执'):r.issues.length?'待补全':'待上传',issue:r.issues[0]?.message||''};}),
   jobs:jobs.map(j=>({...j,label:jobLabels[j.status],time:displayTime(j.confirmedAt)}))};
 }
 export class IntakeController {

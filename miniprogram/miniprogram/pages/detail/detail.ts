@@ -34,7 +34,7 @@ Page({
     const terms = queryTerms(this.query);
     const metadata = [['录入时间', displayTime(recordedTime(q))+(q.recorded_at_source==='import'?'（首次导入）':'')],['章节', q.chapter], ['标签', q.tags.join(' ')], ['编号', q.external_id], ['ID', q.question_id]]
       .filter(([, value]) => !!value).map(([label, value]) => ({label, segments: highlight(value, terms)}));
-    this.setData({layer:q.cloud_layer==='pending'?(q.status==='verified'?'已在上传时确认 · 待合并':'历史未确认 · 答案未经维护者核对'):q.cloud_layer==='draft'?'本地新题 · 尚未正式发布':'',loading: false, number: q.external_id, kind: typeNames[q.type], answer: answerText(q),
+    this.setData({layer:q.cloud_layer==='pending'?(q.status==='verified'?'历史候选':'历史未确认 · 答案未经维护者核对'):q.cloud_layer==='draft'?'本地新题 · 尚未正式发布':'',loading: false, number: q.external_id, kind: typeNames[q.type], answer: answerText(q),
       stem: highlight(q.stem, terms), explanation: q.explanation,
       options: q.options.map(o => ({key: o.key, correct: Array.isArray(q.answer) && q.answer.includes(o.key), segments: highlight(o.content, terms)})), metadata});
   },

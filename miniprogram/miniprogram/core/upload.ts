@@ -3,7 +3,8 @@ import {parseDelta, sha256} from './intake';
 
 export type UploadEnvelope = {format:'qbank-upload-1'; encoding:'gzip+base64'; uncompressed_size:number; sha256:string; data:string};
 export type UploadReceipt = {submission_id:string; bank_id:string; batch_id:string; sha256:string;
-  payload_sha256:string; question_count:number; status:'pending_review'|'pending_merge'; accepted_at:string};
+  payload_sha256:string; question_count:number; status:'merged'|'duplicate'|'pending_review'|'pending_merge'; accepted_at:string; merged_at?:string;
+  added_count?:number; duplicate_count?:number; revision?:number; release_version?:number; release_name?:string|null};
 export const UPLOAD_LIMITS = {questions:1000, expandedBytes:4194304, compressedBytes:524288, requestBytes:786432};
 
 // WeChat does not guarantee TextEncoder. Match the shared SHA-256 UTF-8 rules,
@@ -48,7 +49,7 @@ export function verifyReceipt(value:unknown, expected:ReturnType<typeof prepareU
   const r=value as Partial<UploadReceipt>|null, {delta,envelope}=expected;
   if(!r||typeof r!=='object'||r.submission_id!==sha256(`${delta.bank_id}/${delta.batch_id}`)
     ||r.bank_id!==delta.bank_id||r.batch_id!==delta.batch_id||r.sha256!==envelope.sha256
-    ||r.payload_sha256!==delta.sha256||r.question_count!==delta.question_count||!['pending_review','pending_merge'].includes(r.status||'')
+    ||r.payload_sha256!==delta.sha256||r.question_count!==delta.question_count||!['merged','duplicate','pending_review','pending_merge'].includes(r.status||'')
     ||typeof r.accepted_at!=='string'||r.accepted_at.length>40||!Number.isFinite(Date.parse(r.accepted_at)))
     throw new Error('云端回执与本批次不一致，未标记上传成功；请保留本地批次并重试');
   return {submission_id:r.submission_id,bank_id:r.bank_id,batch_id:r.batch_id,sha256:r.sha256,

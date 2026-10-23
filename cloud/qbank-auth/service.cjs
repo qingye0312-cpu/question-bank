@@ -41,7 +41,7 @@ function createHandler({ env = () => process.env, store, exchangeCode, parseDelt
       });
       const publicResult = await workflow.read(method,path,config);
       if(publicResult !== undefined)return respond(200,publicResult);
-      const workflowRoute = /^\/v1\/banks\/[0-9a-f-]{36}\/(review|publish|seed|candidates)$/.test(path||'');
+      const workflowRoute = /^\/v1\/banks\/[0-9a-f-]{36}\/(review|publish|seed|candidates|history|rollback)$/.test(path||'');
       if (!workflowRoute && !['POST /v1/auth/desktop', 'POST /v1/auth/wechat', 'GET /v1/me', 'POST /v1/uploads', 'POST /v1/banks/promote'].includes(`${method} ${path}`))
         fail(404, 'NOT_FOUND', '接口不存在');
       requireAuthConfig(config);
@@ -102,8 +102,14 @@ function createHandler({ env = () => process.env, store, exchangeCode, parseDelt
         fail(502, 'STORAGE_UNAVAILABLE', '云端记录无效，请联系维护者');
       if (accepted.record.sha256 !== record.sha256 || accepted.record.bank_id !== delta.bank_id || accepted.record.batch_id !== delta.batch_id || accepted.record.submitted_by !== record.submitted_by)
         fail(409, 'BATCH_CONFLICT', '此批次已提交不同内容，请使用新批次提交修改');
-      if(config.syncEnabled)await workflow.register(config,accepted.record,delta);
-      return respond(accepted.created ? 201 : 200, { receipt: receipt(accepted.record), duplicate: !accepted.created });
+      let merged;
+      if(config.syncEnabled){
+        try { merged=await workflow.mergeSubmission(config,accepted.record,delta,auth); }
+        catch(error){ if(error instanceof HttpError)throw error; fail(502,'MERGE_UNAVAILABLE','云端已保存上传包，但尚未完成合并；请重试同一批次'); }
+      }
+      const mergeInfo=merged?.merge||null;
+      return respond(accepted.created ? 201 : 200, { receipt: receipt(accepted.record,mergeInfo,merged?.manifest), duplicate: !accepted.created,
+        merged: merged?.merged===true, version: merged?.manifest||null, merge: mergeInfo });
     } catch (error) {
       if (error instanceof HttpError) return respond(error.status, { error: { code: error.code, message: error.message,
         ...(error.details ? { details: error.details } : {}) } });

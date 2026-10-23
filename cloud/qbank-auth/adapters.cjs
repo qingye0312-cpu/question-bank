@@ -4,6 +4,16 @@ const {packText,unpackText,FORMAT}=require('./codec.cjs');
 const { HttpError, LIMITS, sha256 } = require('./service.cjs');
 
 function createCosStore({ clientFactory, env = () => process.env }) {
+  const stateKey=(bankId,revision)=>`states/${bankId}/${String(999999999999-revision).padStart(12,'0')}.json`;
+  const decodeState=(bytes,bankId,revision,key)=>{
+    const data=Buffer.isBuffer(bytes)?bytes:Buffer.from(bytes);if(data.length>8388608)throw new Error('State too large');
+    const wrapper=JSON.parse(data.toString('utf8'));if(wrapper.format===FORMAT)wrapper.payload=unpackText(wrapper);
+    if(typeof wrapper.payload!=='string'||sha256(wrapper.payload)!==wrapper.sha256)throw new Error('Invalid state checksum');
+    const state=JSON.parse(wrapper.payload);
+    if(state.format!=='qbank-state-1'||state.bank_id!==bankId||!Number.isSafeInteger(state.revision)||state.revision<1
+      ||state.revision!==revision||key!==stateKey(bankId,state.revision))throw new Error('Invalid state identity');
+    return state;
+  };
   return {
     async readState(bankId) {
       const settings=env(), Bucket=settings.COS_RELEASE_BUCKET, Region=settings.COS_REGION;
@@ -13,14 +23,24 @@ function createCosStore({ clientFactory, env = () => process.env }) {
       const Key=list.Contents?.[0]?.Key;if(!Key)return null;
       if(!new RegExp(`^states/${bankId}/[0-9]{12}\\.json$`).test(Key))throw new Error('Invalid state key');
       const data=await cos.getObject({Bucket,Region,Key,Range:'bytes=0-8388608'});
-      const bytes=Buffer.from(data.Body);if(bytes.length>8388608)throw new Error('State too large');
-      const wrapper=JSON.parse(bytes.toString('utf8'));
-      if(wrapper.format===FORMAT)wrapper.payload=unpackText(wrapper);
-      if(typeof wrapper.payload!=='string'||sha256(wrapper.payload)!==wrapper.sha256)throw new Error('Invalid state checksum');
-      const state=JSON.parse(wrapper.payload);
-      if(state.format!=='qbank-state-1'||state.bank_id!==bankId||!Number.isSafeInteger(state.revision)||state.revision<1
-        ||Key!==`states/${bankId}/${String(999999999999-state.revision).padStart(12,'0')}.json`)throw new Error('Invalid state identity');
-      return state;
+      const revision=999999999999-Number(Key.split('/').at(-1).slice(0,12));return decodeState(data.Body,bankId,revision,Key);
+    },
+    async readStateAt(bankId,revision) {
+      const settings=env(),Bucket=settings.COS_RELEASE_BUCKET,Region=settings.COS_REGION;
+      if(!/^[a-z0-9-]+-\d+$/.test(Bucket||'')||!/^[0-9a-f-]{36}$/.test(bankId)||!Number.isSafeInteger(revision)||revision<1||revision>999999999998)
+        throw new Error('Invalid release configuration');
+      const Key=stateKey(bankId,revision),cos=clientFactory(settings);
+      try { const data=await cos.getObject({Bucket,Region,Key,Range:'bytes=0-8388608'});return decodeState(data.Body,bankId,revision,Key); }
+      catch(error){if(error?.statusCode===404||error?.code==='NoSuchKey')return null;throw error;}
+    },
+    async listStates(bankId) {
+      const settings=env(),Bucket=settings.COS_RELEASE_BUCKET,Region=settings.COS_REGION;
+      if(!/^[a-z0-9-]+-\d+$/.test(Bucket||'')||!/^[0-9a-f-]{36}$/.test(bankId))throw new Error('Invalid release configuration');
+      const cos=clientFactory(settings),Prefix=`states/${bankId}/`,list=await cos.getBucket({Bucket,Region,Prefix,MaxKeys:256});
+      const keys=(list.Contents||[]).map(v=>v.Key).filter(k=>typeof k==='string').sort();if(keys.length>256)throw new Error('Too many state revisions');
+      const result=[];for(const Key of keys){if(!new RegExp(`^states/${bankId}/[0-9]{12}\\.json$`).test(Key))throw new Error('Invalid state key');
+        const revision=999999999999-Number(Key.split('/').at(-1).slice(0,12));const data=await cos.getObject({Bucket,Region,Key,Range:'bytes=0-8388608'});result.push(decodeState(data.Body,bankId,revision,Key));}
+      return result.sort((a,b)=>b.revision-a.revision);
     },
     async createState(state) {
       const settings=env(),Bucket=settings.COS_RELEASE_BUCKET,Region=settings.COS_REGION;

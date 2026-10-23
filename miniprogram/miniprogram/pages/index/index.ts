@@ -99,7 +99,7 @@ Page({
       const {bank, manifest} = await loadBank(id);
       if (!this.alive||epoch!==this.loadEpoch) return;
       selectBank(id);
-      this.setData({banks,bankId:id,bankIndex:banks.findIndex(b=>b.id===id),bankLabel:manifest.release_id==='local'?'本地题库':'正式题库 + 待合并题 + 本地新题'});
+      this.setData({banks,bankId:id,bankIndex:banks.findIndex(b=>b.id===id),bankLabel:manifest.release_id==='local'?'本地题库':'正式题库 + 本地新题'});
       this.bank = bank;
       this.setData({ready: true, bankName: banks.find(b=>b.id===id)?.name||manifest.name, version: manifest.release_version, total: manifest.question_count}, () => this.measureViewport());
       await this.runSearch(this.data.query);
@@ -190,7 +190,7 @@ Page({
     this.start = range.start; this.end = range.end;
     const rows = this.ids.slice(range.start, range.end).map(id => {
       const q = this.bank!.question(id);
-      return {id, questionId: q.question_id, number: q.external_id, kind: typeNames[q.type],layer:q.cloud_layer==='pending'?(q.status==='verified'?'待合并':'历史未确认'):q.cloud_layer==='draft'?'本地新题':'',
+      return {id, questionId: q.question_id, number: q.external_id, kind: typeNames[q.type],layer:q.cloud_layer==='pending'?(q.status==='verified'?'历史候选':'历史未确认'):q.cloud_layer==='draft'?'本地新题':'',
         answer: answerText(q), segments: snippet(q, this.terms)};
     });
     this.setData({rows, before: range.before, after: range.after}, () => {

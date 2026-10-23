@@ -22,7 +22,7 @@ export function IntakePanel({banks,bankId,initial='',initialRecordId='',onClose,
  const model=useIntake(target,initial,initialRecordId),d=model.current;
  const pending=model.records.filter(r=>!r.removed&&!r.submissionId),incomplete=pending.filter(r=>r.issues.length),locked=!!d.submissionId||preparing||navigating;
  const jobFor=(r:DraftRecord)=>jobs.find(j=>j.id===r.submissionId);
- const recordStatus=(r:DraftRecord)=>r.removed?'已删除':r.publishedAt?'已纳入云端首版':r.submissionId?(jobFor(r)?.status==='done'?'已上传 · 待合并':'已提交 · '+(jobFor(r)?statuses[jobFor(r)!.status]:'待找回回执')):r.issues.length?'待补全':'待上传';
+ const recordStatus=(r:DraftRecord)=>r.removed?'已删除':r.publishedAt?'已纳入云端首版':r.submissionId?(jobFor(r)?.status==='done'?'已上传 · 已自动合并':'已提交 · '+(jobFor(r)?statuses[jobFor(r)!.status]:'待找回回执')):r.issues.length?'待补全':'待上传';
  async function action(fn:()=>Promise<void>){try{model.setError('');await fn()}catch(e){model.setError(String(e))}}
  async function navigate(fn:()=>Promise<void>){if(navigating||preparing)return;setNavigating(true);try{await action(fn)}finally{setNavigating(false)}}
  const refreshJobs=()=>desktopJobs().then(setJobs);

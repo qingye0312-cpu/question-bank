@@ -41,26 +41,42 @@ function createFileStore({ root = process.env.QBANK_STORAGE_ROOT || '/var/lib/qb
   const states = path.join(base, 'states');
   const inbox = path.join(base, 'inbox');
 
-  async function readState(bankId) {
+  async function readStateFile(file, bankId, revision) {
+    const state = await readPacked(file, LIMITS.expandedBytes);
+    const expected = String(999999999999 - state.revision).padStart(12, '0') + '.json';
+    if (state?.format !== 'qbank-state-1' || state.bank_id !== bankId
+      || !Number.isSafeInteger(state.revision) || state.revision < 1 || state.revision !== revision || path.basename(file) !== expected)
+      throw new Error('Invalid state identity');
+    return state;
+  }
+
+  async function readStateAt(bankId, revision) {
+    assertUuid(bankId, 'bank id');
+    if (!Number.isSafeInteger(revision) || revision < 1 || revision > 999999999998) return null;
+    const file = path.join(states, bankId, String(999999999999 - revision).padStart(12, '0') + '.json');
+    try { return await readStateFile(file, bankId, revision); }
+    catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+  }
+
+  async function listStates(bankId) {
     assertUuid(bankId, 'bank id');
     const directory = path.join(states, bankId);
     let names;
     try { names = await fs.readdir(directory); } catch (error) {
-      if (error.code === 'ENOENT') return null;
+      if (error.code === 'ENOENT') return [];
       throw error;
     }
     const candidates = names.filter(name => REVISION_FILE.test(name)).sort();
+    if (candidates.length > 256) throw new Error('Too many state revisions');
+    const result = [];
     for (const name of candidates) {
-      const state = await readPacked(path.join(directory, name), LIMITS.expandedBytes);
-      const expected = String(999999999999 - state.revision).padStart(12, '0') + '.json';
-      if (state?.format !== 'qbank-state-1' || state.bank_id !== bankId
-        || !Number.isSafeInteger(state.revision) || state.revision < 1 || name !== expected) {
-        throw new Error('Invalid state identity');
-      }
-      return state;
+      const revision = 999999999999 - Number(name.slice(0, 12));
+      result.push(await readStateFile(path.join(directory, name), bankId, revision));
     }
-    return null;
+    return result.sort((a, b) => b.revision - a.revision);
   }
+
+  async function readState(bankId) { return (await listStates(bankId))[0] || null; }
 
   async function createState(state) {
     assertUuid(state?.bank_id, 'bank id');
@@ -96,7 +112,7 @@ function createFileStore({ root = process.env.QBANK_STORAGE_ROOT || '/var/lib/qb
     }
   }
 
-  return { root: base, readState, createState, createSubmission };
+  return { root: base, readState, readStateAt, listStates, createState, createSubmission };
 }
 
 module.exports = { createFileStore };
