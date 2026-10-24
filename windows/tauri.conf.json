@@ -18,6 +18,9 @@
       },
       "nsis": {
         "installMode": "currentUser",
+        "installerIcon": "../windows/icons/icon.ico",
+        "uninstallerIcon": "../windows/icons/icon.ico",
+        "installerHooks": "../windows/installer-hooks.nsh",
         "languages": ["SimpChinese", "English"]
       }
     }
