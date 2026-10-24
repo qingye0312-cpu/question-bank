@@ -6,7 +6,7 @@ const http = require('node:http');
 const fs = require('node:fs');
 const { createHandler } = require('./service.cjs');
 const { createFileStore } = require('./fs-store.cjs');
-const { createWechatExchange } = require('./adapters.cjs');
+const { createWechatExchange, createWechatPhoneExchange } = require('./adapters.cjs');
 const { LIMITS } = require('./common.cjs');
 const { parseDelta, validateStandardQuestion, parseModelReply } = require('./intake.cjs');
 
@@ -53,6 +53,7 @@ function createLocalServer({ env = process.env } = {}) {
     env: () => settings,
     store,
     exchangeCode: createWechatExchange(),
+    exchangePhone: createWechatPhoneExchange(),
     parseDelta,
     validateStandardQuestion,
     parseModelReply,

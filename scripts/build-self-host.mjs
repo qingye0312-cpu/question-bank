@@ -7,7 +7,7 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const source = path.join(root, 'cloud/qbank-auth');
 const generated = path.join(root, 'artifacts/cloud/qbank-auth');
 const output = path.join(root, 'artifacts/self-host/qbank-auth');
-const files = ['service.cjs', 'workflow.cjs', 'codec.cjs', 'catalog.cjs', 'common.cjs',
+const files = ['service.cjs', 'workflow.cjs', 'codec.cjs', 'catalog.cjs', 'common.cjs', 'access.cjs',
   'config.cjs', 'auth.cjs', 'submission.cjs', 'projection.cjs', 'adapters.cjs', 'fs-store.cjs', 'local-server.cjs', 'intake.cjs', 'seed-bank.cjs'];
 
 await fs.rm(output, { recursive: true, force: true });

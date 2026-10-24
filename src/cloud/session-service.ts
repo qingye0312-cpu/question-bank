@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import {invoke} from '@tauri-apps/api/core';
 import {UploadError} from '../../shared/queue';
-export type Access={capabilities?:string[];openid?:string;banks:{bank_id:string;name:string}[];grants:Record<string,string[]>;uploads_enabled:boolean};
+export type Access={capabilities?:string[];openid?:string;phone?:string;nickname?:string;account_status?:string;maintainer_id?:string;banks:{bank_id:string;name:string}[];grants:Record<string,string[]>;uploads_enabled:boolean};
 type Session={token:string;origin:string;expires:number;access:Access};
 const ORIGIN_KEY='qbank-cloud-origin-v1';
 let session:Session|undefined;
@@ -39,6 +39,13 @@ export async function cloudLogin(key:string,remember=false){
  if(remember){await storeCredential(origin,key);if(attempt!==generation||origin!==cloudOrigin()){await storeCredential(origin,null);throw Error('登录已取消，本机凭据已清除');}localStorage.setItem(rememberKey(origin),'yes');}
  else if(remembersMachine())await cloudForget();
  return me;
+}
+export type MaintainerCertificate={format:'qbank-maintainer-certificate-1';key:string;certificate_id:string;maintainer_id?:string;roles?:string[];issued_at?:string;expires_at?:string;service_origin?:string};
+export function parseMaintainerCertificate(value:unknown):MaintainerCertificate{
+ const v=value as Record<string,unknown>;
+ if(!v||v.format!=='qbank-maintainer-certificate-1'||typeof v.key!=='string'||v.key.length<16||v.key.length>2048||typeof v.certificate_id!=='string'||!v.certificate_id.trim())throw Error('证书格式无效');
+ if(v.expires_at&&(!Number.isFinite(Date.parse(String(v.expires_at)))||Date.parse(String(v.expires_at))<=Date.now()))throw Error('证书已过期');
+ return {format:'qbank-maintainer-certificate-1',key:v.key,certificate_id:v.certificate_id,maintainer_id:typeof v.maintainer_id==='string'?v.maintainer_id:undefined,roles:Array.isArray(v.roles)?v.roles.filter(x=>typeof x==='string'):undefined,issued_at:typeof v.issued_at==='string'?v.issued_at:undefined,expires_at:typeof v.expires_at==='string'?v.expires_at:undefined,service_origin:typeof v.service_origin==='string'?v.service_origin:undefined};
 }
 let renewing:Promise<Access|undefined>|undefined;
 export function resumeDesktop():Promise<Access|undefined>{

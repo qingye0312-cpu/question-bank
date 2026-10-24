@@ -121,6 +121,7 @@ pub fn run() {
             commands::library::rebuild_index,
             commands::library::app_info,
             commands::exchange::download_template,
+            commands::exchange::read_text_file,
             commands::library::save_benchmark
         ])
         .build(tauri::generate_context!())

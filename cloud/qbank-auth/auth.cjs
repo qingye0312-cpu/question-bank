@@ -7,7 +7,7 @@ function sign(payload, config) {
     .update(`qbank-session-v1.${encoded}`).digest('base64url');
   return `v1.${encoded}.${signature}`;
 }
-function verify(token, config, now) {
+function verify(token, config, now, registry) {
   if (typeof token !== 'string' || token.length > 2048) fail(401, 'LOGIN_REQUIRED', '请先进行开发者登录');
   const parts = /^v1\.([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]{43})$/.exec(token);
   if (!parts) fail(401, 'SESSION_INVALID', '登录已失效，请重新登录');
@@ -19,7 +19,7 @@ function verify(token, config, now) {
   let payload;
   try { payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')); }
   catch { fail(401, 'SESSION_INVALID', '登录已失效，请重新登录'); }
-  if (!object(payload) || !OPENID.test(payload.sub) || !['qbank-upload-v1','qbank-desktop-v1'].includes(payload.aud)
+  if (!object(payload) || !OPENID.test(payload.sub) || !['qbank-upload-v1','qbank-desktop-v1','qbank-wechat-v2'].includes(payload.aud)
     || payload.app_id !== config.appId || payload.auth_version !== config.authVersion
     || !Number.isSafeInteger(payload.exp) || !Number.isSafeInteger(payload.iat)
     || payload.exp <= now || payload.iat > now + 30 || payload.exp - payload.iat !== LIMITS.sessionSeconds)
@@ -27,7 +27,16 @@ function verify(token, config, now) {
   if(payload.aud === 'qbank-desktop-v1') {
     const maintainer=config.maintainers.find(m=>`d_${m.id}`===payload.sub && m.key_sha256===payload.key_version);
     if(!maintainer)fail(403,'MAINTAINER_REVOKED','维护者授权已撤销，请联系管理员');
-    return {openid:payload.sub,banks:Object.keys(maintainer.grants),grants:maintainer.grants,desktop:true,capabilities:config.creators.includes(maintainer.id)?['cloud_bank:create']:[]};
+    return {openid:payload.sub,banks:Object.keys(maintainer.grants),grants:maintainer.grants,desktop:true,
+      capabilities:config.creators.includes(maintainer.id)?['cloud_bank:create','wechat:manage']:[] ,maintainer_id:maintainer.id};
+  }
+  if(payload.aud==='qbank-wechat-v2'){
+    const account=(registry?.wechat_accounts||[]).find(a=>a.openid===payload.sub&&a.phone_hash===payload.phone_hash);
+    if(account?.status==='revoked')fail(403,'MAINTAINER_REVOKED','题库维护者授权已撤销，请重新申请');
+    const approved=account?.status==='approved';
+    const grants=approved&&object(account.grants)?account.grants:{};
+    return {openid:payload.sub,phone_hash:payload.phone_hash,phone_masked:account?.phone_masked||payload.phone_masked||'',nickname:account?.nickname||payload.nickname||'',
+      banks:Object.keys(grants),grants,desktop:false,phone:true,pending:!approved,account_status:account?.status||'pending'};
   }
   // Permissions are re-read on every request. The token never carries trusted roles.
   const banks = Object.hasOwn(config.developers, payload.sub) ? config.developers[payload.sub] : [];

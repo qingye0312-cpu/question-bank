@@ -22,3 +22,9 @@
 .library-cloud-settings{border-top:1px solid var(--border);margin-top:1.4rem;padding-top:1rem}
 .library-cloud-settings summary{cursor:pointer;color:var(--secondary);font-weight:600;padding:.4rem 0}
 .library-cloud-settings input[type=checkbox]{width:auto;margin-right:.6rem}
+.maintainer-admin{display:grid;gap:1rem;max-height:60vh;overflow:auto}
+.maintainer-toolbar{display:flex;gap:.7rem;flex-wrap:wrap}
+.maintainer-toolbar button,.maintainer-row button{display:inline-flex;align-items:center;gap:.35rem}
+.maintainer-row{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:.85rem 0;border-bottom:1px solid var(--border);min-width:0}
+.maintainer-row>div:first-child{display:grid;gap:.2rem;min-width:0}.maintainer-row span,.maintainer-row small{color:var(--muted);overflow-wrap:anywhere}
+.maintainer-row>div:last-child{display:flex;gap:.5rem;flex-shrink:0}

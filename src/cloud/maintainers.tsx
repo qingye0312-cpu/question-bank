@@ -1,0 +1,26 @@
+import {useEffect,useState} from 'react';
+import {invoke} from '@tauri-apps/api/core';
+import {open} from '@tauri-apps/plugin-dialog';
+import {Check,FileKey,RefreshCw,Shield,UserRound,X} from 'lucide-react';
+import {cloudAccess,cloudCall,cloudLogin,parseMaintainerCertificate,cloudOrigin} from './session-service';
+
+type Application={id:string;phone:string;nickname:string;bank_ids:string[];created_at:string;status:string};
+type Account={id:string;phone:string;nickname:string;openid:string;grants:Record<string,string[]>;status:string;created_at:string;approved_at?:string|null;revoked_at?:string|null};
+type Bank={bank_id:string;name:string};
+export function MaintainerAdmin({banks,onChange}:{banks:Bank[];onChange?:()=>void}){
+ const [applications,setApplications]=useState<Application[]>([]),[accounts,setAccounts]=useState<Account[]>([]),[busy,setBusy]=useState(false),[message,setMessage]=useState('');
+ const access=cloudAccess(),admin=!!access?.capabilities?.includes('wechat:manage');
+ async function refresh(){if(!admin)return;const [a,b]=await Promise.all([cloudCall<{applications:Application[]}>('/v1/maintainer-applications',undefined,true),cloudCall<{accounts:Account[]}>('/v1/maintainer-accounts',undefined,true)]);setApplications(a.applications);setAccounts(b.accounts);}
+ useEffect(()=>{void refresh().catch(e=>setMessage(String(e)))},[admin]);
+ async function run(fn:()=>Promise<void>){if(busy)return;setBusy(true);setMessage('');try{await fn();onChange?.()}catch(e){setMessage(String(e))}finally{setBusy(false)}}
+ async function importCertificate(){const path=await open({multiple:false,title:'导入题库维护者证书',filters:[{name:'维护者证书',extensions:['json','qbank-cert']} ]});if(!path||Array.isArray(path))return;await run(async()=>{const raw=await invoke<string>('read_text_file',{path});const cert=parseMaintainerCertificate(JSON.parse(raw));if(cert.service_origin&&cert.service_origin!==cloudOrigin())throw Error('证书服务地址与当前云端地址不一致');await cloudLogin(cert.key,true);await refresh();setMessage(`证书 ${cert.certificate_id} 已导入并登录`)})}
+ async function decide(app:Application,decision:'approve'|'reject'){await run(async()=>{const grants=Object.fromEntries(app.bank_ids.map(id=>[id,['upload']]));await cloudCall(`/v1/maintainer-applications/${app.id}/decision`,{decision,grants,note:decision==='approve'?'桌面最高权限批准':'桌面最高权限拒绝'},true);await refresh()})}
+ async function revoke(account:Account){if(!window.confirm(`撤销 ${account.phone} 的维护者权限？`))return;await run(async()=>{await cloudCall(`/v1/maintainer-accounts/${account.id}/revoke`,{},true);await refresh()})}
+ if(!admin)return <div className="callout"><Shield size={16}/> 当前登录账号没有最高权限，只有最高权限账号可以导入证书和审批微信维护者。</div>;
+ return <section className="maintainer-admin" aria-label="微信维护者管理"><div className="maintainer-toolbar"><button disabled={busy} onClick={()=>void importCertificate()}><FileKey size={16}/>导入分发证书</button><button disabled={busy} onClick={()=>void run(refresh)}><RefreshCw size={16}/>刷新申请</button></div>
+  <p className="callout">手机号是唯一身份；昵称只用于辅助识别。证书密钥只进入本机钥匙串，不会写入页面或上传。</p>
+  <h3>待审批申请 {applications.length}</h3>{applications.length===0?<p>暂无待审批申请。</p>:applications.map(app=><article className="maintainer-row" key={app.id}><div><b>{app.phone}</b><span>{app.nickname||'未填写昵称'} · {app.bank_ids.map(id=>banks.find(b=>b.bank_id===id)?.name||id).join('、')}</span><small>{new Date(app.created_at).toLocaleString()}</small></div><div><button disabled={busy} onClick={()=>void decide(app,'approve')}><Check size={15}/>批准</button><button disabled={busy} onClick={()=>void decide(app,'reject')}><X size={15}/>拒绝</button></div></article>)}
+  <h3>已授权微信账户 {accounts.filter(a=>a.status==='approved').length}</h3>{accounts.filter(a=>a.status==='approved').map(account=><article className="maintainer-row" key={account.id}><div><b>{account.phone}</b><span>{account.nickname||'未填写昵称'} · {Object.keys(account.grants).map(id=>banks.find(b=>b.bank_id===id)?.name||id).join('、')}</span><small>批准于 {account.approved_at?new Date(account.approved_at).toLocaleString():'未知'}</small></div><button disabled={busy} onClick={()=>void revoke(account)}>撤销</button></article>)}
+  {message&&<p className="callout" role="status">{message}</p>}
+ </section>;
+}

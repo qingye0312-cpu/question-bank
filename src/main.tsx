@@ -14,7 +14,7 @@ import {PromptTemplate} from './prompt-template';
 import {APP_VERSION} from './generated/client-assets';
 import {copyText} from './clipboard';
 import {open, save} from '@tauri-apps/plugin-dialog';
-import {Search,Library,Package,Upload,Plus,ArrowUpRight,ChevronRight,FileDown,Settings,Check,Copy,Edit3,Trash2,X,FolderOpen,Lock,RefreshCw,BookOpen,History,CheckCircle2,Download,HardDrive,Layers,Keyboard,ScanText,PanelLeftClose,PanelLeftOpen,ChevronsUp,Eye} from 'lucide-react';
+import {Search,Library,Package,Upload,Plus,ArrowUpRight,ChevronRight,FileDown,Settings,Check,Copy,Edit3,Trash2,X,FolderOpen,Lock,RefreshCw,BookOpen,History,CheckCircle2,Download,HardDrive,Layers,Keyboard,ScanText,PanelLeftClose,PanelLeftOpen,ChevronsUp,Eye,Shield} from 'lucide-react';
 import './styles.css';
 import {benchmarkCases,percentiles} from './benchmark';
 import type {Question, Bank, Hit, Results} from './types';
@@ -26,6 +26,7 @@ import {applyAppearance,systemScheme,watchSystemScheme} from './appearance';
 import {resolveAppearance,type ColorScheme} from '../shared/appearance';
 import type {Mode} from './preferences';
 import {OcrPanel} from './ocr-panel';
+import {MaintainerAdmin} from './cloud/maintainers';
 import {looksLikeQuestion,readImage} from './ocr-client';
 import type {OcrInput} from './ocr-client';
 
@@ -188,9 +189,10 @@ function App(){
    {modal==='delete'&&<><h2>移入回收站？</h2><p>这道题将从搜索结果中移除，可在回收站恢复。</p><button className="danger wide" disabled={!!busy} onClick={()=>deleteActive()}>移入回收站</button></>}
    {modal==='history'&&<><h2>修订历史</h2><p>恢复历史内容会新增修订，不会抹去后续记录。</p>{history.length?history.map((h,i)=><div className="history-item" key={i}><b>{h.reason} · 修订 {h.question.base_revision}</b><small>{new Date(h.at).toLocaleString()}</small><p>{h.question.stem.slice(0,160)}</p>{!detailBank?.read_only&&<button onClick={()=>{setDraft({...h.question,base_revision:q!.base_revision});setEditBank(active!.bank_id);setModal('edit')}}>载入编辑器</button>}</div>):<div className="callout">这道题还没有历史修订。</div>}</>}
    {modal==='settings'&&<><div className="modal-icon"><Settings/></div><h2>设置与维护</h2><p>题库 v{info.version||APP_VERSION} · {info.platform} / {info.arch}</p>
-    <button className="template-card" onClick={()=>setModal('cloud')}><RefreshCw/><div><b>云端题库、合并与发布</b><span>匿名同步题库；维护者按库授权。</span></div></button><PromptTemplate/><button className="template-card" onClick={()=>openIntake()}><Plus/><div><b>大模型录题与增量包</b><span>粘贴回复、比对旧题、保存本次新题与上传标记。</span></div></button>
+    <button className="template-card" onClick={()=>setModal('cloud')}><RefreshCw/><div><b>云端题库、合并与发布</b><span>匿名同步题库；维护者按库授权。</span></div></button><button className="template-card" onClick={()=>setModal('maintainers')}><Shield/><div><b>微信维护者与证书</b><span>导入最高权限证书，审批手机号申请并撤销授权。</span></div></button><PromptTemplate/><button className="template-card" onClick={()=>openIntake()}><Plus/><div><b>大模型录题与增量包</b><span>粘贴回复、比对旧题、保存本次新题与上传标记。</span></div></button>
     <AppearanceSettings preferences={preferences} setPreferences={setPreferences} systemTheme={systemTheme} setPreview={setAppearancePreview}/><button className="template-card" disabled={!!busy} onClick={()=>void work('正在创建一致性备份',async()=>{const path=await save({defaultPath:`题库备份_${new Date().toISOString().slice(0,10)}.sqlite`,filters:[{name:'完整题库备份',extensions:['sqlite']}]});if(!path)return;const n=await invoke<number>('backup_database',{path,restore:false});setNotice(`已备份 ${n} 道题及历史、批次和回执：${path}`);})}>保存完整数据库备份</button><button className="template-card" disabled={!!busy} onClick={()=>void work('正在校验并恢复备份',async()=>{const path=await open({multiple:false,filters:[{name:'完整题库备份',extensions:['sqlite']}]});if(typeof path!=='string')return;if(!window.confirm('将用所选备份替换本机全部题库、历史和录入批次。当前数据库会先自动备份，确认恢复？'))return;await invoke('backup_database',{path,restore:true});setActive(null);await refresh();setNotice('备份已校验并恢复；恢复前的数据库保存在 backups 目录。');})}>校验并恢复完整备份</button><SoftwareUpdate busy={!!busy} onBusy={value=>setBusy(value?'正在安装软件更新':'')}/><p>全局唤起：{info.global_shortcut} · 托盘{info.tray==='true'?'已启用，关闭窗口后仍可唤起':'不可用'}</p><button className="template-card" disabled={!!busy} onClick={()=>void showImports()}>导入任务与批次撤回</button><label>本地数据库<code className="db-path">{info.database}</code></label><button className="template-card" onClick={()=>{setModal('');openExport('jsonl')}}><Download/><div><b>导出完整题库</b><span>推荐离线包保留版本，JSONL 用于数据交换。</span></div></button><button className="template-card" disabled={!!busy} onClick={()=>work('正在重建搜索索引',async()=>{await invoke('rebuild_index');setNotice('搜索索引已重建。');setRevision(r=>r+1)})}><RefreshCw/><div><b>重建搜索索引</b><span>题目内容保持不变。</span></div></button>{bank&&<><button className="template-card" onClick={()=>fork(bank.id)}><Copy/><div><b>建立当前题库的可编辑副本</b><span>{bank.name}</span></div></button><button className="template-card" onClick={()=>setModal('rollback')}><History/><div><b>回退上次导入</b><span>恢复导入前快照；已有后续修改时会阻止回退。</span></div></button></>}<div className="callout">本版本供本机验证使用；Windows 安装与系统快捷键等平台能力仍需单独验收。</div>{info.benchmark_enabled==='true'&&<button className="primary wide" disabled={!!busy} onClick={runBenchmark}>运行性能库界面验证</button>}</>}
    {modal==='rollback'&&<><h2>回退上次导入？</h2><p>将恢复「{bank?.name}」导入前的快照。若导入后已有其他编辑，程序会阻止直接回退；请先导出备份，再处理需要撤回的题目。</p><button className="danger wide" disabled={!!busy} onClick={()=>work('正在回退版本',async()=>{await invoke('rollback_bank',{bankId});await refresh();setModal('');setNotice('已恢复导入前版本。')})}>确认回退</button></>}
+   {modal==='maintainers'&&<><div className="modal-icon"><Shield/></div><h2>微信维护者与证书</h2><p>最高权限账号可以有多个；每个分发证书都对应一个独立桌面维护者身份。</p><MaintainerAdmin banks={banks.map(b=>({bank_id:b.id,name:b.name}))} onChange={()=>void refresh()}/></>}
   </section></div>}
  </div>
 }

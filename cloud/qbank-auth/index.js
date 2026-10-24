@@ -2,7 +2,7 @@
 
 const COS = require('cos-nodejs-sdk-v5');
 const { createHandler } = require('./service.cjs');
-const { createCosStore, createWechatExchange } = require('./adapters.cjs');
+const { createCosStore, createWechatExchange, createWechatPhoneExchange } = require('./adapters.cjs');
 // Generated from shared/intake.ts by scripts/build-cloud.mjs; included in the deploy ZIP.
 const { parseDelta, validateStandardQuestion,parseModelReply } = require('./intake.cjs');
 
@@ -14,4 +14,4 @@ const store = createCosStore({ clientFactory: env => {
     AutoSwitchHost: false, UploadCheckContentMd5: true });
 } });
 
-exports.main_handler = createHandler({ store, exchangeCode: createWechatExchange(), parseDelta, validateStandardQuestion,parseModelReply });
+exports.main_handler = createHandler({ store, exchangeCode: createWechatExchange(), exchangePhone: createWechatPhoneExchange(), parseDelta, validateStandardQuestion,parseModelReply });
