@@ -48,7 +48,7 @@ sh mac/scripts/env.sh cargo test --manifest-path src-tauri/Cargo.toml --test clo
 
 ## 小程序域名共用 8013
 
-客户端和微信 `request` 合法域名均为 `https://qbank.creart.top:8013`。现有 FRP／sslh 不需要增加端口：SSH 继续进入 `22`，TLS 继续进入 `8443`，Caddy 根据 SNI 区分域名与桌面的 IP 入口。
+客户端已配置 `https://qbank.creart.top:8013`，微信 `request` 合法域名需填写相同地址。**当前状态：域名地址已配置，仍需部署 HTTPS 证书。** 证书申请与部署按用户要求暂缓，微信后台保存结果和真机连接尚未确认。现有 FRP／sslh 不需要增加端口：SSH 继续进入 `22`，TLS 继续进入 `8443`，域名接入后由 Caddy 根据 SNI 区分域名与桌面的 IP 入口。
 
 [Caddyfile.domain](Caddyfile.domain) 是待证书就绪后接入的域名站点模板，不能当作已生效配置。通过 DNS 验证获得覆盖 `qbank.creart.top` 的可信证书，将完整链和私钥安装到 `/etc/caddy/certs/qbank.creart.top/fullchain.pem` 与 `key.pem`，目录权限 `0750`、文件权限 `0640`、所有者 `root:caddy`；确认 Caddy 可读。备份主配置后，将模板安装为 `/etc/caddy/qbank-domain.caddy`，在主配置末尾添加 `import /etc/caddy/qbank-domain.caddy`，验证配置并热重载，最后同时验证域名 HTTPS、原 IP HTTPS 和 SSH。
 
