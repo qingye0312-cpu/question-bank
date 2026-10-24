@@ -13,7 +13,7 @@ function version(bank_id,name,revision=1){
  return {wrapper,manifest:{bank_id,name,revision,release_version:revision,sha256:wrapper.sha256,bytes:Buffer.byteLength(text),minimum_client:'0.2.7',protocol:2,snapshot_format:'qbank-cloud-file-1',updated_at:'2026-10-24T00:00:00Z'}};
 }
 function setup(){
- let generation=1,failBank='',restore,offline=false;
+ let generation=1,failBank='',restore,offline=false,requestError='';
  const files=new Map(),calls=[],versions=[version(first,'初级'),version(second,'高级')];
  const fileSystem={
   readFile:o=>{if(o.filePath.endsWith('qbank-cloud-catalog.json')&&restore){restore(o);return;}files.has(o.filePath)?o.success({data:files.get(o.filePath)}):o.fail({errMsg:'not found'});},
@@ -22,6 +22,7 @@ function setup(){
  };
  const wx={env:{USER_DATA_PATH:'/user'},getFileSystemManager:()=>fileSystem,request:o=>{
   const endpoint=new URL(o.url).pathname;calls.push(endpoint);
+  if(requestError)return o.fail({errMsg:requestError});
   if(offline)return o.fail({errMsg:'offline'});
   if(endpoint==='/v1/catalog')return o.success({statusCode:200,data:{banks:versions.map(v=>v.manifest)}});
   const v=versions.find(v=>endpoint.includes(v.manifest.bank_id));
@@ -31,7 +32,7 @@ function setup(){
  const exports={},source=fs.readFileSync(new URL('../miniprogram/miniprogram/services/sync.ts',import.meta.url),'utf8');
  const code=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText;
  vm.runInNewContext(code,{exports,require:name=>name.endsWith('/config/cloud')?{authOrigin:()=> 'https://qbank.example.test:8013'}:name.endsWith('/foreground')?{foregroundGeneration:()=>generation}:name.endsWith('/core/sync')?syncCore:name.endsWith('/core/search')?{buildPostings:()=>({})}:{sha256},wx,Map,Promise,Error});
- return {client:exports,calls,versions,files,next:()=>generation++,fail:id=>failBank=id,setOffline:value=>offline=value,delayRestore:fn=>restore=fn};
+ return {client:exports,calls,versions,files,next:()=>generation++,fail:id=>failBank=id,setOffline:value=>offline=value,setRequestError:value=>requestError=value,delayRestore:fn=>restore=fn};
 }
 test('multi-bank catalogue refresh is once per foreground, downloads are per-bank and unchanged revisions stay cached',async()=>{
  const s=setup(),c=s.client;
@@ -68,4 +69,19 @@ test('slow disk restore cannot replace a newer two-bank catalogue with stale dat
  s.delayRestore(o=>{release=()=>{const payload=JSON.stringify([s.versions[0].manifest]);o.success({data:JSON.stringify({payload,sha256:sha256(payload)})})};});
  const restore=s.client.restoreCatalog(),fresh=s.client.refreshCatalog();release();await Promise.all([restore,fresh]);
  assert.equal(s.client.cloudCatalog().length,2);assert.equal(s.calls.filter(p=>p==='/v1/catalog').length,1);
+});
+
+test('domain, TLS and timeout errors remain specific while preserving both bank caches',async()=>{
+ const s=setup(),c=s.client;
+ s.setRequestError('request:fail url not in domain list');
+ await assert.rejects(c.refreshCatalog(),/request 合法域名/);
+ assert.equal(c.cloudCatalog().length,0);assert.equal(s.files.size,0);
+ s.setRequestError('');await c.refreshCatalog();
+ for(const m of c.cloudCatalog())await c.syncBank(m.bank_id,m);
+ const stored=JSON.stringify([...s.files]);
+ for(const [error,message] of [['request:fail url not in domain list',/request 合法域名/],['request:fail ERR_CONNECTION_RESET',/HTTPS 连接失败/],['request:fail ssl hand shake error',/HTTPS 连接失败/],['request:fail timeout',/请求超时/]]){
+  s.setRequestError(error);await assert.rejects(c.refreshCatalog(true),message);
+  assert.equal(c.cloudCatalog().length,2);assert.equal((await c.cachedSnapshot(second)).manifest.name,'高级');assert.equal(JSON.stringify([...s.files]),stored);
+ }
+ s.setRequestError('');await c.refreshCatalog(true);assert.equal(c.cloudCatalog().length,2);
 });

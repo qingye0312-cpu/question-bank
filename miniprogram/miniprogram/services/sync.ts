@@ -17,12 +17,18 @@ async function checked(file:string){const wrapper=JSON.parse(await read(file));i
 export async function cachedSnapshot(id:string):Promise<{manifest:CloudManifest;snapshot:CloudSnapshot}|null>{
  try{const c=await checked(path(id)),manifest=readManifest(c.manifest);if(manifest.bank_id!==id)throw Error('题库身份错误');return {manifest,snapshot:readSnapshot(c.wrapper,manifest)};}catch{return null;}
 }
+function requestFailureMessage(message:string):string {
+ if(/url not in domain|不在.*合法域名|domain list/i.test(message))return '云端域名未加入微信 request 合法域名，暂用本地题库';
+ if(/ssl|tls|certificate|证书|err_connection_reset/i.test(message))return '云端 HTTPS 连接失败，继续使用本地题库';
+ if(/timeout|timed out|超时/i.test(message))return '云端请求超时，继续使用本地题库';
+ return '无法连接云端，请检查网络或服务状态；本地题库仍可使用';
+}
 function request(endpoint:string):Promise<unknown>{
  const origin=authOrigin();if(!origin)return Promise.reject(Error('云端同步尚未配置'));
  return new Promise((resolve,reject)=>wx.request({url:origin+endpoint,method:'GET',timeout:15000,dataType:'json',responseType:'text',success:r=>{
   if(r.statusCode!==200){reject(Error('云端暂不可用，继续使用本地题库'));return;}
   try{const text=typeof r.data==='string'?r.data:JSON.stringify(r.data);if(text.length>8388608)throw Error('响应过大');resolve(JSON.parse(text));}catch{reject(Error('云端返回无效数据'));}
- },fail:()=>reject(Error('网络不可用，继续使用本地题库'))}));
+ },fail:error=>reject(Error(requestFailureMessage(error.errMsg||'')))}));
 }
 export function restoreCatalog():Promise<void>{
  if(!restoring)restoring=(async()=>{try{catalog=(await checked(`${wx.env.USER_DATA_PATH}/qbank-cloud-catalog.json`)).map(readManifest);}catch{/* Bundled and local banks remain available. */}})();
