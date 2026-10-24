@@ -11,7 +11,12 @@
       </view>
     </view>
     <view class="answer-card"><view class="muted label">答案</view><view class="answer">{{answer}}</view></view>
-    <view wx:if="{{explanation}}" class="paper explanation"><view class="muted label">解析</view><text user-select>{{explanation}}</text></view>
+    <view class="paper explanation">
+      <view wx:if="{{explanation || needsReview}}" class="muted label">解析 <text wx:if="{{needsReview}}" class="review-status">待核对</text></view>
+      <text wx:if="{{explanation}}" user-select>{{explanation}}</text>
+      <button class="source-toggle" bindtap="toggleSources" aria-expanded="{{sourcesOpen}}">答案来源 <text>{{sourcesOpen?'⌃':'⌄'}}</text></button>
+      <view wx:if="{{sourcesOpen}}" class="answer-sources"><text wx:for="{{sources}}" wx:key="index" user-select>{{item}}</text><text wx:if="{{!sources.length}}">暂无来源记录</text></view>
+    </view>
     <view class="metadata muted"><view wx:for="{{metadata}}" wx:key="label"><text>{{item.label}}：</text><text user-select wx:for="{{item.segments}}" wx:for-item="part" wx:for-index="partIndex" wx:key="partIndex" class="{{part.color >= 0 ? 'match-' + part.color : ''}}">{{part.text}}</text></view></view>
   </block>
 </view>

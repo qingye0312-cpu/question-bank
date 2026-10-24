@@ -9,7 +9,7 @@ import {parseDelta,sha256} from '../shared/intake.ts';
 const root=new URL('../miniprogram/miniprogram/',import.meta.url);
 const fixture=fs.readFileSync(new URL('fixtures/intake/mobile-delta.json',import.meta.url),'utf8');
 
-function load(relative){
+function load(relative,globals={}){
   const cache=new Map();
   function read(name){
     let url=new URL(name,root);
@@ -20,7 +20,7 @@ function load(relative){
     if(cache.has(url.href))return cache.get(url.href);
     const source=fs.readFileSync(url,'utf8'),exports={};cache.set(url.href,exports);
     const compiled=url.pathname.endsWith('.ts')?ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText:source;
-    vm.runInNewContext(compiled,{exports,module:{exports},require:child=>read(new URL(child,url).pathname.replace(root.pathname,'')),console,Uint8Array,Uint16Array,Uint32Array,Int32Array,ArrayBuffer,DataView,Date,Map,Set,Error,Promise,TextDecoder,setTimeout,clearTimeout});
+    vm.runInNewContext(compiled,{exports,module:{exports},require:child=>read(new URL(child,url).pathname.replace(root.pathname,'')),console,Uint8Array,Uint16Array,Uint32Array,Int32Array,ArrayBuffer,DataView,Date,Map,Set,Error,Promise,TextDecoder,setTimeout,clearTimeout,...globals});
     return exports;
   }
   return read(relative);
@@ -41,11 +41,14 @@ test('Mini Program upload format is one gzip plus Base64 envelope and round-trip
   assert.throws(()=>unpackUpload(JSON.stringify(malformed)));
 });
 
-test('Mini Program client uses WeChat login, keeps the token private, and sends only the current confirmed upload wrapper',async()=>{
+for(const envVersion of ['develop','trial','release'])test(`Mini Program ${envVersion} client logs in and uploads through its configured transport without exposing the token`,async()=>{
   const requests=[];let loginCalls=0;
-  const origin='https://qbank.example.test';
+  const config=load('config/cloud.ts',{wx:{getAccountInfoSync:()=>({miniProgram:{appId:'wx22c8135ae81d3acc',envVersion}})}});
+  const origin=config.authOrigin();
+  assert.equal(origin,`${envVersion==='release'?'https':'http'}://qbank.creart.top:8013`);
   const bank={bank_id:bankId,name:'跨端测试题库'};
-  const client=createCloudClient({origin:()=>origin,login:async()=>{loginCalls++;return 'login-code-123';},request:async(_origin,path,method,body,token)=>{
+  const client=createCloudClient({origin:()=>origin,allowTestHttp:config.isTestHttpOrigin,login:async()=>{loginCalls++;return 'login-code-123';},request:async(_origin,path,method,body,token)=>{
+    assert.equal(_origin,origin);
     requests.push({path,method,body,token});
     if(path==='/v1/auth/wechat-login')return {status:200,body:{access_token:'v1.token.signature',expires_in:900,openid:'ok-phone',phone:'+8613812345678',status:'approved',banks:[bank]}};
     if(path==='/v1/me')return {status:200,body:{openid:'ok-phone',permissions:['upload'],uploads_enabled:true,banks:[bank]}};
@@ -96,4 +99,25 @@ test('manual form validation names the missing field before any login or request
 test('Mini Program cloud client accepts a configured HTTPS port such as 8013',async()=>{
  let target='';const client=createCloudClient({origin:()=> 'https://qbank.example.test:8013',login:async()=>'',request:async origin=>{target=origin;return {status:200,body:{service:'qbank-auth'}}}});
  await client.health();assert.equal(target,'https://qbank.example.test:8013');
+});
+
+test('HTTP is restricted to the exact test origin and app, and release builds never downgrade',async()=>{
+ const app={appId:'wx22c8135ae81d3acc',envVersion:'develop'};
+ const config=load('config/cloud.ts',{wx:{getAccountInfoSync:()=>({miniProgram:app})}});
+ let calls=0,logins=0,target=config.TEST_HTTP_ORIGIN;
+ const deps={origin:()=>target,login:async()=>{logins++;return 'test-login-code'},request:async()=>{calls++;return {status:200,body:{service:'qbank-auth'}}}};
+ await assert.rejects(createCloudClient(deps).health(),/HTTPS/);
+ const client=createCloudClient({...deps,allowTestHttp:config.isTestHttpOrigin});
+ await client.health();assert.equal(calls,1);
+ for(const invalid of ['http://other.example.test:8013','http://qbank.creart.top:80','http://qbank.creart.top:8013@other.example.test']){
+  target=invalid;await assert.rejects(client.loginWechat(),/HTTPS/);
+ }
+ target=config.TEST_HTTP_ORIGIN;
+ for(const env of ['release','unknown']){
+  app.envVersion=env;assert.equal(config.authOrigin(),config.PRODUCTION_AUTH_ORIGIN);
+  await assert.rejects(client.loginWechat(),/HTTPS/);
+ }
+ app.envVersion='develop';app.appId='different-app';assert.equal(config.authOrigin(),'');
+ await assert.rejects(client.loginWechat(),/HTTPS/);
+ assert.equal(logins,0);assert.equal(calls,1);
 });

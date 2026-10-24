@@ -118,11 +118,23 @@ Page({
       if(!this.alive)return;
       // Publish the directory independently of the selected bank's download.
       const banks=await listBanks();this.setData({banks,bankIndex:banks.findIndex(b=>b.id===this.data.bankId),bankName:banks.find(b=>b.id===this.data.bankId)?.name||this.data.bankName},()=>this.measureViewport());
-      const manifest=cloudCatalog().find(b=>b.bank_id===id);
-      if(!manifest){this.setData({syncNotice:`已发现 ${cloudCatalog().length} 个云端题库 · 当前使用本地题库`});return;}
-      const changed=await syncBank(id,manifest);if(!this.alive)return;
-      this.setData({syncNotice:`云端 ${cloudCatalog().length} 个题库 · 版本已核对`});
-      if(changed||!this.data.ready){invalidateBank(id);if(this.data.bankId===id)await this.initialize(id);}
+      // Download every discovered bank, current bank first. A failed download
+      // must not prevent a different bank (including a new one) being cached.
+      const manifests=[...cloudCatalog()].sort((a,b)=>Number(b.bank_id===id)-Number(a.bank_id===id));
+      const failures:string[]=[];
+      for(const manifest of manifests){
+        if(!this.alive)return;
+        this.setData({syncNotice:`正在同步 ${manifest.name} · 共 ${manifests.length} 个云端题库`});
+        try{
+          const changed=await syncBank(manifest.bank_id,manifest);
+          if(changed)invalidateBank(manifest.bank_id);
+          if(!this.alive)return;
+          if(this.data.bankId===manifest.bank_id&&(changed||!this.data.ready))await this.initialize(manifest.bank_id);
+        }catch(e){failures.push(e instanceof Error?e.message:'题库下载暂未完成');}
+      }
+      if(!this.alive)return;
+      this.setData({syncNotice:failures.length?`${failures.length} 个题库同步未完成 · ${failures[0]}`
+        :`云端 ${manifests.length} 个题库 · 版本已核对，已缓存可离线使用`});
     }catch(e){if(this.alive)this.setData({syncNotice:e instanceof Error?e.message:'同步暂未完成，本地题库仍可使用'});}
     finally{if(this.alive){this.setData({syncing:false});if(this.data.bankId!==id)void this.syncCloud();}}
   },

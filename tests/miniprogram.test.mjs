@@ -6,6 +6,7 @@ import {createHash} from 'node:crypto';
 import vm from 'node:vm';
 import ts from 'typescript';
 import * as intakeCore from '../shared/intake.ts';
+import * as answerPresentationCore from '../shared/answer-presentation.ts';
 import {applicationFields} from '../miniprogram/miniprogram/services/maintainer-application.ts';
 import * as core from '../miniprogram/miniprogram/core/search.ts';
 import * as compact from '../miniprogram/miniprogram/core/compact.ts';
@@ -265,6 +266,7 @@ async function loadPage(path, mocks = {}, searchCore = core, services = {}) {
       : name.endsWith('/cloud') ? services.cloud
       : name.endsWith('/search') ? searchCore
       : name.endsWith('/intake') ? intakeCore
+      : name.endsWith('/answer-presentation') ? answerPresentationCore
       : name.endsWith('/bank') ? (services.bank||{loadBank: async () => ({bank: bank(), manifest}),listBanks:async()=>[{id:manifest.bank_id,name:manifest.name}],activeBankId:()=>manifest.bank_id,selectBank:()=>{}})
       : name.endsWith('/sync') ? (services.sync||{cloudCatalog:()=>[],refreshCatalog:async()=>{},syncBank:async()=>false})
       : name.endsWith('/share') ? (services.share||{})
@@ -477,6 +479,20 @@ test('a cloud bank without a cache is downloaded before it becomes searchable, a
  page.layout=new core.VirtualList(0);await page.initialize();assert.equal(page.data.bankId,advanced);assert.equal(page.data.ready,false);assert.match(page.data.error,/尚未下载/);
  await page.syncCloud();assert.equal(page.data.ready,true);assert.equal(page.data.total,914);assert.equal(invalidations,1);
  page.foregroundSeen=1;page.onShow();page.onShow();assert.equal(downloads,1);assert.equal(refreshes,1);
+});
+
+test('home caches the advanced bank automatically without switching and continues after a selected-bank failure',async()=>{
+ const advanced='c86104f7-4570-4089-9338-7989ce528a9d',downloaded=[],invalidated=[];
+ const page=await loadPage('pages/index/index.ts',{},core,{
+  bank:{loadBank:async()=>({bank:bank(),manifest}),listBanks:async()=>[{id:manifest.bank_id,name:manifest.name},{id:advanced,name:'高级题库'}],
+    activeBankId:()=>manifest.bank_id,selectBank:()=>{},invalidateBank:id=>invalidated.push(id)},
+  sync:{cloudCatalog:()=>[{bank_id:advanced,name:'高级题库'},{bank_id:manifest.bank_id,name:'初级题库'}],refreshCatalog:async()=>{},
+    syncBank:async id=>{downloaded.push(id);if(id===manifest.bank_id)throw Error('初级下载暂不可用');return true;}},
+ });
+ page.layout=new core.VirtualList(0);await page.initialize();await page.syncCloud();
+ assert.deepEqual(downloaded,[manifest.bank_id,advanced]);assert.deepEqual(invalidated,[advanced]);
+ assert.equal(page.data.bankId,manifest.bank_id);assert.equal(page.data.ready,true);assert.equal(page.data.syncing,false);
+ assert.match(page.data.syncNotice,/1 个题库同步未完成/);
 });
 
 test('maintainer application button shows validation, progress and persistent errors without a phone authorization popup',async()=>{

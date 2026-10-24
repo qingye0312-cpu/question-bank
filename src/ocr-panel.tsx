@@ -7,6 +7,7 @@ import type {Bank} from './types';
 import {OcrController,readImage} from './ocr-client';
 import type {OcrEngine,OcrImage,OcrInput,Recognition,Matches} from './ocr-client';
 import {OcrCrop} from './ocr-crop';
+import {QuestionExplanation} from './question-explanation';
 
 export function OcrPanel({banks,bankId,initial,onClose,onSearch}:{banks:Bank[];bankId:string;initial:OcrInput|null;onClose:()=>void;onSearch:(text:string,bankId:string)=>void}){
   const [selectedBank,setSelectedBank]=useState(bankId||banks[0]?.id||'');
@@ -89,7 +90,7 @@ export function OcrPanel({banks,bankId,initial,onClose,onSearch}:{banks:Bank[];b
         {busy?<div className="ocr-placeholder"><RefreshCw className="spin" size={28}/><b>{status}</b><button onClick={cancel}>取消识别</button></div>:<>
           {matching&&<div className="ocr-status"><RefreshCw size={15} className="spin"/>正在匹配当前题库…</div>}
           {matches&&<div className={`ocr-match-status ${matches.automatic?'matched':''}`}><CheckCircle2 size={18}/><span>{matches.message}</span></div>}
-          {candidate&&<section className="ocr-answer"><small>{candidate.answer_scope==='image'?'本次题目答案（已对应选项）':'题库答案'}</small><strong>{candidate.answer}</strong>{candidate.answer_details.map(s=><p key={s}>{s}</p>)}{candidate.answer_scope==='bank'&&matches!.parsed.options.length>0&&candidate.hit.question.type!=='true_false'&&<small>选项尚未完全对应，请按内容核对，勿直接套用字母。</small>}<details><summary>查看完整题目与解析</summary><p>{candidate.hit.question.stem}</p>{candidate.hit.question.options.map(o=><p key={o.key}>{o.key}. {o.content}</p>)}{candidate.hit.question.explanation&&<p>{candidate.hit.question.explanation}</p>}</details></section>}
+          {candidate&&<section className="ocr-answer"><small>{candidate.answer_scope==='image'?'本次题目答案（已对应选项）':'题库答案'}</small><strong>{candidate.answer}</strong>{candidate.answer_details.map(s=><p key={s}>{s}</p>)}{candidate.answer_scope==='bank'&&matches!.parsed.options.length>0&&candidate.hit.question.type!=='true_false'&&<small>选项尚未完全对应，请按内容核对，勿直接套用字母。</small>}<details><summary>查看完整题目与解析</summary><p>{candidate.hit.question.stem}</p>{candidate.hit.question.options.map(o=><p key={o.key}>{o.key}. {o.content}</p>)}<QuestionExplanation question={candidate.hit.question} className="explanation"/></details></section>}
           {matches?.candidates.length? <div className="ocr-candidates">{matches.candidates.map((c,i)=><button key={c.hit.rowid} aria-pressed={selected===c.hit.rowid} className={selected===c.hit.rowid?'active':''} onClick={()=>setSelected(c.hit.rowid)}><span>{i+1}</span><div><b>{c.hit.question.stem}</b><small>{c.hit.question.external_id} · {c.exact_stem?'题干一致':'相近题目'}{c.options_matched?' · 选项已对应':''}</small></div></button>)}</div>:!matching&&<div className="ocr-placeholder"><ScanText size={32}/><b>{matches?'未找到匹配题目':'答案会显示在这里'}</b><p>{matches?'可修改左侧文字，或选择其他题库。':'截图、粘贴后自动开始识别与匹配。'}</p></div>}
           {matches&&<div className="ocr-meta">检索 {matches.elapsed_ms.toFixed(1)} ms · 最多显示 8 道候选题</div>}
         </>}

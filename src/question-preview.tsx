@@ -1,5 +1,5 @@
 import {useLayoutEffect, useRef} from 'react';
-import type {ReactNode} from 'react';
+import type {HTMLAttributes, ReactNode} from 'react';
 import {createPortal} from 'react-dom';
 
 export type PreviewAnchor = {x: number; y: number; top: number; bottom: number};
@@ -9,11 +9,11 @@ type Props = {
   anchor: PreviewAnchor;
   fontScale: number;
   children: ReactNode;
-};
+} & Pick<HTMLAttributes<HTMLElement>, 'onPointerEnter' | 'onPointerLeave' | 'onFocus' | 'onBlur'>;
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), Math.max(min, max));
 
-export function QuestionPreview({id, anchor, fontScale, children}: Props) {
+export function QuestionPreview({id, anchor, fontScale, children, ...interaction}: Props) {
   const card = useRef<HTMLElement>(null);
 
   useLayoutEffect(() => {
@@ -27,37 +27,44 @@ export function QuestionPreview({id, anchor, fontScale, children}: Props) {
       const maxHeight = Math.max(1, viewportHeight - margin * 2);
       const below = Math.max(0, viewportHeight - margin - anchor.bottom - gap);
       const above = Math.max(0, anchor.top - gap - margin);
-      const room = Math.max(above, below);
-      let width = Math.min(maxWidth, Math.max(360 * fontScale, 560 * fontScale));
-      const step = Math.max(120, (maxWidth - width) / 4);
-
-      // Measure the complete content before painting. Widen the card until it
-      // fits beside the row vertically, instead of clipping or adding a scroller.
+      let width = Math.min(maxWidth, 560 * fontScale);
+      element.style.maxHeight = `${maxHeight}px`;
       element.style.width = `${width}px`;
-      let height = element.offsetHeight;
-      while (height > room && width < maxWidth) {
-        width = Math.min(maxWidth, width + step);
+      const naturalHeight = () => element.scrollHeight + element.offsetHeight - element.clientHeight;
+      let height = naturalHeight();
+      let top: number, left = anchor.x - Math.min(80, width * .2);
+      const fitsRight = anchor.x + gap + width <= viewportWidth - margin;
+      const fitsLeft = anchor.x - gap - width >= margin;
+      const compact = height <= Math.max(above, below) || height <= maxHeight && (fitsRight || fitsLeft);
+      if (compact) {
+        // A normal preview keeps following the pointer wherever it fits.
+        if (height <= below) top = anchor.bottom + gap;
+        else if (height <= above) top = anchor.top - gap - height;
+        else {
+          left = fitsRight ? anchor.x + gap : anchor.x - gap - width;
+          top = anchor.y - height / 2;
+        }
+        left = clamp(left, margin, viewportWidth - margin - width);
+      } else {
+        // Only the expanded fallback reserves the left fifth for the question list.
+        const reservedLeft = Math.max(margin, viewportWidth / 5);
+        const expandedWidth = Math.max(1, viewportWidth - margin - reservedLeft);
+        width = Math.min(width, expandedWidth);
         element.style.width = `${width}px`;
-        height = element.offsetHeight;
+        height = naturalHeight();
+        while (height > Math.max(above, below) && width < expandedWidth) {
+          width = Math.min(expandedWidth, width + 120 * fontScale);
+          element.style.width = `${width}px`;
+          height = naturalHeight();
+        }
+        left = viewportWidth - margin - width;
+        height = Math.min(height, maxHeight);
+        top = height <= below ? anchor.bottom + gap
+          : height <= above ? anchor.top - gap - height : anchor.y - height / 2;
       }
-
-      // Even a future oversized question remains fully visible without a second
-      // scrollbar. Normal questions retain the user's chosen font size.
-      const scale = Math.min(1, maxHeight / Math.max(1, height));
-      const renderedWidth = width * scale, renderedHeight = height * scale;
-      let top = renderedHeight <= below ? anchor.bottom + gap
-        : renderedHeight <= above ? anchor.top - gap - renderedHeight
-        : anchor.y - renderedHeight / 2;
-      let left = anchor.x - Math.min(80, renderedWidth * .2);
-      if (renderedHeight > room) {
-        // If neither above nor below fits, use the side of the pointer when possible.
-        if (anchor.x + gap + renderedWidth <= viewportWidth - margin) left = anchor.x + gap;
-        else if (anchor.x - gap - renderedWidth >= margin) left = anchor.x - gap - renderedWidth;
-      }
-      top = clamp(top, margin, viewportHeight - margin - renderedHeight);
-      left = clamp(left, margin, viewportWidth - margin - renderedWidth);
+      top = clamp(top, margin, viewportHeight - margin - height);
       Object.assign(element.style, {
-        left: `${left}px`, top: `${top}px`, transform: `scale(${scale})`, visibility: 'visible',
+        left: `${left}px`, top: `${top}px`, visibility: 'visible',
       });
     };
 
@@ -68,9 +75,7 @@ export function QuestionPreview({id, anchor, fontScale, children}: Props) {
     return () => { observer.disconnect(); window.removeEventListener('resize', fit); };
   }, [anchor, fontScale, children]);
 
-  // The preview never intercepts the pointer, so moving straight to another row
-  // changes the preview immediately and cannot trigger an enter/leave loop.
-  return createPortal(<section id={id} className="question-preview" role="tooltip" ref={card}>
+  return createPortal(<section id={id} className="question-preview" role="dialog" aria-label="题目预览" tabIndex={-1} ref={card} {...interaction}>
     {children}
   </section>, document.body);
 }
