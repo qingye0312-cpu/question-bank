@@ -9,7 +9,7 @@ import { encodeUpload } from '../tools/cloud/encode-upload.mjs';
 
 const require = createRequire(import.meta.url);
 const { createHandler, LIMITS, sha256 } = require('../cloud/qbank-auth/service.cjs');
-const { createCosStore, createWechatExchange } = require('../cloud/qbank-auth/adapters.cjs');
+const { createCosStore, createWechatExchange, createWechatPhoneExchange } = require('../cloud/qbank-auth/adapters.cjs');
 const fixture = fs.readFileSync(new URL('./fixtures/intake/mobile-delta.json', import.meta.url), 'utf8');
 const packet = JSON.parse(fixture);
 const developer = 'openid-developer-for-tests';
@@ -205,4 +205,18 @@ test('WeChat adapter sends secrets only to official API and discards session_key
   await assert.rejects(badCode({}), error => error.status === 401 && !error.message.includes('secret'));
   const timeout = createWechatExchange(async () => { throw new Error('https://example.com/?secret=private'); });
   await assert.rejects(timeout({}), error => error.status === 502 && !error.message.includes('private'));
+});
+
+test('WeChat phone adapter exchanges login and one-time phone codes only with official APIs', async () => {
+  const requests=[];
+  const exchange=createWechatPhoneExchange(async (url,options)=>{
+    requests.push({url:new URL(url),options});
+    if(new URL(url).pathname==='/sns/jscode2session')return new Response(JSON.stringify({openid:developer,session_key:'private'}));
+    if(new URL(url).pathname==='/cgi-bin/token')return new Response(JSON.stringify({access_token:'token'}));
+    return new Response(JSON.stringify({phone_info:{phoneNumber:'+8613812345678'}}));
+  });
+  const identity=await exchange({appId:'wx-test',appSecret:'secret',loginCode:'login-code',phoneCode:'phone-code'});
+  assert.equal(identity.phone,'+8613812345678');assert.equal(requests.length,3);assert.equal(requests[0].url.origin,'https://api.weixin.qq.com');
+  assert.equal(requests[2].url.pathname,'/wxa/business/getuserphonenumber');assert.equal(requests[2].url.searchParams.get('access_token'),'token');
+  assert.equal(JSON.parse(requests[2].options.body).code,'phone-code');
 });
