@@ -15,9 +15,7 @@ function utf8(bytes) {
 }
 function jsonBody(event, maxBytes) {
   if (typeof event.body !== 'string') fail(400, 'JSON_REQUIRED', '请求必须包含 JSON 文本');
-  if (Buffer.byteLength(event.body) > maxBytes * (event.isBase64Encoded === true ? 1.34 : 1))
-    fail(413, 'REQUEST_TOO_LARGE', '请求过大，已保留本地记录，不会自动拆包');
-  const text = event.isBase64Encoded === true ? utf8(strictBase64(event.body, maxBytes)) : event.body;
+  const text = event.body;
   if (Buffer.byteLength(text) > maxBytes) fail(413, 'REQUEST_TOO_LARGE', '请求过大，已保留本地记录，不会自动拆包');
   try { return JSON.parse(text); } catch { fail(400, 'JSON_INVALID', '请求不是有效 JSON'); }
 }
@@ -61,13 +59,12 @@ function decodeUpload(envelope, parseDelta, parseModelReply) {
   const canonical = { ...envelope, data: gzipSync(raw).toString('base64') };
   return { delta, envelope: canonical };
 }
-function receipt(record, merge = null, version = null) {
+function receipt(record, merge) {
   return { submission_id: record.submission_id, bank_id: record.bank_id, batch_id: record.batch_id,
     sha256: record.sha256, payload_sha256: record.payload_sha256, question_count: record.question_count,
-    status: merge ? (merge.duplicate ? 'duplicate' : 'merged') : record.status,
-    accepted_at: record.accepted_at,
-    ...(merge ? { merged_at: merge.merged_at, added_count: merge.added_count, duplicate_count: merge.duplicate_count,
-      revision: version?.revision, release_version: version?.release_version, release_name: version?.release_name || null } : {}) };
+    status: merge.duplicate ? 'duplicate' : 'merged', accepted_at: record.accepted_at,
+    merged_at: merge.merged_at, added_count: merge.added_count, duplicate_count: merge.duplicate_count,
+    revision: merge.revision, release_version: merge.release_version, release_name: merge.release_name };
 }
 
 

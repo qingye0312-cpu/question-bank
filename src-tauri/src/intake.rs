@@ -431,7 +431,7 @@ pub struct Batch {
 pub struct Entry {
     pub question: Question,
     pub upload_status: String,
-    pub review_status: String,
+    pub merge_status: String,
     pub uploaded_at: String,
     pub exported_at: String,
 }
@@ -457,29 +457,14 @@ pub fn entries(store: &Store, batch_id: &str) -> Result<Vec<Entry>> {
 }
 pub fn entries_conn(c: &Connection, batch_id: &str) -> Result<Vec<Entry>> {
     let snapshot: Option<String> = c.query_row("SELECT s.payload FROM cloud_snapshots s JOIN intake_batches b ON b.bank_id=s.bank_id WHERE b.id=?1", [batch_id], |r| r.get(0)).optional().map_err(err)?;
-    let mut review_states = HashMap::new();
+    let mut merge_states = HashMap::new();
     if let Some(raw) = snapshot {
         let value: Value = serde_json::from_str(&raw).map_err(err)?;
         if let Some(removed) = value["removed"].as_array() {
             for r in removed {
                 if let (Some(id), Some(status)) = (r["question_id"].as_str(), r["status"].as_str())
                 {
-                    review_states.insert(id.to_string(), status.to_string());
-                }
-            }
-        }
-        if let Some(pending) = value["pending"].as_array() {
-            for q in pending {
-                if let Some(id) = q["question_id"].as_str() {
-                    review_states.insert(
-                        id.to_string(),
-                        if q["status"] == "verified" {
-                            "confirmed"
-                        } else {
-                            "pending"
-                        }
-                        .into(),
-                    );
+                    merge_states.insert(id.to_string(), status.to_string());
                 }
             }
         }
@@ -499,7 +484,7 @@ pub fn entries_conn(c: &Connection, batch_id: &str) -> Result<Vec<Entry>> {
         let (data, upload_status, uploaded_at, exported_at) = r.map_err(err)?;
         let question: Question = serde_json::from_str(&data).map_err(err)?;
         Ok(Entry {
-            review_status: review_states
+            merge_status: merge_states
                 .get(&question.question_id)
                 .cloned()
                 .unwrap_or_default(),

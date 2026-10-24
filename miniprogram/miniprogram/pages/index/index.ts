@@ -190,7 +190,7 @@ Page({
     this.start = range.start; this.end = range.end;
     const rows = this.ids.slice(range.start, range.end).map(id => {
       const q = this.bank!.question(id);
-      return {id, questionId: q.question_id, number: q.external_id, kind: typeNames[q.type],layer:q.cloud_layer==='pending'?(q.status==='verified'?'历史候选':'历史未确认'):q.cloud_layer==='draft'?'本地新题':'',
+      return {id, questionId: q.question_id, number: q.external_id, kind: typeNames[q.type],layer:q.cloud_layer==='draft'?'本地新题':'',
         answer: answerText(q), segments: snippet(q, this.terms)};
     });
     this.setData({rows, before: range.before, after: range.after}, () => {

@@ -20,9 +20,10 @@ function readBanks(value:unknown):Bank[]{
     seen.add(b.bank_id);return {bank_id:b.bank_id,name:b.name};});
 }
 const messages:Record<string,string>={
-  DEVELOPER_NOT_ALLOWED:'此微信账号尚未获得开发者上传授权，请联系题库维护者',
   BANK_FORBIDDEN:'没有当前题库的上传权限，请重新登录确认授权',
   PHONE_LOGIN_REQUIRED:'请先在“上传”页使用微信手机号登录并申请维护者权限',
+  IDENTITY_REQUIRED:'请填写 1 至 500 字的身份说明，方便管理员核实',
+  MAINTAINER_REVOKED:'维护者权限已撤销，请联系管理员',
   APPLICATION_PENDING:'此手机号已有待审批申请，请等待桌面最高权限处理',
   ALREADY_MAINTAINER:'此手机号已经是题库维护者，正在刷新授权',
   BANK_NAME_MISMATCH:'题库名称与云端目录不一致，请联系题库维护者',
@@ -54,7 +55,7 @@ export function createCloudClient(deps:{origin:()=>string;login:()=>Promise<stri
     const response=await deps.request(current?.origin||origin(),path,method,body,current?.token);
     if(response.status<200||response.status>=300){
       const error=object(object(response.body).error),code=typeof error.code==='string'?error.code:'';
-      if(response.status===401||code==='DEVELOPER_NOT_ALLOWED'||code==='BANK_FORBIDDEN')logout();
+      if(response.status===401||code==='BANK_FORBIDDEN'||code==='MAINTAINER_REVOKED')logout();
       throw new UploadError(response.status===401?'登录已失效，请重新登录后重试':messages[code]||'云端请求未完成，请保留本地批次后重试',response.status,code);
     }
     return response;
@@ -79,29 +80,29 @@ export function createCloudClient(deps:{origin:()=>string;login:()=>Promise<stri
     })();
     pending=run;void run.finally(()=>{if(pending===run)pending=undefined;}).catch(()=>{});return run;
   }
-  function login():Promise<CloudAccess>{return startLogin('/v1/auth/wechat',(code:string)=>({code}),false)}
   async function loginWithPhone(phoneCode:string,nickname=''):Promise<CloudAccess>{
     if(!/^[A-Za-z0-9_-]{8,256}$/.test(phoneCode))throw new Error('未取得手机号授权凭证，请点击授权按钮');
     return startLogin('/v1/auth/wechat-phone',(loginCode:string)=>({login_code:loginCode,phone_code:phoneCode,nickname}),true);
   }
-  async function applyMaintainer(bankId:string,_name:string,phoneCode:string,nickname=''){
+  async function applyMaintainer(bankId:string,_name:string,phoneCode:string,nickname:string,identityDescription:string){
+    const identity=identityDescription.trim();
+    if(!identity||identity.length>500)throw new Error('请填写 1 至 500 字的身份说明，方便管理员核实');
     if(!active()?.phone)await loginWithPhone(phoneCode,nickname);
     const current=active();if(!current)throw new Error('手机号登录已失效，请重新授权');
     let result:Record<string,unknown>;
-    try { result=object((await call('/v1/maintainer-applications','POST',{bank_ids:[bankId],nickname},current)).body); }
+    try { result=object((await call('/v1/maintainer-applications','POST',{bank_ids:[bankId],nickname,identity_description:identity},current)).body); }
     catch(error){
       // The same phone button is also the re-login action after desktop approval.
       // A repeat application is therefore a successful refresh, not a failed upload.
       if(error instanceof UploadError && (error.code==='ALREADY_MAINTAINER'||error.code==='APPLICATION_PENDING'))
-        return {id:'',status:error.code==='ALREADY_MAINTAINER'?'approved':'pending',phone:current.phone||'',nickname:current.nickname||nickname,bank_ids:[bankId]};
+        return {id:'',status:error.code==='ALREADY_MAINTAINER'?'approved':'pending',phone:current.phone||'',nickname:current.nickname||nickname,identity_description:identity,bank_ids:[bankId]};
       throw error;
     }
     if(!result.application)throw new Error('申请响应无效');
-    return result.application as {id:string;status:string;phone:string;nickname:string;bank_ids:string[]};
+    return result.application as {id:string;status:string;phone:string;nickname:string;identity_description:string;bank_ids:string[]};
   }
   async function authorize(bankId:string,name:string){
-    if(!active())await login();
-    const current=active();if(!current)throw new Error('登录已失效，请重新登录');
+    const current=active();if(!current)throw new UploadError('请先在“上传”页使用微信手机号登录并申请维护者权限',403,'PHONE_LOGIN_REQUIRED');
     const me=object((await call('/v1/me','GET',undefined,current)).body);
     if(!Array.isArray(me.permissions)||!me.permissions.includes('upload')||typeof me.uploads_enabled!=='boolean')throw new Error('云端权限响应无效');
     if(active()!==current||me.openid!==current.openid)throw new UploadError('登录已取消或身份改变',401,'SIGNED_OUT');
@@ -112,14 +113,14 @@ export function createCloudClient(deps:{origin:()=>string;login:()=>Promise<stri
     if(!current.uploadsEnabled)throw new UploadError(messages.UPLOAD_DISABLED,503,'UPLOAD_DISABLED');
     return current.origin;
   }
-  async function upload(expected:ReturnType<typeof prepareUpload>,expectedOrigin:string,confirmed=true){
+  async function upload(expected:ReturnType<typeof prepareUpload>,expectedOrigin:string){
     const current=active();if(!current||current.origin!==expectedOrigin)throw new Error('登录已失效或服务地址改变，请重新登录后重试');
-    const response=await call('/v1/uploads','POST',confirmed?{format:'qbank-confirmed-upload-1',package:expected.envelope}:expected.envelope,current),body=object(response.body);
+    const response=await call('/v1/uploads','POST',{format:'qbank-confirmed-upload-1',package:expected.envelope},current),body=object(response.body);
     if(!((response.status===201&&body.duplicate===false)||(response.status===200&&body.duplicate===true)))throw new Error('云端上传响应无效，请重试本批次');
     return {receipt:verifyReceipt(body.receipt,expected),duplicate:body.duplicate as boolean};
   }
   async function health(){return object((await call('/health','GET',undefined)).body)}
-  return {state,login,loginWithPhone,applyMaintainer,logout,authorize,upload,health};
+  return {state,loginWithPhone,applyMaintainer,logout,authorize,upload,health};
 }
 
 const request:Transport=(origin,path,method,body,token)=>new Promise((resolve,reject)=>{

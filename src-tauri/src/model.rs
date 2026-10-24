@@ -98,7 +98,7 @@ impl Question {
             }
         }
     }
-    pub fn validate(&self, legacy: bool) -> Result<()> {
+    pub fn validate(&self, allow_incomplete: bool) -> Result<()> {
         if !["1.0", "1.1"].contains(&self.schema_version.as_str()) {
             return Err("不支持的 schema_version".into());
         }
@@ -127,7 +127,7 @@ impl Question {
             return Err("此版本尚不支持附件或扩展对象，请保留原文件".into());
         }
         if !["unreviewed", "needs_review", "verified"].contains(&self.status.as_str()) {
-            return Err("未知的审核状态".into());
+            return Err("未知的内容状态".into());
         }
         if !["", "easy", "medium", "hard"].contains(&self.difficulty.as_str()) {
             return Err("难度必须为 easy、medium、hard 或空值".into());
@@ -154,16 +154,16 @@ impl Question {
         } else if self.kind == "true_false" {
             if !self.options.is_empty()
                 || !(self.answer.is_boolean()
-                    || (legacy
+                    || (allow_incomplete
                         && self.status == "needs_review"
                         && self.answer.is_null()
-                        && !self.sources.is_empty()))
+                        && (!self.issues.is_empty() || !self.sources.is_empty())))
             {
                 return Err("判断题选项须留空，答案必须是正确或错误".into());
             }
         } else {
             if !(2..=8).contains(&self.options.len()) {
-                if !(legacy && self.status == "needs_review") {
+                if !(allow_incomplete && self.status == "needs_review") {
                     return Err("选择题需要 2 至 8 个选项".into());
                 }
             }
@@ -172,15 +172,15 @@ impl Question {
                     return Err("选项必须从 A 连续排列且内容不能为空".into());
                 }
             }
-            if legacy
+            if allow_incomplete
                 && self.status == "needs_review"
                 && self.answer.is_null()
-                && !self.sources.is_empty()
+                && (!self.issues.is_empty() || !self.sources.is_empty())
             {
                 return Ok(());
             }
             let a = self.answer.as_array().ok_or("选择题答案须为数组")?;
-            if !legacy || self.status != "needs_review" {
+            if !allow_incomplete || self.status != "needs_review" {
                 if (self.kind == "single" && a.len() != 1)
                     || (self.kind == "multiple" && a.len() < 2)
                 {

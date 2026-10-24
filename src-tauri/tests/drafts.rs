@@ -116,7 +116,7 @@ fn final_submit_is_one_immutable_package_and_export_does_not_freeze() {
         transfer,
         cloud::transfer(&s, id, "https://example.test").unwrap()
     );
-    let mut receipt = json!({"submission_id":hash(format!("{}/{}",b,id).as_bytes()),"bank_id":b,"batch_id":id,"sha256":hash(&decoded),"payload_sha256":package["sha256"],"question_count":101,"status":"pending_merge","accepted_at":now()});
+    let mut receipt = json!({"submission_id":hash(format!("{}/{}",b,id).as_bytes()),"bank_id":b,"batch_id":id,"sha256":hash(&decoded),"payload_sha256":package["sha256"],"question_count":101,"status":"merged","accepted_at":now(),"merged_at":now(),"revision":2,"release_version":2,"release_name":"20261024-080001_测试库","added_count":101,"duplicate_count":0});
     receipt["question_count"] = json!(100);
     assert!(cloud::acknowledge(&s, id, receipt.clone()).is_err());
     receipt["question_count"] = json!(101);
@@ -192,40 +192,4 @@ fn promotion_guards_one_bank_backups_and_verifies_exact_first_release() {
     assert!(drafts::list(&s, &b).unwrap()[0]["publishedAt"].is_string());
     drafts::save(&s, draft(&b, "新云端增量"), 0).unwrap();
     assert_eq!(s.questions(&b).unwrap().len(), 2);
-}
-#[test]
-fn legacy_orphan_recovery_preserves_identity_bytes_and_does_not_upload_exports() {
-    let (_d, s, b) = setup();
-    let first = intake::save(&s, &b, "", &draft(&b, "历史上传")["reply"].to_string()).unwrap();
-    let frozen = cloud::transfer(&s, &first.batch_id, "https://example.test").unwrap();
-    let second = intake::save(&s, &b, "", &draft(&b, "历史仅导出")["reply"].to_string()).unwrap();
-    cloud::transfer(&s, &second.batch_id, "").unwrap();
-    assert_eq!(
-        cloud::recover_legacy(&s, &b, "https://another.test", "d_old").unwrap(),
-        0
-    );
-    assert_eq!(
-        cloud::recover_legacy(&s, &b, "https://example.test", "d_old").unwrap(),
-        1
-    );
-    assert_eq!(
-        cloud::recover_legacy(&s, &b, "https://example.test", "d_other").unwrap(),
-        0
-    );
-    let jobs = cloud::client_state(&s, "upload-queue", None).unwrap();
-    assert_eq!(jobs.as_array().unwrap().len(), 1);
-    assert_eq!(jobs[0]["actor"], "d_old");
-    assert_eq!(jobs[0]["confirmed"], false);
-    assert_eq!(
-        cloud::transfer(&s, &first.batch_id, "https://example.test").unwrap(),
-        frozen
-    );
-    let records = drafts::list(&s, &b).unwrap();
-    assert_eq!(
-        records
-            .iter()
-            .find(|r| r["id"] == second.comparison.question.question_id)
-            .unwrap()["submissionId"],
-        ""
-    );
 }

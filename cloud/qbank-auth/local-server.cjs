@@ -1,12 +1,12 @@
 'use strict';
 
-// Small Node HTTP host for the same qbank-auth handler used by Tencent SCF.
+// The self-hosted HTTP service for the desktop app and Mini Program.
 // It deliberately has no framework or third-party runtime dependency.
 const http = require('node:http');
 const fs = require('node:fs');
 const { createHandler } = require('./service.cjs');
 const { createFileStore } = require('./fs-store.cjs');
-const { createWechatExchange, createWechatPhoneExchange } = require('./adapters.cjs');
+const { createWechatPhoneExchange } = require('./wechat-phone.cjs');
 const { LIMITS } = require('./common.cjs');
 const { parseDelta, validateStandardQuestion, parseModelReply } = require('./intake.cjs');
 
@@ -52,7 +52,6 @@ function createLocalServer({ env = process.env } = {}) {
   const handler = createHandler({
     env: () => settings,
     store,
-    exchangeCode: createWechatExchange(),
     exchangePhone: createWechatPhoneExchange(),
     parseDelta,
     validateStandardQuestion,
@@ -62,7 +61,7 @@ function createLocalServer({ env = process.env } = {}) {
     try {
       const url = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`);
       const body = req.method === 'GET' || req.method === 'HEAD' ? '' : await bodyOf(req);
-      const event = { httpMethod: req.method, path: url.pathname, headers: req.headers, body, isBase64Encoded: false };
+      const event = { httpMethod: req.method, path: url.pathname, headers: req.headers, body };
       const response = await handler(event);
       res.statusCode = response.statusCode;
       for (const [key, value] of Object.entries(response.headers || {})) res.setHeader(key, value);

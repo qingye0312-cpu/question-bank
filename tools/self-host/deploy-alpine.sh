@@ -6,7 +6,6 @@ ARCHIVE="artifacts/self-host/qbank-auth-0.2.7.tar.gz"
 REMOTE_ARCHIVE="/tmp/qbank-auth-0.2.7.tar.gz"
 REMOTE_QUESTIONS="/tmp/qbank-questions.json"
 
-pnpm build:cloud
 pnpm build:self-host
 scp "$ARCHIVE" "$HOST:$REMOTE_ARCHIVE"
 scp miniprogram/miniprogram/data/questions.json "$HOST:$REMOTE_QUESTIONS"

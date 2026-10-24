@@ -58,19 +58,6 @@ pub(crate) async fn draft_submit(
     .await
 }
 #[tauri::command]
-pub(crate) async fn intake_prepare(
-    s: State<'_, AppState>,
-    batch_id: String,
-) -> Result<Vec<String>> {
-    let d = s.store.clone();
-    let lock = s.writes.clone();
-    blocking(move || {
-        let _g = lock.lock().map_err(err)?;
-        crate::cloud::prepare_batches(&d, &batch_id)
-    })
-    .await
-}
-#[tauri::command]
 pub(crate) async fn intake_preview(
     s: State<'_, AppState>,
     bank_id: String,

@@ -1,21 +1,5 @@
 use super::*;
 #[tauri::command]
-pub(crate) async fn cloud_recover_legacy(
-    s: State<'_, AppState>,
-    bank_id: String,
-    endpoint: String,
-    actor: String,
-) -> Result<usize> {
-    let d = s.store.clone();
-    let lock = s.writes.clone();
-    blocking(move || {
-        let _g = lock.lock().map_err(err)?;
-        crate::cloud::recover_legacy(&d, &bank_id, &endpoint, &actor)
-    })
-    .await
-}
-
-#[tauri::command]
 pub(crate) async fn promotion_tasks(s: State<'_, AppState>) -> Result<Vec<serde_json::Value>> {
     let d = s.store.clone();
     blocking(move || promotion::list(&d)).await

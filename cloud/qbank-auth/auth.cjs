@@ -19,7 +19,7 @@ function verify(token, config, now, registry) {
   let payload;
   try { payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')); }
   catch { fail(401, 'SESSION_INVALID', '登录已失效，请重新登录'); }
-  if (!object(payload) || !OPENID.test(payload.sub) || !['qbank-upload-v1','qbank-desktop-v1','qbank-wechat-v2'].includes(payload.aud)
+  if (!object(payload) || !OPENID.test(payload.sub) || !['qbank-desktop-v1','qbank-wechat-v2'].includes(payload.aud)
     || payload.app_id !== config.appId || payload.auth_version !== config.authVersion
     || !Number.isSafeInteger(payload.exp) || !Number.isSafeInteger(payload.iat)
     || payload.exp <= now || payload.iat > now + 30 || payload.exp - payload.iat !== LIMITS.sessionSeconds)
@@ -38,10 +38,6 @@ function verify(token, config, now, registry) {
     return {openid:payload.sub,phone_hash:payload.phone_hash,phone_masked:account?.phone_masked||payload.phone_masked||'',nickname:account?.nickname||payload.nickname||'',
       banks:Object.keys(grants),grants,desktop:false,phone:true,pending:!approved,account_status:account?.status||'pending'};
   }
-  // Permissions are re-read on every request. The token never carries trusted roles.
-  const banks = Object.hasOwn(config.developers, payload.sub) ? config.developers[payload.sub] : [];
-  if (!banks.length) fail(403, 'DEVELOPER_NOT_ALLOWED', '此微信用户尚未获得上传授权');
-  return { openid: payload.sub, banks, grants:Object.fromEntries(banks.map(id=>[id,['upload']])),desktop:false };
 }
 
 module.exports={sign,verify};

@@ -1,11 +1,9 @@
 'use strict';
 
 // WeChat maintainer applications and approvals live in the same immutable
-// registry state as the cloud-bank catalogue.  This keeps approvals durable
-// for both the filesystem self-host and the COS adapter without introducing a
-// second mutable configuration file.
-const {randomUUID}=require('node:crypto');
-const {HttpError,UUID,HASH,OPENID,sha256,object,fail}=require('./common.cjs');
+// registry state as the cloud-bank catalogue. This keeps approvals durable in
+// the filesystem self-host without introducing a second mutable configuration.
+const {OPENID,sha256,fail}=require('./common.cjs');
 const REGISTRY_ID='00000000-0000-0000-0000-000000000000';
 const PHONE=/^\+?[0-9]{6,20}$/;
 
@@ -30,20 +28,13 @@ function cleanRegistry(value){
 }
 
 function createAccessRegistry({store,clock=Date.now}){
-  let memory=emptyRegistry();
-  async function read(){
-    let value=null;
-    if(typeof store.readState==='function')value=await store.readState(REGISTRY_ID);
-    if(value)memory=cleanRegistry(value);
-    return structuredClone(memory);
-  }
+  async function read(){return cleanRegistry(await store.readState(REGISTRY_ID));}
   async function update(mutator){
     for(let attempt=0;attempt<6;attempt++){
       const current=await read(),next=structuredClone(current);
       await mutator(next);
       next.revision=current.revision+1;next.updated_at=new Date(clock()).toISOString();
-      if(typeof store.createState!=='function'){memory=next;return structuredClone(next);}
-      if(await store.createState(next)){memory=next;return structuredClone(next);}
+      if(await store.createState(next))return structuredClone(next);
     }
     fail(409,'REVISION_CONFLICT','授权目录正在更新，请刷新后重试');
   }

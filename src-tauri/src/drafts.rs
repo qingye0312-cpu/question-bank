@@ -51,7 +51,7 @@ pub fn list(store: &Store, bank: &str) -> Result<Vec<Value>> {
     let mut c = store.conn()?;
     let tx = c.transaction().map_err(err)?;
     db::get_bank(&tx, bank)?;
-    // Keep the old exchange bytes. Only unsent working records move to new jobs.
+    // Imported local deltas become editable drafts; submitted bytes stay frozen.
     let mut s=tx.prepare("SELECT o.data,CASE WHEN COALESCE(t.endpoint,'')<>'' THEN e.batch_id ELSE '' END FROM intake_entries e JOIN intake_originals o ON o.bank_id=e.bank_id AND o.question_id=e.question_id LEFT JOIN intake_transfers t ON t.batch_id=e.batch_id LEFT JOIN draft_records d ON d.id=e.question_id WHERE e.bank_id=?1 AND d.id IS NULL AND o.deleted=0 AND e.upload_status='pending'").map_err(err)?;
     let old = s
         .query_map([bank], |r| {

@@ -33,33 +33,40 @@ pub fn versions(store: &Store) -> Result<Vec<Value>> {
 }
 pub fn apply(store: &Store, payload: &str, digest: &str) -> Result<()> {
     if payload.len() > 4 * 1024 * 1024 || hash(payload.as_bytes()) != digest {
-        return Err("同步数据摘要或大小无效，旧版已保留".into());
+        return Err("同步数据摘要或大小无效".into());
     }
     let s: Snapshot = serde_json::from_str(payload).map_err(err)?;
-    if !["qbank-snapshot-1", "qbank-snapshot-2"].contains(&s.format.as_str())
+    if s.format != "qbank-snapshot-2"
         || uuid::Uuid::parse_str(&s.bank_id).is_err()
         || s.name.trim().is_empty()
         || s.revision == 0
         || s.revision > 9_007_199_254_740_991
         || s.release_version > 9_007_199_254_740_991
         || chrono::DateTime::parse_from_rfc3339(&s.updated_at).is_err()
-        || s.rollback_at.as_deref().is_some_and(|at| chrono::DateTime::parse_from_rfc3339(at).is_err())
+        || s.rollback_at
+            .as_deref()
+            .is_some_and(|at| chrono::DateTime::parse_from_rfc3339(at).is_err())
         || s.rollback_of.is_some_and(|revision| revision == 0)
     {
         return Err("云端题库身份无效".into());
     }
-    for (legacy, qs) in [
-        (true, s.formal.as_deref().unwrap_or(&[])),
-        (false, s.pending.as_slice()),
-    ] {
+    if !s.pending.is_empty()
+        || s.removed.iter().any(|r| {
+            r["status"] != "merged"
+                || uuid::Uuid::parse_str(r["question_id"].as_str().unwrap_or("")).is_err()
+        })
+    {
+        return Err("云端题库不支持候选层".into());
+    }
+    for qs in [s.formal.as_deref().unwrap_or(&[])] {
         let mut ids = HashSet::new();
         for q in qs {
-            q.validate(legacy)?;
+            q.validate(q.status == "needs_review" && !q.issues.is_empty())?;
             if uuid::Uuid::parse_str(&q.question_id).is_err()
                 || q.options
                     .iter()
                     .any(|o| uuid::Uuid::parse_str(&o.option_id).is_err())
-                || (!legacy && !["unreviewed", "verified"].contains(&q.status.as_str()))
+                || !["unreviewed", "needs_review", "verified"].contains(&q.status.as_str())
                 || q.bank != s.name
                 || !ids.insert(&q.question_id)
             {
@@ -147,18 +154,14 @@ pub fn apply(store: &Store, payload: &str, digest: &str) -> Result<()> {
         .map(|r| serde_json::from_str::<Question>(&r.map_err(err)?).map_err(err))
         .collect::<Result<Vec<_>>>()?;
     drop(st);
-    // Materialize search rows in the same transaction as the two cloud layers.
+    // Materialize search rows in the same transaction as the formal snapshot.
     // Original drafts stay separately addressable even when the formal row wins.
     db::clear_bank(&tx, &s.bank_id)?;
     tx.execute("DELETE FROM question_layers WHERE bank_id=?1", [&s.bank_id])
         .map_err(err)?;
     let mut ids = HashSet::new();
     let mut identities = HashSet::new();
-    for (layer, qs) in [
-        ("formal", formal),
-        ("pending", s.pending),
-        ("draft", drafts),
-    ] {
+    for (layer, qs) in [("formal", formal), ("draft", drafts)] {
         for q in qs {
             if ids.contains(&q.question_id)
                 || (layer != "formal" && identities.contains(&intake::identity(&q)))

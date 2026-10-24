@@ -8,12 +8,12 @@ import ts from 'typescript';
 import * as queue from '../shared/queue.ts';
 import {randomUUID} from 'node:crypto';
 import * as sync from '../shared/sync.ts';
-import {sha256} from '../shared/intake.ts';
+import {packText} from '../shared/codec.ts';
 
 const bank='ad50971f-66af-51c2-bb0e-dc798b03b369';
-const payload=JSON.stringify({format:'qbank-snapshot-1',bank_id:bank,name:'测试库',revision:1,release_version:1,updated_at:'2026-10-17T00:00:00Z',formal:[],pending:[],removed:[]});
-const wrapper={payload,sha256:sha256(payload)};
-const manifest={bank_id:bank,name:'测试库',revision:1,release_version:1,updated_at:'2026-10-17T00:00:00Z',minimum_client:'0.2.7',bytes:Buffer.byteLength(payload),sha256:wrapper.sha256};
+const payload=JSON.stringify({format:'qbank-snapshot-2',bank_id:bank,name:'测试库',revision:1,release_version:1,updated_at:'2026-10-17T00:00:00Z',formal:[],pending:[],removed:[]});
+const wrapper=packText(payload);
+const manifest={bank_id:bank,name:'测试库',revision:1,release_version:1,updated_at:'2026-10-17T00:00:00Z',minimum_client:'0.2.7',protocol:2,snapshot_format:'qbank-cloud-file-1',bytes:Buffer.byteLength(payload),sha256:wrapper.sha256};
 const pause=()=>{let resolve;const promise=new Promise(r=>{resolve=r;});return {promise,resolve};};
 function client(invoke, state=new Map(), storage=new Map()){
  const module={exports:{}};
@@ -36,7 +36,7 @@ test('desktop anonymous sync coalesces requests and rejects corrupt, rolled back
  const c=client(async(command,args)=>{
   calls.push(command);if(command==='cloud_versions')return versions;
   if(command==='cloud_apply'){saved.push(args);return;}
-  return {status:200,body:args.path.endsWith('/manifest')?manifest:mode==='corrupt'?{...wrapper,payload:payload+' '}:wrapper};
+  return {status:200,body:args.path.endsWith('/manifest')?manifest:mode==='corrupt'?packText(payload+' '):wrapper};
  });
  const a=c.syncDesktop(bank),b=c.syncDesktop(bank);assert.equal(a,b);assert.equal(await a,true);assert.equal(saved.length,1);
  assert.equal(calls.filter(x=>x==='cloud_request').length,2);
@@ -65,11 +65,11 @@ test('desktop logout cancels an in-flight login and never restores its session',
  await requested.promise;c.cloudLogout();response.resolve();await rejected;
  assert.equal(c.cloudAccess(),undefined);assert.equal(calls,1);
 });
-test('review history derives from snapshots while offline drafts and receipt states remain independent',()=>{
- const snapshot=JSON.parse(payload);snapshot.removed=[{question_id:'first',status:'merged'},{question_id:'second',status:'rejected'}];
- let states=sync.reviewStates(snapshot);assert.equal(states.get('first'),'merged');assert.equal(states.get('second'),'rejected');assert.equal(states.get('local-draft'),undefined);
- snapshot.pending=[{question_id:'second'}];states=sync.reviewStates(snapshot);assert.equal(states.get('second'),'pending');
- assert.equal(sync.reviewStates(null).size,0);
+test('desktop accepts only compressed current snapshots and rejects review candidates',()=>{
+ assert.throws(()=>sync.readSnapshot({payload,sha256:wrapper.sha256},manifest),/封装无效/);
+ const rejected=JSON.stringify({...JSON.parse(payload),pending:[{question_id:'candidate'}]});
+ const packed=packText(rejected);
+ assert.throws(()=>sync.readSnapshot(packed,{...manifest,sha256:packed.sha256,bytes:Buffer.byteLength(rejected)}));
 });
 
 test('desktop confirmed queue retries the same frozen transfer after reopening and stops on logout or changed identity',async()=>{

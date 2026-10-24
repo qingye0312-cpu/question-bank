@@ -474,7 +474,7 @@ impl Store {
             )
             .map_err(err)?
         {
-            return Err("云端题库请通过审核发布维护；本机回退会破坏同步修订，已阻止".into());
+            return Err("云端题库请通过云端版本历史回退；本机回退会破坏同步修订，已阻止".into());
         }
         let (b, d, expected): (String, String, i64) = tx
             .query_row(

@@ -16,7 +16,7 @@ async function main() {
   if (!input) { console.error('用法：node tools/self-host/seed-bank.cjs <questions.json> [storage-root]'); process.exitCode = 2; return; }
   const wrapper = JSON.parse(await fs.readFile(path.resolve(input), 'utf8'));
   const lines = typeof wrapper.payload === 'string' ? wrapper.payload.split(/\r?\n/).filter(Boolean) : [];
-  const questions = lines.map(line => JSON.parse(line)).map(question => ({ ...question, status: 'verified' }));
+  const questions = lines.map(line => JSON.parse(line));
   if (!questions.length) throw new Error('题库文件没有题目');
   const first = questions[0];
   const bankId = first.bank_id || process.env.QBANK_SEED_BANK_ID || 'ad50971f-66af-51c2-bb0e-dc798b03b369';

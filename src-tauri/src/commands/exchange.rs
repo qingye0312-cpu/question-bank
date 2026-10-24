@@ -146,5 +146,6 @@ pub(crate) async fn read_text_file(path: String) -> Result<String> {
     blocking(move || {
         let bytes = crate::exchange::read_file(&PathBuf::from(path))?;
         String::from_utf8(bytes).map_err(|_| "证书文件不是 UTF-8 文本".into())
-    }).await
+    })
+    .await
 }

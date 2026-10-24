@@ -16,7 +16,8 @@ export async function saveReply(bankId:string,batchId:string,text:string,metadat
  const added=await updateLocal(data=>{
   if(data.entries.some(e=>e.bankId===bankId&&identityKey(e.question)===identityKey(q)))return false;
   let existing=data.batches.find(b=>b.id===batch);if(existing&&existing.bankId!==bankId)throw new Error('批次属于其他题库');
-  // Once a submission may have reached COS its exact bytes must remain retryable.
+  // Once a submission may have reached the self-host service its exact bytes
+  // must remain retryable.
   if(existing?.sealedText||existing?.upload){batch=ids();existing=undefined;}
   if(!existing)data.batches.push({id:batch,bankId,createdAt:at});
   if(!data.banks.some(b=>b.id===bankId))data.banks.push({id:bankId,name:manifest.name});

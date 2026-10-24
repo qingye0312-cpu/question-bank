@@ -12,7 +12,7 @@ function plainQuestion(value:unknown,bankName:string):IntakeQuestion{
  if(!object(value))throw new Error('题库 JSON 中包含无效题目');
  const question:Record<string,unknown>={};for(const key of QUESTION_FIELDS)if(key in value)question[key]=value[key];
  question.bank=bankName;
- validateStandardQuestion(question,bankName,true);
+ validateStandardQuestion(question,bankName);
  return question as unknown as IntakeQuestion;
 }
 function displayCopyName(source:string,names:string[]):string{

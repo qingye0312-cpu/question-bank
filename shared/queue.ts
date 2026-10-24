@@ -1,6 +1,6 @@
 // Persistent metadata only. Credentials must never be written into these jobs.
 export type UploadJob={id:string;groupId:string;bankId:string;endpoint:string;actor:string;confirmedAt:string;
- status:'queued'|'uploading'|'retry'|'paused'|'failed'|'done';attempts:number;nextAt:number;error:string;syncError?:string;confirmed?:boolean;protocol?:'session-v1';recordIds?:string[]};
+ status:'queued'|'uploading'|'retry'|'paused'|'failed'|'done';attempts:number;nextAt:number;error:string;syncError?:string;protocol?:'session-v1';recordIds?:string[]};
 export function failedJob(job:UploadJob,error:unknown,now=Date.now()):UploadJob {
  const e=error as {status?:number;code?:string;message?:string};
  const status=e.status||0,auth=status===401||status===403||e.code==='IDENTITY_CHANGED'||e.code==='SIGNED_OUT';

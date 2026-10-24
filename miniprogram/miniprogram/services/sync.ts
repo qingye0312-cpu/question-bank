@@ -37,9 +37,9 @@ export function syncBank(id:string):Promise<boolean>{
    if(manifest.revision===previous.manifest.revision){if(manifest.sha256!==previous.manifest.sha256)throw Error('相同版本内容发生变化');return false;}}
   const wrapper=await request(snapshotPath(manifest)),snapshot=readSnapshot(wrapper,manifest);
   // A concurrent server update produces a mismatch: retry on the next sync,
-  // never install formal and pending snapshots from different revisions.
+  // never install content from a different revision than the checked manifest.
   if(snapshot.revision===0)return false;
-  buildPostings([...((snapshot.formal||[]).concat(snapshot.pending))] as unknown as import('../core/search').Question[]);
+  buildPostings((snapshot.formal||[]) as unknown as import('../core/search').Question[]);
   await write(path(id),{manifest,wrapper});return true;
  })();inflight.set(id,task);void task.finally(()=>inflight.delete(id)).catch(()=>{});return task;
 }

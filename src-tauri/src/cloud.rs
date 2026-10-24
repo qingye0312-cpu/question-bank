@@ -55,107 +55,6 @@ pub fn client_state(store: &Store, key: &str, value: Option<Value>) -> Result<Va
         .unwrap_or(Ok(Value::Null))
 }
 
-// Legacy entry point: new preparation also keeps the whole selection in one package.
-// Existing immutable transfers are returned untouched for receipt recovery.
-pub fn prepare_batches(store: &Store, batch: &str) -> Result<Vec<String>> {
-    let mut c = store.conn()?;
-    let tx = c.transaction().map_err(err)?;
-    let frozen: bool = tx
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM intake_transfers WHERE batch_id=?1)",
-            [batch],
-            |r| r.get(0),
-        )
-        .map_err(err)?;
-    if frozen {
-        return Ok(vec![batch.into()]);
-    }
-    let (bank, at): (String, String) = tx
-        .query_row(
-            "SELECT bank_id,created_at FROM intake_batches WHERE id=?1",
-            [batch],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )
-        .map_err(err)?;
-    let b = db::get_bank(&tx, &bank)?;
-    let entries = intake::entries_conn(&tx, batch)?;
-    if entries.is_empty() {
-        return Err("本批次没有新题".into());
-    }
-    let mut payload = String::new();
-    for e in &entries {
-        e.question.validate(false)?;
-        payload.push_str(&serde_json::to_string(&e.question).map_err(err)?);
-        payload.push('\n');
-    }
-    let raw = serde_json::to_string(&intake::Delta {
-        format: "qbank-delta-1".into(),
-        bank_id: bank,
-        name: b.name,
-        batch_id: batch.into(),
-        created_at: at,
-        question_count: entries.len(),
-        sha256: hash(payload.as_bytes()),
-        payload,
-    })
-    .map_err(err)?;
-    encode(&raw)?;
-    tx.execute(
-        "INSERT INTO intake_transfers(batch_id,raw) VALUES(?1,?2)",
-        params![batch, raw],
-    )
-    .map_err(err)?;
-    tx.commit().map_err(err)?;
-    Ok(vec![batch.into()])
-}
-
-// Explicit recovery only: old versions could freeze bytes before saving the queue.
-// Empty endpoints are exchange exports, not authorized uploads. Never recover those.
-pub fn recover_legacy(store: &Store, bank: &str, endpoint: &str, actor: &str) -> Result<usize> {
-    if actor.is_empty() || !endpoint.starts_with("https://") {
-        return Err("请使用原上传身份登录".into());
-    }
-    let mut c = store.conn()?;
-    let tx = c.transaction().map_err(err)?;
-    let text: Option<String> = tx
-        .query_row(
-            "SELECT value FROM client_state WHERE key='upload-queue'",
-            [],
-            |r| r.get(0),
-        )
-        .optional()
-        .map_err(err)?;
-    let mut jobs: Vec<Value> =
-        serde_json::from_str(text.as_deref().unwrap_or("[]")).map_err(err)?;
-    let mut query=tx.prepare("SELECT t.batch_id,t.raw,t.receipt,b.created_at FROM intake_transfers t JOIN intake_batches b ON b.id=t.batch_id WHERE b.bank_id=?1 AND t.endpoint=?2 AND t.endpoint<>''").map_err(err)?;
-    let rows = query
-        .query_map(params![bank, endpoint], |r| {
-            Ok((
-                r.get::<_, String>(0)?,
-                r.get::<_, String>(1)?,
-                r.get::<_, String>(2)?,
-                r.get::<_, String>(3)?,
-            ))
-        })
-        .map_err(err)?
-        .collect::<std::result::Result<Vec<_>, _>>()
-        .map_err(err)?;
-    drop(query);
-    let mut added = 0;
-    for (id, raw, receipt, at) in rows {
-        if jobs.iter().any(|j| j["id"] == id) {
-            continue;
-        }
-        encode(&raw)?;
-        jobs.push(json!({"id":id,"groupId":id,"bankId":bank,"endpoint":endpoint,"actor":actor,"confirmedAt":at,"confirmed":false,"status":if receipt.is_empty(){"queued"}else{"done"},"attempts":0,"nextAt":0,"error":""}));
-        added += 1;
-    }
-    if added > 0 {
-        tx.execute("INSERT INTO client_state VALUES('upload-queue',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value",[serde_json::to_string(&jobs).map_err(err)?]).map_err(err)?;
-    }
-    tx.commit().map_err(err)?;
-    Ok(added)
-}
 pub fn transfer(store: &Store, batch: &str, endpoint: &str) -> Result<Value> {
     let mut c = store.conn()?;
     let tx = c.transaction().map_err(err)?;
@@ -245,9 +144,25 @@ pub fn acknowledge(store: &Store, batch: &str, receipt: Value) -> Result<()> {
         || receipt["sha256"] != hash(raw.as_bytes())
         || receipt["payload_sha256"] != d.sha256
         || receipt["question_count"].as_u64() != Some(d.question_count as u64)
-        || !["merged", "duplicate", "pending_review", "pending_merge"].contains(&receipt["status"].as_str().unwrap_or(""))
+        || !["merged", "duplicate"].contains(&receipt["status"].as_str().unwrap_or(""))
         || chrono::DateTime::parse_from_rfc3339(receipt["accepted_at"].as_str().unwrap_or(""))
             .is_err()
+        || chrono::DateTime::parse_from_rfc3339(receipt["merged_at"].as_str().unwrap_or(""))
+            .is_err()
+        || !receipt["revision"]
+            .as_u64()
+            .is_some_and(|n| (1..=9_007_199_254_740_991).contains(&n))
+        || !receipt["release_version"]
+            .as_u64()
+            .is_some_and(|n| n > 0 && Some(n) <= receipt["revision"].as_u64())
+        || receipt["added_count"].as_u64().and_then(|a| {
+            receipt["duplicate_count"]
+                .as_u64()
+                .and_then(|b| a.checked_add(b))
+        }) != Some(d.question_count as u64)
+        || !receipt["release_name"]
+            .as_str()
+            .is_some_and(|name| !name.trim().is_empty() && name.chars().count() <= 220)
     {
         return Err("回执与本地批次不一致，未标记上传成功".into());
     }

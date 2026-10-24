@@ -1,11 +1,12 @@
 'use strict';
 
-// Filesystem-backed replacement for the two COS prefixes used by qbank-auth.
-// Every state and submission is immutable: creation uses O_EXCL and retries
-// read the existing object instead of overwriting it.
+// Filesystem-backed durable store for the self-hosted qbank service.
+// Publish complete, flushed files with a no-replace link. Retries read the
+// existing object; readers never observe a partially written revision.
 const fs = require('node:fs/promises');
 const path = require('node:path');
-const { packText, unpackText, FORMAT } = require('./codec.cjs');
+const {randomUUID} = require('node:crypto');
+const { packText, unpackText } = require('./codec.cjs');
 const { LIMITS } = require('./common.cjs');
 
 const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
@@ -22,10 +23,10 @@ function assertRoot(root) {
 
 async function readPacked(file, maxBytes) {
   const bytes = await fs.readFile(file);
-  if (bytes.length > maxBytes) throw new Error('Stored object exceeds limit');
+  if (bytes.length > Math.ceil((maxBytes + 65536) / 3) * 4 + 512) throw new Error('Stored object exceeds limit');
   let value;
   try { value = JSON.parse(bytes.toString('utf8')); } catch { throw new Error('Stored object is not JSON'); }
-  const text = value?.format === FORMAT ? unpackText(value) : JSON.stringify(value);
+  const text = unpackText(value);
   if (Buffer.byteLength(text, 'utf8') > maxBytes) throw new Error('Stored object exceeds limit');
   try { return JSON.parse(text); } catch { throw new Error('Stored object payload is not JSON'); }
 }
@@ -33,7 +34,20 @@ async function readPacked(file, maxBytes) {
 async function writePackedExclusive(file, value) {
   const text = JSON.stringify(value);
   const packed = JSON.stringify(packText(text));
-  await fs.writeFile(file, packed, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+  const temporary = `${file}.${randomUUID()}.tmp`;
+  let handle;
+  try {
+    handle = await fs.open(temporary, 'wx', 0o600);
+    await handle.writeFile(packed, 'utf8');
+    await handle.sync();
+    await handle.close(); handle = undefined;
+    await fs.link(temporary, file);
+    const directory = await fs.open(path.dirname(file), 'r');
+    try { await directory.sync(); } finally { await directory.close(); }
+  } finally {
+    if (handle) await handle.close();
+    await fs.rm(temporary, {force:true});
+  }
 }
 
 function createFileStore({ root = process.env.QBANK_STORAGE_ROOT || '/var/lib/qbank-auth' } = {}) {
@@ -67,7 +81,6 @@ function createFileStore({ root = process.env.QBANK_STORAGE_ROOT || '/var/lib/qb
       throw error;
     }
     const candidates = names.filter(name => REVISION_FILE.test(name)).sort();
-    if (candidates.length > 256) throw new Error('Too many state revisions');
     const result = [];
     for (const name of candidates) {
       const revision = 999999999999 - Number(name.slice(0, 12));
@@ -76,7 +89,15 @@ function createFileStore({ root = process.env.QBANK_STORAGE_ROOT || '/var/lib/qb
     return result.sort((a, b) => b.revision - a.revision);
   }
 
-  async function readState(bankId) { return (await listStates(bankId))[0] || null; }
+  async function readState(bankId) {
+    assertUuid(bankId, 'bank id');
+    const directory = path.join(states, bankId);
+    let names;
+    try { names = await fs.readdir(directory); }
+    catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+    const name = names.filter(name => REVISION_FILE.test(name)).sort()[0];
+    return name ? readStateFile(path.join(directory, name), bankId, 999999999999 - Number(name.slice(0, 12))) : null;
+  }
 
   async function createState(state) {
     assertUuid(state?.bank_id, 'bank id');

@@ -2,24 +2,28 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import ts from 'typescript';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const source = path.join(root, 'cloud/qbank-auth');
-const generated = path.join(root, 'artifacts/cloud/qbank-auth');
 const output = path.join(root, 'artifacts/self-host/qbank-auth');
 const files = ['service.cjs', 'workflow.cjs', 'codec.cjs', 'catalog.cjs', 'common.cjs', 'access.cjs',
-  'config.cjs', 'auth.cjs', 'submission.cjs', 'projection.cjs', 'adapters.cjs', 'fs-store.cjs', 'local-server.cjs', 'intake.cjs', 'seed-bank.cjs'];
+  'config.cjs', 'auth.cjs', 'submission.cjs', 'projection.cjs', 'wechat-phone.cjs', 'fs-store.cjs', 'local-server.cjs', 'intake.cjs', 'seed-bank.cjs'];
 
 await fs.rm(output, { recursive: true, force: true });
 await fs.mkdir(output, { recursive: true });
 for (const name of files) {
-  const from = name === 'intake.cjs' ? path.join(generated, name)
+  const from = name === 'intake.cjs' ? null
     : name === 'seed-bank.cjs' ? path.join(root, 'tools/self-host', name) : path.join(source, name);
-  try { await fs.copyFile(from, path.join(output, name)); }
-  catch (error) {
-    if (name === 'intake.cjs') throw new Error('请先运行 pnpm build:cloud 生成 intake.cjs');
-    throw error;
+  if (name === 'intake.cjs') {
+    const sourceText = await fs.readFile(path.join(root, 'shared/intake.ts'), 'utf8');
+    await fs.writeFile(path.join(output, name), ts.transpileModule(sourceText, {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+    }).outputText);
+    continue;
   }
+  try { await fs.copyFile(from, path.join(output, name)); }
+  catch (error) { throw error; }
 }
 await fs.writeFile(path.join(output, 'package.json'), JSON.stringify({
   name: 'qbank-auth-self-host', version: '0.2.7', private: true, type: 'commonjs',

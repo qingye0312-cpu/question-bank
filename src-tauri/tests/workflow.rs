@@ -186,7 +186,7 @@ fn compressed_exchange_freezes_identity_and_receipt_cannot_be_forged_by_mismatch
         t["raw"]
     );
     let delta: intake::Delta = serde_json::from_slice(&raw).unwrap();
-    let receipt = json!({"submission_id":hash(format!("{}/{}",b,entry.batch_id).as_bytes()),"bank_id":b,"batch_id":entry.batch_id,"sha256":hash(&raw),"payload_sha256":delta.sha256,"question_count":1,"status":"pending_review","accepted_at":now()});
+    let receipt = json!({"submission_id":hash(format!("{}/{}",b,entry.batch_id).as_bytes()),"bank_id":b,"batch_id":entry.batch_id,"sha256":hash(&raw),"payload_sha256":delta.sha256,"question_count":1,"status":"merged","accepted_at":now(),"merged_at":now(),"revision":2,"release_version":2,"release_name":"20261024-080001_测试库","added_count":1,"duplicate_count":0});
     let mut bad = receipt.clone();
     bad["sha256"] = json!("0".repeat(64));
     assert!(cloud::acknowledge(&s, &entry.batch_id, bad).is_err());
@@ -194,6 +194,18 @@ fn compressed_exchange_freezes_identity_and_receipt_cannot_be_forged_by_mismatch
         intake::entries(&s, &entry.batch_id).unwrap()[0].upload_status,
         "pending"
     );
+    for field in [
+        "merged_at",
+        "revision",
+        "release_version",
+        "release_name",
+        "added_count",
+        "duplicate_count",
+    ] {
+        let mut missing = receipt.clone();
+        missing.as_object_mut().unwrap().remove(field);
+        assert!(cloud::acknowledge(&s, &entry.batch_id, missing).is_err());
+    }
     cloud::acknowledge(&s, &entry.batch_id, receipt).unwrap();
     assert_eq!(
         intake::entries(&s, &entry.batch_id).unwrap()[0].upload_status,
@@ -201,24 +213,12 @@ fn compressed_exchange_freezes_identity_and_receipt_cannot_be_forged_by_mismatch
     );
     let original = intake::entries(&s, &entry.batch_id).unwrap().remove(0);
     let accepted_at = original.uploaded_at.clone();
-    let pending = json!({"format":"qbank-snapshot-1","bank_id":b,"name":"测试题库","revision":1,"release_version":0,"updated_at":now(),"formal":null,"pending":[original.question],"removed":[]});
-    let raw = pending.to_string();
-    cloud::apply(&s, &raw, &hash(raw.as_bytes())).unwrap();
-    assert_eq!(
-        intake::entries(&s, &entry.batch_id).unwrap()[0].review_status,
-        "pending"
-    );
-    let mut merged = pending.clone();
-    merged["revision"] = json!(2);
-    merged["release_version"] = json!(1);
-    merged["formal"] = merged["pending"].clone();
+    let mut merged = json!({"format":"qbank-snapshot-2","bank_id":b,"name":"测试题库","revision":1,"release_version":1,"updated_at":now(),"formal":[original.question],"pending":[],"removed":[{"question_id":original.question.question_id,"status":"merged"}]});
     merged["formal"][0]["status"] = json!("verified");
-    merged["pending"] = json!([]);
-    merged["removed"] = json!([{"question_id":original.question.question_id,"status":"merged"}]);
     let raw = merged.to_string();
     cloud::apply(&s, &raw, &hash(raw.as_bytes())).unwrap();
     let history = intake::entries(&s, &entry.batch_id).unwrap().remove(0);
-    assert_eq!(history.review_status, "merged");
+    assert_eq!(history.merge_status, "merged");
     assert_eq!(history.upload_status, "uploaded");
     assert_eq!(history.uploaded_at, accepted_at);
     assert_eq!(history.question.status, original.question.status);
@@ -246,9 +246,9 @@ fn cloud_layers_swap_atomically_preserve_drafts_trash_and_reject_bad_updates() {
         .items
         .remove(0);
     s.delete(h.rowid, false).unwrap();
-    let mut pending = question("云端候选");
-    pending.bank = "测试题库".into();
-    let state = json!({"format":"qbank-snapshot-1","bank_id":b,"name":"测试题库","revision":1,"release_version":0,"updated_at":now(),"formal":null,"pending":[pending],"removed":[]});
+    let mut added = question("云端新增");
+    added.bank = "测试题库".into();
+    let state = json!({"format":"qbank-snapshot-2","bank_id":b,"name":"测试题库","revision":1,"release_version":1,"updated_at":now(),"formal":[s.questions(&b).unwrap().into_iter().find(|q|q.stem=="正式题").unwrap(),added],"pending":[],"removed":[]});
     let raw = state.to_string();
     cloud::apply(&s, &raw, &hash(raw.as_bytes())).unwrap();
     assert_eq!(s.questions(&b).unwrap().len(), 3);
@@ -272,13 +272,13 @@ fn cloud_layers_swap_atomically_preserve_drafts_trash_and_reject_bad_updates() {
         .unwrap()
         .items
         .iter()
-        .filter(|hit| hit.layer == "pending")
+        .filter(|hit| hit.layer == "formal")
         .count(),
-        1
+        2
     );
     let mut next = state.clone();
     next["revision"] = json!(2);
-    next["pending"] = json!([]);
+    next["formal"].as_array_mut().unwrap().pop();
     let text = next.to_string();
     assert!(cloud::apply(&s, &text, &"0".repeat(64)).is_err());
     assert_eq!(s.questions(&b).unwrap().len(), 3);
@@ -290,25 +290,25 @@ fn cloud_layers_swap_atomically_preserve_drafts_trash_and_reject_bad_updates() {
     let mut q = question("坏身份");
     q.bank = "测试题库".into();
     q.question_id.clear();
-    invalid["pending"] = json!([q]);
+    invalid["formal"] = json!([q]);
     let text = invalid.to_string();
     assert!(cloud::apply(&s, &text, &hash(text.as_bytes())).is_err());
 }
 #[test]
-fn historical_cloud_snapshot_preserves_all_seed_questions() {
+fn current_cloud_snapshot_preserves_all_seed_questions() {
     let (_d, s, _) = setup();
     let mut qs: Vec<Question> =
         serde_json::from_str(include_str!("../resources/seed.json")).unwrap();
     for q in &mut qs {
         q.prepare();
         q.sources = if q.status == "needs_review" {
-            vec![json!({"kind":"published_legacy"})]
+            vec![json!({"kind":"imported_document"})]
         } else {
             vec![]
         };
     }
     let id = uid();
-    let raw=json!({"format":"qbank-snapshot-1","bank_id":id,"name":"HarmonyOS 初级认证","revision":1,"release_version":1,"updated_at":now(),"formal":qs,"pending":[],"removed":[]}).to_string();
+    let raw=json!({"format":"qbank-snapshot-2","bank_id":id,"name":"HarmonyOS 初级认证","revision":1,"release_version":1,"updated_at":now(),"formal":qs,"pending":[],"removed":[]}).to_string();
     cloud::apply(&s, &raw, &hash(raw.as_bytes())).unwrap();
     assert_eq!(s.questions(&id).unwrap().len(), qs.len());
 }
@@ -390,19 +390,12 @@ fn entry_time_survives_edit_and_session_package_is_atomic_and_frozen() {
         batch = saved.batch_id;
     }
     assert_eq!(intake::entries(&s, &batch).unwrap().len(), 103);
-    let parts = cloud::prepare_batches(&s, &batch).unwrap();
-    assert_eq!(parts.len(), 1);
-    let mut sizes = vec![];
-    for id in &parts {
-        let transfer = cloud::transfer(&s, id, "https://test.example").unwrap();
-        sizes.push(intake::entries(&s, id).unwrap().len());
-        assert_eq!(cloud::prepare_batches(&s, id).unwrap(), vec![id.clone()]);
-        assert_eq!(
-            cloud::transfer(&s, id, "https://test.example").unwrap(),
-            transfer
-        );
-    }
-    assert_eq!(sizes, vec![103]);
+    let transfer = cloud::transfer(&s, &batch, "https://test.example").unwrap();
+    assert_eq!(
+        cloud::transfer(&s, &batch, "https://test.example").unwrap(),
+        transfer
+    );
+    assert_eq!(intake::entries(&s, &batch).unwrap().len(), 103);
 }
 #[test]
 fn default_cursor_preserves_recording_times_and_exports_do_not_fake_merge_time() {

@@ -17,7 +17,7 @@ export function syncDesktop(bankId:string):Promise<boolean>{
   checkOrigin();
   if(old){if(old.revision>m.revision)throw Error('拒绝云端版本倒退');if(old.revision===m.revision){if(old.sha256!==m.sha256)throw Error('同版本内容发生变化');return false;}}
   if(m.revision===0)return false;
-  const wrapper=await cloudCall<{payload:string;sha256:string}>(snapshotPath(m));readSnapshot(wrapper,m);
+  const wrapper=await cloudCall<unknown>(snapshotPath(m));readSnapshot(wrapper,m);
   checkOrigin();
   await invoke('cloud_apply',snapshotPayload(wrapper));return true;
  })();syncing.set(key,task);void task.finally(()=>syncing.delete(key)).catch(()=>{});return task;

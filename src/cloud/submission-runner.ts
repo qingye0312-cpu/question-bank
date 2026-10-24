@@ -2,7 +2,7 @@ import {invoke} from '@tauri-apps/api/core';
 import {failedJob,readyJob,UploadError,type UploadJob} from '../../shared/queue';
 import {cloudOrigin,cloudCall,cloudAccess,resumeDesktop,sessionGeneration,setLogoutHandler,type Access} from './session-service';
 import {syncDesktop} from './sync-service';
-export async function uploadDesktop(batchId:string,bankId:string,confirmed=true){
+export async function uploadDesktop(batchId:string,bankId:string){
  const origin=cloudOrigin(),attempt=sessionGeneration();
  const check=()=>{if(origin!==cloudOrigin()||attempt!==sessionGeneration())throw Error("服务地址或登录已改变，请重试原批次");};
  const me=await cloudCall<Access>('/v1/me',undefined,true);if(!me.grants[bankId]?.includes('upload'))throw new UploadError('没有当前题库的上传权限',403);
@@ -10,7 +10,7 @@ export async function uploadDesktop(batchId:string,bankId:string,confirmed=true)
  check();
  const transfer=await invoke<{envelope:unknown;receipt:unknown}>('cloud_transfer',{batchId,endpoint:origin});
  check();
- const accepted=await cloudCall<{receipt:unknown;duplicate:boolean}>('/v1/uploads',confirmed?{format:'qbank-confirmed-upload-1',package:transfer.envelope}:transfer.envelope,true);
+ const accepted=await cloudCall<{receipt:unknown;duplicate:boolean}>('/v1/uploads',{format:'qbank-confirmed-upload-1',package:transfer.envelope},true);
  try{await invoke('cloud_receipt',{batchId,receipt:accepted.receipt});}catch{throw new UploadError('云端已接收，本地回执未保存；将使用原包找回回执',0,'RECEIPT_SAVE_FAILED');}
  return accepted;
 }
@@ -39,12 +39,6 @@ export async function retryDesktopJobs(bankId?:string,includeFailed=false){
  const me=cloudAccess();if(!me)return;
  await updateJobs(jobs=>{for(const j of jobs)if((!bankId||j.bankId===bankId)&&j.status!=='done'&&(includeFailed||j.status!=='failed')&&j.actor===me.openid&&j.endpoint===cloudOrigin()){j.status='queued';j.nextAt=0;j.error='';}});
 }
-export async function recoverLegacyJobs(bankId:string){
- const origin=cloudOrigin(),me=await cloudCall<Access>('/v1/me',undefined,true);
- if(!me.openid||!me.grants[bankId]?.includes('upload'))throw new UploadError('请使用原上传身份登录',403);
- const task=queueWrite.catch(()=>{}).then(()=>invoke<number>('cloud_recover_legacy',{bankId,endpoint:origin,actor:me.openid}));queueWrite=task;
- const count=await task;window.dispatchEvent(new Event('qbank-upload-change'));return count;
-}
 export async function syncUploadedBank(bankId:string){
  try{await syncDesktop(bankId);await updateJobs(js=>{for(const j of js)if(j.bankId===bankId&&j.status==='done')j.syncError='';});}
  catch(e){await updateJobs(js=>{for(const j of js)if(j.bankId===bankId&&j.status==='done')j.syncError=String(e);});throw e;}
@@ -58,7 +52,7 @@ export function runDesktopQueue():Promise<void>{
    const latest=(await desktopJobs()).find(j=>j.id===job.id);if(latest?.status==='paused')continue;
    await updateJobs(js=>{const j=js.find(j=>j.id===job.id)!;if(j.status!=='paused')j.status='uploading';});
    if((await desktopJobs()).find(j=>j.id===job.id)?.status==='paused')continue;
-   await uploadDesktop(job.id,job.bankId,job.confirmed!==false);
+   await uploadDesktop(job.id,job.bankId);
    await updateJobs(js=>{const j=js.find(j=>j.id===job.id)!;j.status='done';j.error='';});
    await syncUploadedBank(job.bankId).catch(()=>{});
   }catch(e){await updateJobs(js=>{const i=js.findIndex(j=>j.id===job.id);if(i>=0&&!['done','paused'].includes(js[i].status))js[i]=failedJob(js[i],e);});}

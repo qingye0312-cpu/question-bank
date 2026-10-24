@@ -1,9 +1,8 @@
 {
-  "name": "qbank-auth",
+  "name": "qbank-auth-self-host",
   "version": "0.2.7",
   "private": true,
   "type": "commonjs",
-  "main": "index.js",
-  "engines": { "node": ">=20" },
-  "dependencies": { "cos-nodejs-sdk-v5": "3.0.0" }
+  "main": "local-server.cjs",
+  "engines": { "node": ">=20" }
 }

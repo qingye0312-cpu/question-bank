@@ -10,7 +10,7 @@ let onLogout=()=>{};
 export function setLogoutHandler(handler:()=>void){onLogout=handler}
 export function sessionGeneration(){return generation}
 export async function refreshAccess(){const current=session;if(!current)return;const access=await cloudCall<Access>('/v1/me',undefined,true);if(current===session)session.access=access;return access;}
-export function cloudOrigin(){return localStorage.getItem(ORIGIN_KEY)||import.meta.env.VITE_QBANK_API_ORIGIN||(import.meta.env.DEV?'https://1324463245-3bbpy3eujf.ap-guangzhou.tencentscf.com':'');}
+export function cloudOrigin(){return localStorage.getItem(ORIGIN_KEY)||import.meta.env.VITE_QBANK_API_ORIGIN||'';}
 export function setCloudOrigin(value:string){const u=new URL(value);if(u.protocol!=='https:'||u.username||u.password||u.pathname!=='/'||u.search||u.hash)throw Error('请填写不带路径的 HTTPS 地址');
  localStorage.setItem(ORIGIN_KEY,u.origin);session=undefined;generation++;}
 export function cloudAccess(){if(session&&(session.expires<Date.now()+15000||session.origin!==cloudOrigin()))session=undefined;return session?.access;}
@@ -25,7 +25,7 @@ export async function cloudCall<T>(path:string,body?:unknown,authenticated=false
  const origin=cloudOrigin();if(!origin)throw Error('请先配置云端 HTTPS 服务地址');
  if(authenticated&&!cloudAccess())throw new UploadError('请先进行维护者登录',401,'SIGNED_OUT');
  const current=session;const response=await invoke<{status:number;body:T&{error?:{message?:string;code?:string}}}>('cloud_request',{origin,path,body:body??null,token:authenticated?session!.token:null}).catch(e=>{const message=typeof e?.message==='string'?e.message:String(e);throw new UploadError(message,0,message.startsWith('NETWORK:')?'NETWORK':'NATIVE_REQUEST_FAILED')});
- if(response.status<200||response.status>=300){if((response.status===401||['DEVELOPER_NOT_ALLOWED','SESSION_REVOKED'].includes(response.body.error?.code||''))&&session===current)cloudLogout();throw new UploadError(response.body.error?.message||'云端请求未完成，请重试',response.status,response.body.error?.code);}return response.body;
+ if(response.status<200||response.status>=300){if((response.status===401||response.body.error?.code==='MAINTAINER_REVOKED')&&session===current)cloudLogout();throw new UploadError(response.body.error?.message||'自托管服务请求未完成，请重试',response.status,response.body.error?.code);}return response.body;
 }
 async function acceptLogin(result:{access_token:string;expires_in:number},attempt:number,origin:string,started:number){
  if(!/^v1\.[\w-]+\.[\w-]+$/.test(result.access_token)||result.expires_in<1||result.expires_in>900||origin!==cloudOrigin()||attempt!==generation)throw Error('登录响应无效');

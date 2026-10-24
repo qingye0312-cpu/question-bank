@@ -2,7 +2,7 @@ import {DraftAutosave,newDraft,pasteDraft,reviseDraft,type DraftRecord} from '..
 import {displayTime,emptyReply} from '../core/intake';
 import {createIds,readLocal} from './intake-store';
 import {listDrafts,saveDraft,submitDrafts,exportDrafts} from './drafts';
-import {runUploadQueue,retryUploads,syncUploadedBank,recoverLegacyUploads} from './cloud-intake';
+import {runUploadQueue,retryUploads,syncUploadedBank} from './cloud-intake';
 import type {UploadJob} from '../core/queue';
 export const jobLabels={queued:'等待上传',uploading:'上传中',retry:'自动重试中',paused:'需要登录',failed:'需要处理',done:'回执已保存'};
 export function intakeView(record:DraftRecord|null,records:DraftRecord[],jobs:UploadJob[]){
@@ -37,7 +37,7 @@ export class IntakeController {
   await submitDrafts(this.bankId,pending.map(r=>({id:r.id,revision:r.revision})));
   this.records=await listDrafts(this.bankId);this.saver.seed(this.records);await this.next();await this.refreshJobs();void runUploadQueue().then(()=>this.refreshJobs()).catch(e=>{this.error=String(e);this.render()});
  }
- async retry(){await recoverLegacyUploads(this.bankId);await retryUploads(true);void runUploadQueue().then(()=>this.refreshJobs()).catch(e=>{this.error=String(e);this.render()});}
+ async retry(){await retryUploads(true);void runUploadQueue().then(()=>this.refreshJobs()).catch(e=>{this.error=String(e);this.render()});}
  async sync(){await syncUploadedBank(this.bankId);await this.refreshJobs();}
  async export(){await this.flush();return exportDrafts(this.bankId);}
  dispose(){this.disposed=true;this.saver.dispose();void this.flush().catch(()=>{});}

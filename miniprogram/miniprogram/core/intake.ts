@@ -26,9 +26,7 @@ export function intakeMetadata(value:Partial<IntakeMetadata>={}):IntakeMetadata 
  return {...metadata,tags:[...new Set(metadata.tags.map(t=>t.trim()).filter(Boolean))]} as IntakeMetadata;
 }
 type Comparable = {type: string; stem: string; options: {key: string; content: string}[]; answer: string[] | boolean | null};
-// Released historical questions may deliberately retain an unresolved answer.
-// New submissions never use that exception. This matches the desktop importer.
-export function validateStandardQuestion(value:unknown,bank:string,legacy=false):void {
+export function validateStandardQuestion(value:unknown,bank:string):void {
  const q=value as Omit<IntakeQuestion,'answer'> & {answer:string[]|boolean|null;extensions?:unknown};
  const uuid=/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
  if(!q||!['1.0','1.1'].includes(q.schema_version)||!uuid.test(q.question_id)||q.bank!==bank||!Number.isSafeInteger(q.base_revision)||q.base_revision<1
@@ -47,15 +45,23 @@ export function validateStandardQuestion(value:unknown,bank:string,legacy=false)
   if(q.options.length||q.answer!==null)throw Error('编程题不应包含选择项或标准答案');
   return;
  }
- if(legacy&&q.status==='needs_review'){
-  if(q.type==='true_false'){if(q.options.length||!(typeof q.answer==='boolean'||q.answer===null&&q.sources.length))throw Error('历史判断题无效');}
-  else if(!(q.answer===null&&q.sources.length)){
-   if(!Array.isArray(q.answer)||new Set(q.answer).size!==q.answer.length||q.answer.some(k=>!q.options.some(o=>o.key===k)))throw Error('历史选择题答案无效');
-  }
+ // Reading and sharing preserve explicitly flagged source defects without
+ // asserting answer correctness. New uploads still pass parseModelReply and
+ // submission.cjs, which require a complete, unambiguous question.
+ if(q.status==='needs_review'&&q.issues.length){
+  if(q.type==='true_false'){
+   if(q.options.length||(q.answer!==null&&typeof q.answer!=='boolean'))throw Error('判断题内容无效');
+  }else if(q.answer!==null&&(!Array.isArray(q.answer)||new Set(q.answer).size!==q.answer.length||q.answer.some(a=>typeof a!=='string'||!q.options.some(o=>o.key===a))))throw Error('答案引用无效');
   return;
  }
- parseModelReply(JSON.stringify({format:'qbank-photo-question-1',type:q.type,stem:q.stem,options:q.options.map(o=>({key:o.key,content:o.content})),answer:q.answer,
-  answer_origin:'inferred',explanation:q.explanation,model:{name:'未知',version:'未知',version_source:'unknown'},warnings:[]}),{historical:legacy});
+ if(q.type==='true_false'){
+  if(q.options.length||typeof q.answer!=='boolean')throw Error('判断题选项须留空，答案须为布尔值');
+ }else{
+  const answers=q.answer;
+  if(q.options.length<2||q.options.length>8)throw Error('选择题需要 2 至 8 个选项');
+  if(!Array.isArray(answers)||new Set(answers).size!==answers.length||answers.some(a=>typeof a!=='string'||!q.options.some(o=>o.key===a))
+   ||(q.type==='single'?answers.length!==1:answers.length<2))throw Error('选择题答案引用或数量无效');
+ }
 }
 const clean = (text: string) => text.replace(/\r\n?/g, '\n').trim();
 function object(value: unknown): value is Record<string, unknown> {
@@ -65,7 +71,7 @@ function fields(value: Record<string, unknown>, names: string[], label: string) 
   if (Object.keys(value).length !== names.length || names.some(key => !(key in value)))
     throw new Error(`${label}字段不完整或含多余字段，请重新复制规范回复`);
 }
-export function parseModelReply(input: string, compatibility:{historical?:boolean}={}): ModelReply {
+export function parseModelReply(input: string): ModelReply {
   if (input.length > 250_000) throw new Error('回复过长，请每次粘贴一道文字题');
   let text = input.trim().replace(/^\uFEFF/, '');
   if (text.startsWith('```')) {
@@ -83,7 +89,7 @@ export function parseModelReply(input: string, compatibility:{historical?:boolea
   if (!Array.isArray(value.options) || value.options.some((o, i) => !object(o)
     || Object.keys(o).length !== 2 || o.key !== String.fromCharCode(65+i) || typeof o.content !== 'string' || !o.content.trim()))
     throw new Error('选项须从 A 连续编号，每项只能包含 key 和非空 content');
-  if (!compatibility.historical && value.type !== 'true_false' && new Set(value.options.map(o=>clean(o.content))).size !== value.options.length) throw new Error('选项内容重复，请核对后修改');
+  if (value.type !== 'true_false' && new Set(value.options.map(o=>clean(o.content))).size !== value.options.length) throw new Error('选项内容重复，请核对后修改');
   if (value.type === 'true_false') {
     if (value.options.length || typeof value.answer !== 'boolean') throw new Error('判断题选项必须为 []，答案必须为 true 或 false');
   } else {

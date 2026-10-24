@@ -16,7 +16,9 @@ pub fn request(
     {
         return Err("请填写不带路径的 HTTPS 服务地址".into());
     }
-    if !regex::Regex::new(r"^/(health|v1/(catalog|me|uploads|auth/desktop|banks/promote|banks/[0-9a-f-]{36}/(manifest|snapshot|snapshot-file|candidates|review|publish|seed)))$").unwrap().is_match(path){return Err("不支持的云端接口".into());}
+    if !allowed_path(path) {
+        return Err("不支持的云端接口".into());
+    }
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(20))
         .redirect(reqwest::redirect::Policy::none())
@@ -55,4 +57,34 @@ pub fn request(
     }
     let value: Value = serde_json::from_slice(&bytes).map_err(|_| "云端响应不是有效 JSON")?;
     Ok(json!({"status":status,"body":value}))
+}
+
+fn allowed_path(path: &str) -> bool {
+    regex::Regex::new(r"^/(health|v1/(catalog|me|uploads|auth/desktop|maintainer-applications(/[0-9a-f-]{36}/decision)?|maintainer-accounts(/[0-9a-f-]{36}/revoke)?|banks/promote|banks/[0-9a-f-]{36}/(manifest|snapshot-file|history|rollback|seed)))$")
+        .unwrap().is_match(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::allowed_path;
+
+    #[test]
+    fn desktop_allows_current_maintenance_routes_only() {
+        let id = "00000000-0000-4000-8000-000000000001";
+        for path in [
+            "/v1/maintainer-applications".to_string(),
+            "/v1/maintainer-accounts".into(),
+            format!("/v1/maintainer-applications/{id}/decision"),
+            format!("/v1/maintainer-accounts/{id}/revoke"),
+            format!("/v1/banks/{id}/snapshot-file"),
+            format!("/v1/banks/{id}/rollback"),
+        ] {
+            assert!(allowed_path(&path), "{path}");
+        }
+        for action in ["review", "publish", "candidates", "snapshot"] {
+            assert!(!allowed_path(&format!("/v1/banks/{id}/{action}")));
+        }
+        assert!(!allowed_path("/v1/auth/wechat"));
+        assert!(!allowed_path("/v1/maintainer-accounts/../revoke"));
+    }
 }

@@ -59,3 +59,5 @@ textarea{min-height:100rpx}
 .record-actions .record-delete{color:var(--danger);background:var(--danger-bg)}
 
 .selected .dot,.judgment .selected{color:var(--correct)}
+
+.maintainer-apply .identity-label{margin-top:24rpx}.maintainer-apply .identity-input{box-sizing:border-box;width:100%;min-height:128rpx;margin-top:12rpx}.identity-count{text-align:right;margin-top:8rpx}

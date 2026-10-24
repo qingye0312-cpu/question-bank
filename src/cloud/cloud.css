@@ -1,9 +1,6 @@
 .cloud-access{border:0.076923rem solid var(--line,#dce4dd);padding:1.230769rem;margin:1.230769rem 0;border-radius:0.923077rem}
 .cloud-bank{display:flex;align-items:center;gap:0.923077rem;padding:0.923077rem 0;flex-wrap:wrap}
 .cloud-bank span{color:var(--muted)}
-.candidate-list{max-height:21.538462rem;overflow:auto}
-.candidate-list>div{display:flex;align-items:center;border-bottom:0.076923rem solid var(--line);padding:0.615385rem;gap:0.923077rem}
-.candidate-list button{text-align:left;flex:1}
 .pending-label{display:block;font-size:0.769231rem;line-height:1.2;color:var(--warning)}
 .cloud-maintenance{max-height:92vh;overflow:auto}
 .cloud-maintenance input[type=checkbox]{width:auto;margin-right:.6rem}
@@ -28,3 +25,6 @@
 .maintainer-row{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:.85rem 0;border-bottom:1px solid var(--border);min-width:0}
 .maintainer-row>div:first-child{display:grid;gap:.2rem;min-width:0}.maintainer-row span,.maintainer-row small{color:var(--muted);overflow-wrap:anywhere}
 .maintainer-row>div:last-child{display:flex;gap:.5rem;flex-shrink:0}
+.maintainer-identity{margin:.4rem 0;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.6}
+.maintainer-identity strong{display:block;font-size:.85rem;color:var(--muted)}
+@media(max-width:42rem){.maintainer-row{align-items:flex-start;flex-direction:column}}

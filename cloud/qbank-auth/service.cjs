@@ -1,12 +1,12 @@
 'use strict';
 const {timingSafeEqual,randomUUID}=require('node:crypto');
-const {VERSION,LIMITS,UUID,HASH,OPENID,sha256,object,HttpError,fail,exact}=require('./common.cjs');
+const {VERSION,LIMITS,UUID,HASH,sha256,object,HttpError,fail,exact}=require('./common.cjs');
 const {loadConfig,authChecks,authConfigured,requireAuthConfig}=require('./config.cjs');
 const {sign,verify}=require('./auth.cjs');
 const {decodeUpload,jsonBody,receipt}=require('./submission.cjs');
-const {createAccessRegistry,validateWechatIdentity,REGISTRY_ID}=require('./access.cjs');
+const {createAccessRegistry,validateWechatIdentity}=require('./access.cjs');
 
-function createHandler({ env = () => process.env, store, exchangeCode, exchangePhone, parseDelta, parseModelReply, validateStandardQuestion, clock = Date.now }) {
+function createHandler({ env = () => process.env, store, exchangePhone, parseDelta, parseModelReply, validateStandardQuestion, clock = Date.now }) {
   const workflow = require('./workflow.cjs').createWorkflow({store,validateStandardQuestion,clock});
   const access = createAccessRegistry({store,clock});
   const rate = new Map();
@@ -43,17 +43,17 @@ function createHandler({ env = () => process.env, store, exchangeCode, exchangeP
       });
       const publicResult = await workflow.read(method,path,config);
       if(publicResult !== undefined)return respond(200,publicResult);
-      const workflowRoute = /^\/v1\/banks\/[0-9a-f-]{36}\/(review|publish|seed|candidates|history|rollback)$/.test(path||'');
+      const workflowRoute = /^\/v1\/banks\/[0-9a-f-]{36}\/(seed|history|rollback)$/.test(path||'');
       const maintainerRoute = method==='GET' && ['/v1/maintainer-applications','/v1/maintainer-accounts'].includes(path)
         || method==='POST' && (path==='/v1/maintainer-applications' || /^\/v1\/maintainer-applications\/[0-9a-f-]{36}\/decision$/.test(path) || /^\/v1\/maintainer-accounts\/[0-9a-f-]{36}\/revoke$/.test(path));
-      if (!workflowRoute && !maintainerRoute && !['POST /v1/auth/desktop', 'POST /v1/auth/wechat', 'POST /v1/auth/wechat-phone', 'GET /v1/me', 'POST /v1/uploads', 'POST /v1/banks/promote'].includes(`${method} ${path}`))
+      if (!workflowRoute && !maintainerRoute && !['POST /v1/auth/desktop', 'POST /v1/auth/wechat-phone', 'GET /v1/me', 'POST /v1/uploads', 'POST /v1/banks/promote'].includes(`${method} ${path}`))
         fail(404, 'NOT_FOUND', '接口不存在');
       requireAuthConfig(config);
       const now = Math.floor(clock() / 1000);
       if (method === 'POST' && headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json')
         fail(415, 'JSON_REQUIRED', '请使用 application/json');
       if (path === '/v1/auth/desktop') {
-        throttle('login:all',100);throttle(`desktop:${String(headers['x-scf-remote-addr']||'unknown').slice(0,100)}`,10);
+        throttle('login:all',100);throttle(`desktop:${String(headers['x-forwarded-for']||headers['x-client-address']||'unknown').slice(0,100)}`,10);
         const body=jsonBody(event,1024);
         if(!exact(body,['key']) || typeof body.key!=='string' || !HASH.test(body.key))fail(401,'KEY_INVALID','维护密钥无效');
         const digest=Buffer.from(sha256(body.key),'hex');
@@ -64,7 +64,7 @@ function createHandler({ env = () => process.env, store, exchangeCode, exchangeP
           expires_in:LIMITS.sessionSeconds,banks:config.banks.filter(b=>Object.hasOwn(maintainer.grants,b.bank_id)),grants:maintainer.grants});
       }
       if(path==='/v1/auth/wechat-phone'){
-        throttle('login:all',100);throttle(`login:${String(headers['x-scf-remote-addr']||'unknown').slice(0,100)}`,10);
+        throttle('login:all',100);throttle(`login:${String(headers['x-forwarded-for']||headers['x-client-address']||'unknown').slice(0,100)}`,10);
         const body=jsonBody(event,2048);
         if(!body||typeof body.login_code!=='string'||!/^[A-Za-z0-9_-]{8,256}$/.test(body.login_code)||typeof body.phone_code!=='string'||!/^[A-Za-z0-9_-]{8,256}$/.test(body.phone_code))
           fail(400,'CODE_REQUIRED','请提供微信登录和手机号授权凭证');
@@ -80,25 +80,6 @@ function createHandler({ env = () => process.env, store, exchangeCode, exchangeP
         const grants=account?.status==='approved'&&object(account.grants)?account.grants:{};
         return respond(200,{access_token:token,expires_in:LIMITS.sessionSeconds,openid:identity.openid,phone:identity.phone_masked,nickname:account?.nickname||String(body.nickname||'').trim(),status:account?.status||'pending',banks:config.banks.filter(b=>Object.hasOwn(grants,b.bank_id)),permissions:[...new Set(Object.values(grants).flat())]});
       }
-      if (path === '/v1/auth/wechat') {
-        // Kept only as a controlled migration shim for already-installed
-        // clients. New clients use /v1/auth/wechat-phone and deployments can
-        // set QBANK_LEGACY_AUTH_DISABLED=true to remove this route entirely.
-        if(env().QBANK_LEGACY_AUTH_DISABLED==='true')fail(410,'LEGACY_AUTH_REMOVED','旧版微信登录已停用，请使用手机号快捷登录');
-        throttle('login:all', 100);throttle(`login:${String(headers['x-scf-remote-addr'] || 'unknown').slice(0, 100)}`, 10);
-        const body = jsonBody(event, 1024);
-        if (!exact(body, ['code']) || typeof body.code !== 'string' || !/^[A-Za-z0-9_-]{8,256}$/.test(body.code))
-          fail(400, 'CODE_REQUIRED', '请提供 wx.login 返回的临时 code');
-        let identity;
-        try { identity = await exchangeCode({ appId: config.appId, appSecret: config.appSecret, code: body.code }); }
-        catch (error) { if (error instanceof HttpError) throw error; fail(502, 'WECHAT_UNAVAILABLE', '微信登录校验暂不可用，请重试'); }
-        if (!identity || !OPENID.test(identity.openid)) fail(401, 'WECHAT_LOGIN_FAILED', '微信登录凭证无效，请重新登录');
-        const banks = Object.hasOwn(config.developers, identity.openid) ? config.developers[identity.openid] : [];
-        if (!banks.length) fail(403, 'DEVELOPER_NOT_ALLOWED', '此微信用户尚未获得上传授权', { openid: identity.openid });
-        return respond(200, { access_token: sign({ sub: identity.openid, aud: 'qbank-upload-v1',
-          app_id: config.appId, auth_version: config.authVersion, iat: now, exp: now + LIMITS.sessionSeconds }, config),
-        expires_in: LIMITS.sessionSeconds, openid: identity.openid, banks: config.banks.filter(b => banks.includes(b.bank_id)) });
-      }
       const auth = verify(typeof headers.authorization === 'string' && headers.authorization.startsWith('Bearer ')
         ? headers.authorization.slice(7) : null, config, now, await access.read());
       if (path === '/v1/me') return respond(200, { openid: auth.openid, phone: auth.phone_masked||'', nickname:auth.nickname||'', account_status:auth.account_status|| (auth.desktop?'desktop':'approved'),
@@ -107,26 +88,28 @@ function createHandler({ env = () => process.env, store, exchangeCode, exchangeP
       if(path==='/v1/maintainer-applications'&&method==='GET'){
         if(!isAdmin)fail(403,'ROLE_FORBIDDEN','只有桌面最高权限可以管理维护者申请');
         const registry=await access.read();
-        return respond(200,{applications:registry.maintainer_applications.filter(a=>a.status==='pending').map(a=>({id:a.id,phone:a.phone_masked,nickname:a.nickname,bank_ids:a.bank_ids,created_at:a.created_at,status:a.status}))});
+        return respond(200,{applications:registry.maintainer_applications.filter(a=>a.status==='pending').map(a=>({id:a.id,phone:a.phone_masked,nickname:a.nickname,identity_description:a.identity_description,bank_ids:a.bank_ids,created_at:a.created_at,status:a.status}))});
       }
       if(path==='/v1/maintainer-accounts'&&method==='GET'){
         if(!isAdmin)fail(403,'ROLE_FORBIDDEN','只有桌面最高权限可以管理维护者账号');
         const registry=await access.read();
-        return respond(200,{accounts:registry.wechat_accounts.map(a=>({id:a.id,phone:a.phone_masked,nickname:a.nickname,openid:a.openid,grants:a.grants,status:a.status,created_at:a.created_at,approved_at:a.approved_at||null,revoked_at:a.revoked_at||null}))});
+        return respond(200,{accounts:registry.wechat_accounts.map(a=>({id:a.id,phone:a.phone_masked,nickname:a.nickname,identity_description:a.identity_description,openid:a.openid,grants:a.grants,status:a.status,created_at:a.created_at,approved_at:a.approved_at||null,revoked_at:a.revoked_at||null}))});
       }
       if(path==='/v1/maintainer-applications'&&method==='POST'){
         if(!auth.phone)fail(403,'PHONE_LOGIN_REQUIRED','请先完成微信手机号快捷登录');
         const body=jsonBody(event,8192);if(!Array.isArray(body?.bank_ids)||!body.bank_ids.length||body.bank_ids.length>100||body.bank_ids.some(id=>!UUID.test(id)))fail(422,'BANKS_REQUIRED','请选择要维护的题库');
         const nickname=typeof body.nickname==='string'?body.nickname.trim().slice(0,80):auth.nickname||'';
+        const identityDescription=typeof body.identity_description==='string'?body.identity_description.trim():'';
+        if(!identityDescription||identityDescription.length>500)fail(422,'IDENTITY_REQUIRED','请填写 1 至 500 字的身份说明，方便管理员核实');
         const validBanks=[...new Set(body.bank_ids)].filter(id=>config.banks.some(b=>b.bank_id===id));if(!validBanks.length)fail(422,'BANKS_REQUIRED','请选择有效题库');
         const result=await access.update(registry=>{
           const existing=registry.wechat_accounts.find(a=>a.phone_hash===auth.phone_hash&&a.status!=='revoked');
           if(existing)fail(409,'ALREADY_MAINTAINER','此手机号已经是题库维护者');
           const pending=registry.maintainer_applications.find(a=>a.phone_hash===auth.phone_hash&&a.status==='pending');
           if(pending)fail(409,'APPLICATION_PENDING','此手机号已有待审批申请');
-          registry.maintainer_applications.push({id:randomUUID(),phone_hash:auth.phone_hash,phone_masked:auth.phone_masked,nickname,openid:auth.openid,bank_ids:validBanks,status:'pending',created_at:new Date(clock()).toISOString()});
+          registry.maintainer_applications.push({id:randomUUID(),phone_hash:auth.phone_hash,phone_masked:auth.phone_masked,nickname,identity_description:identityDescription,openid:auth.openid,bank_ids:validBanks,status:'pending',created_at:new Date(clock()).toISOString()});
         });
-        const application=result.maintainer_applications.at(-1);return respond(201,{application:{id:application.id,status:application.status,phone:application.phone_masked,nickname:application.nickname,bank_ids:application.bank_ids}});
+        const application=result.maintainer_applications.at(-1);return respond(201,{application:{id:application.id,status:application.status,phone:application.phone_masked,nickname:application.nickname,identity_description:application.identity_description,bank_ids:application.bank_ids}});
       }
       const decisionMatch=/^\/v1\/maintainer-applications\/([0-9a-f-]{36})\/decision$/.exec(path||'');
       if(decisionMatch&&method==='POST'){
@@ -139,7 +122,7 @@ function createHandler({ env = () => process.env, store, exchangeCode, exchangeP
           if(body.decision==='approve'){
             const requested=new Set(application.bank_ids),grants=object(body.grants)?body.grants:{};
             const selected={};for(const id of requested){const roles=Array.isArray(grants[id])?grants[id]:['upload'];if(!roles.length||roles.some(r=>r!=='upload'))fail(422,'GRANTS_INVALID','手机号维护者只能授予上传权限');selected[id]=['upload'];}
-            registry.wechat_accounts.push({id:randomUUID(),phone_hash:application.phone_hash,phone_masked:application.phone_masked,nickname:application.nickname,openid:application.openid,grants:selected,status:'approved',created_at:at,approved_at:at,approved_by:auth.maintainer_id});
+            registry.wechat_accounts.push({id:randomUUID(),phone_hash:application.phone_hash,phone_masked:application.phone_masked,nickname:application.nickname,identity_description:application.identity_description,openid:application.openid,grants:selected,status:'approved',created_at:at,approved_at:at,approved_by:auth.maintainer_id});
           }
         });
         const app=result.maintainer_applications.find(a=>a.id===decisionMatch[1]);return respond(200,{id:app.id,status:app.status});
@@ -153,19 +136,25 @@ function createHandler({ env = () => process.env, store, exchangeCode, exchangeP
       if(path==='/v1/banks/promote')return respond(200,await workflow.promote(jsonBody(event,LIMITS.expandedBytes),config,auth));
       if(workflowRoute)return respond(200,await workflow.write(method,path,method==='POST'?jsonBody(event,LIMITS.expandedBytes):undefined,config,auth));
       if (!config.uploadsEnabled) fail(503, 'UPLOAD_DISABLED', '上传服务尚未启用，本地题目仍然保留');
+      // Upload is an atomic merge operation in the current protocol. Never
+      // accept a package into a review/pending queue when version sync is off.
+      if (!config.syncEnabled) fail(503, 'SYNC_DISABLED', '云端合并服务尚未启用，本地批次仍然保留');
       throttle(`upload:${auth.openid}`, 20);
-      const body=jsonBody(event,LIMITS.requestBytes),confirmed=body?.format==='qbank-confirmed-upload-1';
-      if(confirmed&&!exact(body,['format','package']))fail(422,'CONFIRMATION_INVALID','上传确认格式无效');
-      const { delta, envelope } = decodeUpload(confirmed?body.package:body, parseDelta, parseModelReply);
+      const body=jsonBody(event,LIMITS.requestBytes);
+      if(!exact(body,['format','package'])||body.format!=='qbank-confirmed-upload-1')fail(422,'CONFIRMATION_INVALID','上传必须使用当前确认包格式');
+      const { delta, envelope } = decodeUpload(body.package, parseDelta, parseModelReply);
       if (!auth.grants[delta.bank_id]?.includes('upload')) fail(403, 'BANK_FORBIDDEN', '没有此题库的上传权限');
       if (config.banks.find(b => b.bank_id === delta.bank_id)?.name !== delta.name)
         fail(422, 'BANK_NAME_MISMATCH', '题库名称与云端目录不一致，请先同步题库信息');
+      // Do not reserve a submission before the formal bank exists. This keeps
+      // a failed pre-seed attempt from becoming a misleading retry record.
+      await workflow.ensureReady(config, delta.bank_id);
       const key = `inbox/${delta.bank_id}/${delta.batch_id}.json`;
       const record = { format: 'qbank-submission-1', submission_id: sha256(`${delta.bank_id}/${delta.batch_id}`),
         bank_id: delta.bank_id, batch_id: delta.batch_id, sha256: envelope.sha256, payload_sha256: delta.sha256,
-        question_count: delta.question_count, status: confirmed?'pending_merge':'pending_review', accepted_at: new Date(clock()).toISOString(),
+        question_count: delta.question_count, status:'merging', accepted_at: new Date(clock()).toISOString(),
         submitted_by: sha256(`${config.appId}\0${auth.openid}`), package: envelope };
-      if(confirmed)record.confirmation={version:1,actor:record.submitted_by,confirmed_at:record.accepted_at,sha256:record.sha256};
+      record.confirmation={version:1,actor:record.submitted_by,confirmed_at:record.accepted_at,sha256:record.sha256};
       let accepted;
       try { accepted = await store.createSubmission(key, record); }
       catch { fail(502, 'STORAGE_UNAVAILABLE', '云端保存未确认，请保留本地批次并重试'); }
@@ -174,13 +163,10 @@ function createHandler({ env = () => process.env, store, exchangeCode, exchangeP
       if (accepted.record.sha256 !== record.sha256 || accepted.record.bank_id !== delta.bank_id || accepted.record.batch_id !== delta.batch_id || accepted.record.submitted_by !== record.submitted_by)
         fail(409, 'BATCH_CONFLICT', '此批次已提交不同内容，请使用新批次提交修改');
       let merged;
-      if(config.syncEnabled){
-        try { merged=await workflow.mergeSubmission(config,accepted.record,delta,auth); }
-        catch(error){ if(error instanceof HttpError)throw error; fail(502,'MERGE_UNAVAILABLE','云端已保存上传包，但尚未完成合并；请重试同一批次'); }
-      }
-      const mergeInfo=merged?.merge||null;
-      return respond(accepted.created ? 201 : 200, { receipt: receipt(accepted.record,mergeInfo,merged?.manifest), duplicate: !accepted.created,
-        merged: merged?.merged===true, version: merged?.manifest||null, merge: mergeInfo });
+      try { merged=await workflow.mergeSubmission(config,accepted.record,delta,auth); }
+      catch(error){ if(error instanceof HttpError)throw error; fail(502,'MERGE_UNAVAILABLE','云端已保存上传包，但尚未完成合并；请重试同一批次'); }
+      return respond(accepted.created ? 201 : 200, { receipt: receipt(accepted.record,merged.merge), duplicate: !accepted.created,
+        merged: merged.merged, version: merged.manifest, merge: merged.merge });
     } catch (error) {
       if (error instanceof HttpError) return respond(error.status, { error: { code: error.code, message: error.message,
         ...(error.details ? { details: error.details } : {}) } });
