@@ -114,8 +114,8 @@ impl Question {
         {
             return Err("录入时间来源无效".into());
         }
-        if !["single", "multiple", "true_false"].contains(&self.kind.as_str()) {
-            return Err("题型只能是单选、多选或判断".into());
+        if !["single", "multiple", "true_false", "programming"].contains(&self.kind.as_str()) {
+            return Err("题型只能是单选、多选、判断或编程".into());
         }
         if self.stem.trim().is_empty() {
             return Err("题干不能为空".into());
@@ -147,7 +147,11 @@ impl Question {
                 return Err("选项 ID 必须是互不重复的 UUID".into());
             }
         }
-        if self.kind == "true_false" {
+        if self.kind == "programming" {
+            if !self.options.is_empty() || !self.answer.is_null() {
+                return Err("编程题不应包含选择项或标准答案".into());
+            }
+        } else if self.kind == "true_false" {
             if !self.options.is_empty()
                 || !(self.answer.is_boolean()
                     || (legacy

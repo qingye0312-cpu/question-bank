@@ -10,8 +10,8 @@ export type ModelReply = {
 export type IntakeQuestion = {
   schema_version: string; question_id: string; base_revision: number;
   recorded_at?: string | null; updated_at?: string | null; recorded_at_source?: 'local' | 'import' | 'source' | 'unknown';
-  type: ModelReply['type']; stem: string; options: {key: string; content: string; option_id: string}[];
-  answer: string[] | boolean; bank: string; external_id: string; chapter: string;
+  type: ModelReply['type'] | 'programming'; stem: string; options: {key: string; content: string; option_id: string}[];
+  answer: string[] | boolean | null; bank: string; external_id: string; chapter: string;
   tags: string[]; explanation: string; status: string; difficulty: string;
   applicable_version: string; source_note: string; issues: string[];
   sources: Record<string, unknown>[]; attachments: unknown[];
@@ -34,7 +34,7 @@ export function validateStandardQuestion(value:unknown,bank:string,legacy=false)
  if(!q||!['1.0','1.1'].includes(q.schema_version)||!uuid.test(q.question_id)||q.bank!==bank||!Number.isSafeInteger(q.base_revision)||q.base_revision<1
   ||Object.keys(q).some(k=>!['schema_version','question_id','base_revision','recorded_at','updated_at','recorded_at_source','type','stem','options','answer','bank','external_id','chapter','tags','explanation','status','difficulty','applicable_version','source_note','issues','sources','attachments','extensions'].includes(k))
   ||!['stem','external_id','chapter','explanation','difficulty','applicable_version','source_note'].every(k=>typeof q[k as keyof typeof q]==='string')
-  ||!q.stem.trim()||!['single','multiple','true_false'].includes(q.type)||!['unreviewed','needs_review','verified'].includes(q.status)
+  ||!q.stem.trim()||!['single','multiple','true_false','programming'].includes(q.type)||!['unreviewed','needs_review','verified'].includes(q.status)
   ||!['','easy','medium','hard'].includes(q.difficulty)||!Array.isArray(q.options)||q.options.length>26
   ||q.options.some((o,i)=>!o||!uuid.test(o.option_id)||o.key!==String.fromCharCode(65+i)||typeof o.content!=='string'||!o.content.trim()||Object.keys(o).some(k=>!['key','content','option_id'].includes(k)))
   ||new Set(q.options.map(o=>o.option_id)).size!==q.options.length||!Array.isArray(q.tags)||q.tags.some(v=>typeof v!=='string')
@@ -43,6 +43,10 @@ export function validateStandardQuestion(value:unknown,bank:string,legacy=false)
  for(const at of [q.recorded_at,q.updated_at])if(at!=null&&!validTime(at))throw Error('题目时间无效');
  if(q.recorded_at_source!=null&&!['local','import','source','unknown'].includes(q.recorded_at_source))throw Error('录入时间来源无效');
  if(q.schema_version==='1.1'&&(!q.recorded_at_source||(!q.recorded_at&&q.recorded_at_source!=='unknown')))throw Error('缺少录入时间条目');
+ if(q.type==='programming'){
+  if(q.options.length||q.answer!==null)throw Error('编程题不应包含选择项或标准答案');
+  return;
+ }
  if(legacy&&q.status==='needs_review'){
   if(q.type==='true_false'){if(q.options.length||!(typeof q.answer==='boolean'||q.answer===null&&q.sources.length))throw Error('历史判断题无效');}
   else if(!(q.answer===null&&q.sources.length)){
@@ -253,7 +257,7 @@ export function parseDelta(text: string): {delta: Delta; questions: IntakeQuesti
     if(!['1.0','1.1'].includes(q.schema_version)||typeof q.question_id!=='string'||!uuid.test(q.question_id)||ids.has(q.question_id)
       ||!Number.isSafeInteger(q.base_revision)||q.base_revision<1)throw new Error('题目 ID 或修订号无效');
     ids.add(q.question_id);
-    parseModelReply(JSON.stringify({format:'qbank-photo-question-1',type:q.type,stem:q.stem,
+    if(q.type!=='programming')parseModelReply(JSON.stringify({format:'qbank-photo-question-1',type:q.type,stem:q.stem,
       options:q.options?.map(o=>({key:o.key,content:o.content})),answer:q.answer,answer_origin:'inferred',
       explanation:q.explanation,model:{name:'未知',version:'未知',version_source:'unknown'},warnings:[]}));
     if(!Array.isArray(q.sources)||!Array.isArray(q.tags)||q.tags.some(t=>typeof t!=='string')

@@ -7,7 +7,7 @@ const out=root+'/templates';
 await fs.mkdir(out,{recursive:true});
 const headers=['外部编号','题型','题库','章节','题干',...'ABCDEFGH'.split('').map(k=>'选项'+k),'答案','解析','标签','难度','适用版本','来源说明','系统ID','基准修订号'];
 const examples=JSON.parse(await fs.readFile(root+'/src-tauri/resources/examples.json','utf8'));
-const rows=examples.map(q=>[q.external_id,({single:'单选',multiple:'多选',true_false:'判断'})[q.type],q.bank,'数学基础',q.stem,...'ABCDEFGH'.split('').map(k=>q.options.find(o=>o.key===k)?.content||''),typeof q.answer==='boolean'?(q.answer?'正确':'错误'):q.answer.join('|'),q.explanation,q.tags.join('|'),'简单','','示例题目','','']);
+const rows=examples.map(q=>[q.external_id,({single:'单选',multiple:'多选',true_false:'判断',programming:'编程'})[q.type],q.bank,'数学基础',q.stem,...'ABCDEFGH'.split('').map(k=>q.options.find(o=>o.key===k)?.content||''),typeof q.answer==='boolean'?(q.answer?'正确':'错误'):Array.isArray(q.answer)?q.answer.join('|'):'',q.explanation,q.tags.join('|'),'简单','','示例题目','','']);
 const wb=Workbook.create();
 const guide=wb.worksheets.add('填写说明');
 const questions=wb.worksheets.add('题目');
@@ -34,7 +34,7 @@ for(const s of [questions,demo]){
  s.getRange('A1:U1').values=[headers];s.getRange('A1:U1').format={fill:'#344F42',font:{bold:true,color:'#FFFFFF'},rowHeight:32};
  s.getRange('A2:U501').setNumberFormat('@');s.getRange('A2:U501').format.font={name:'Arial',size:11,color:'#263A32'};
  s.getRange('A2:U20').format.rowHeight=44;s.getRange('A1:U20').format.columnWidth=18;s.getRange('E1:E20').format.columnWidth=48;s.getRange('F1:M20').format.columnWidth=22;s.getRange('N1:N20').format.columnWidth=18;s.getRange('O1:O20').format.columnWidth=36;s.getRange('T1:T20').format.columnWidth=40;s.getRange('U1:U20').format.columnWidth=18;
- s.getRange('A2:U501').format.wrapText=true;s.getRange('B2:B501').dataValidation={rule:{type:'list',values:['单选','多选','判断']}};s.getRange('Q2:Q501').dataValidation={rule:{type:'list',values:['简单','中等','困难']}};
+ s.getRange('A2:U501').format.wrapText=true;s.getRange('B2:B501').dataValidation={rule:{type:'list',values:['单选','多选','判断','编程']}};s.getRange('Q2:Q501').dataValidation={rule:{type:'list',values:['简单','中等','困难']}};
  s.freezePanes.freezeRows(1);s.freezePanes.freezeColumns(2);
  for(const col of ['B','E','N'])s.getRange(`${col}2:${col}20`).format.fill='#FFFAE8';
 }

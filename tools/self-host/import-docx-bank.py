@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Convert the choice sections of the 06.25 DOCX into a legacy-review bank.
+"""Convert the 06.25 DOCX into a legacy-review bank.
 
 The source document contains questions and options but no answer key.  The
 generated questions therefore deliberately use answer=null and status=
 needs_review, with a source record on every question.  This is accepted by
 the cloud promotion validator's historical import path and keeps the answer
-review explicit.
+review explicit.  Programming questions keep their full statement and
+answer-area scaffold in the stem so both desktop and mobile clients can
+display the source faithfully.
 """
 
 from __future__ import annotations
@@ -284,6 +286,48 @@ def build_question(
     return question, audit
 
 
+def build_programming_question(
+    block: dict,
+    ordinal: int,
+    source_sha: str,
+    name: str,
+) -> dict:
+    raw = "\n".join(block["lines"]).strip()
+    qid = question_id(source_sha, "编程题", ordinal, block["question_no"])
+    return {
+        "schema_version": "1.0",
+        "question_id": qid,
+        "base_revision": 1,
+        "type": "programming",
+        "stem": raw or "（编程题正文为空，待核对）",
+        "options": [],
+        "answer": None,
+        "bank": name,
+        "external_id": f"P-{ordinal:04d}",
+        "chapter": "",
+        "tags": ["06.25高级题库(1).docx", "编程题", "待核对答案"],
+        "explanation": "",
+        "status": "needs_review",
+        "difficulty": "",
+        "applicable_version": "",
+        "source_note": "原始 DOCX 编程题，暂无标准答案；答题区已保留",
+        "issues": ["原始 DOCX 未提供标准答案，待核对"],
+        "sources": [
+            {
+                "kind": "source_document",
+                "file": "06.25高级题库(1).docx",
+                "section": "编程题",
+                "question_no": block["question_no"],
+                "occurrence": ordinal,
+                "answer_origin": "unknown",
+                "source_sha256": source_sha,
+                "raw_sha256": hashlib.sha256(raw.encode("utf-8")).hexdigest(),
+            }
+        ],
+        "attachments": [],
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("source", type=Path)
@@ -316,9 +360,11 @@ def main() -> None:
                 anomalies.append({k: item_audit[k] for k in ("external_id", "section", "question_no", "parse_issues")})
 
     programming = []
+    programming_questions: list[dict] = []
     programming_start = next((i for section, i in sections if section == "编程题"), None)
     if programming_start is not None:
-        for block in programming_blocks(paragraphs, programming_start):
+        for ordinal, block in enumerate(programming_blocks(paragraphs, programming_start), 1):
+            programming_questions.append(build_programming_question(block, ordinal, source_sha, args.name))
             programming.append({
                 "question_no": block["question_no"],
                 "title": block["title"],
@@ -326,10 +372,12 @@ def main() -> None:
             })
 
     args.output.mkdir(parents=True, exist_ok=True)
+    all_questions.extend(programming_questions)
     snapshot = {"bank_id": args.bank_id, "name": args.name, "questions": all_questions}
     (args.output / "snapshot.json").write_text(json.dumps(snapshot, ensure_ascii=False, separators=(",", ":")) + "\n", encoding="utf-8")
     (args.output / "questions.jsonl").write_text("".join(json.dumps(q, ensure_ascii=False, separators=(",", ":")) + "\n" for q in all_questions), encoding="utf-8")
     (args.output / "source-audit.jsonl").write_text("".join(json.dumps(q, ensure_ascii=False) + "\n" for q in audit), encoding="utf-8")
+    (args.output / "programming-questions.jsonl").write_text("".join(json.dumps(q, ensure_ascii=False, separators=(",", ":")) + "\n" for q in programming_questions), encoding="utf-8")
     (args.output / "programming-sidecar.json").write_text(json.dumps({
         "format": "qbank-programming-sidecar-1",
         "source": "06.25高级题库(1).docx",
@@ -344,7 +392,7 @@ def main() -> None:
         "choice_sections": choice_sections,
         "question_count": len(all_questions),
         "type_counts": dict(Counter(q["type"] for q in all_questions)),
-        "programming_count": len(programming),
+        "programming_count": len(programming_questions),
         "programming_numbers": [p["question_no"] for p in programming],
         "duplicate_question_numbers": {
             section: [number for number, count in Counter(a["question_no"] for a in audit if a["section"] == section).items() if count > 1]

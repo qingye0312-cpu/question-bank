@@ -52,7 +52,7 @@ function decodeUpload(envelope, parseDelta, parseModelReply) {
     if (!exact(source, ['kind', 'model', 'answer_origin', 'warnings', 'recorded_at'])
       || source.kind !== 'model_reply' || !validDate(source.recorded_at))
       fail(422, 'QUESTION_INVALID', '模型名称、版本和录入时间记录不完整');
-    try { parseModelReply(JSON.stringify({ format: 'qbank-photo-question-1', type: q.type, stem: q.stem,
+    try { if (q.type !== 'programming') parseModelReply(JSON.stringify({ format: 'qbank-photo-question-1', type: q.type, stem: q.stem,
       options: q.options.map(({ key, content }) => ({ key, content })), answer: q.answer, explanation: q.explanation,
       model: source.model, answer_origin: source.answer_origin, warnings: source.warnings })); }
     catch { fail(422, 'QUESTION_INVALID', '题目或模型来源记录校验失败'); }

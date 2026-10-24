@@ -474,6 +474,9 @@ h1+p {
 .type-badge.true_false {
   background:var(--info-bg);
   color:var(--info)}
+.type-badge.programming {
+  background:var(--selected);
+  color:var(--secondary)}
 .result-stem {
   font-size:0.923077rem;
   line-height:1.75;
@@ -544,6 +547,22 @@ h1+p {
   color:var(--ink);
   white-space:pre-wrap;
   overflow-wrap:anywhere}
+.programming-stem {
+  margin:1.461538rem 0 1.769231rem;
+  padding:1.153846rem 1.230769rem;
+  border:0.076923rem solid var(--line);
+  border-radius:0.538462rem;
+  background:var(--surface-soft);
+  color:var(--ink);
+  font:0.923077rem/1.75 ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  white-space:pre-wrap;
+  overflow-wrap:anywhere}
+.programming-editor-note {
+  margin:0.769231rem 0;
+  padding:0.769231rem 1rem;
+  border-radius:0.461538rem;
+  background:var(--surface-soft);
+  color:var(--muted)}
 .choices {
   display:flex;
   flex-direction:column;

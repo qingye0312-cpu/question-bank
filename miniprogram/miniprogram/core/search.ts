@@ -1,7 +1,7 @@
 // Pure logic shared by the build tool, tests and the WeChat runtime.
 export type Question = {
   schema_version: string; question_id: string; base_revision: number;
-  type: 'single' | 'multiple' | 'true_false'; stem: string;
+  type: 'single' | 'multiple' | 'true_false' | 'programming'; stem: string;
   options: { key: string; content: string; option_id: string }[];
   answer: string[] | boolean | null; bank: string; external_id: string;
   chapter: string; tags: string[]; explanation: string;
@@ -321,11 +321,12 @@ export function snippet(q: Question, terms: string[]): Segment[] {
 }
 
 export function answerText(q: Question): string {
+  if (q.type === 'programming') return '暂无标准答案';
   if (q.answer === null) return '待核对';
   if (typeof q.answer === 'boolean') return q.answer ? '正确' : '错误';
   return q.answer.join('、');
 }
-export const typeNames = { single: '单选', multiple: '多选', true_false: '判断' };
+export const typeNames = { single: '单选', multiple: '多选', true_false: '判断', programming: '编程' };
 
 // Only the viewport and a small buffer are sent to setData.
 export class VirtualList {

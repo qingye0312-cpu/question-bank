@@ -17,7 +17,7 @@ export function CloudPanel({banks,onChanged,onClose,onBusy}:{banks:Bank[];onChan
  const roles=cloudAccess()?.grants[selected]||[],current=review?.candidates.find(p=>p.id===candidate);
  const canMerge=roles.includes('merge')||roles.includes('publish'),canCreate=cloudAccess()?.capabilities?.includes('cloud_bank:create');
  let preview=current?.question;let invalid=false;
- try{if(current){const q=JSON.parse(edited) as Question;if(!q||typeof q.stem!=='string'||!Array.isArray(q.options)||q.options.some(o=>!o||typeof o.content!=='string')||!(Array.isArray(q.answer)||typeof q.answer==='boolean'))throw Error();preview=q;}}catch{invalid=true;}
+ try{if(current){const q=JSON.parse(edited) as Question;const programming=q?.type==='programming';if(!q||typeof q.stem!=='string'||!Array.isArray(q.options)||q.options.some(o=>!o||typeof o.content!=='string')||!(programming?q.answer===null:Array.isArray(q.answer)||typeof q.answer==='boolean'))throw Error();preview=q;}}catch{invalid=true;}
  const matches=preview?(review?.formal||[]).filter(q=>q.question_id===preview.question_id||identityKey(q)===identityKey(preview)):[];
  async function task(action:()=>Promise<void>){if(busy)return;setBusy(true);onBusy(true);setMessage('');try{await action();}catch(e){setMessage(String(e));}finally{setBusy(false);onBusy(false);void publishJobs().then(setOperations).catch(()=>{});}}
  async function refreshReview(){const [r,h]=await Promise.all([cloudCall<Review>(`/v1/banks/${selected}/candidates`,undefined,true),cloudCall<{versions:Version[]}>(`/v1/banks/${selected}/history`,undefined,true)]);setReview({...r,versions:h.versions});setPicked(r.candidates.filter(c=>c.decision==='confirmed'||c.decision==='accepted').map(c=>c.id));setCandidate('');setEdited('');}

@@ -50,7 +50,7 @@ for text in ['后续三页分别为单选、多选、判断示例。开始录题
 examples=json.loads((root/'src-tauri/resources/examples.json').read_text())
 headers=['外部编号','题型','题库','章节','题干',*['选项'+k for k in 'ABCDEFGH'],'答案','解析','标签','难度','适用版本','来源说明','系统ID','基准修订号']
 for q in examples:
- doc.add_page_break();kind={'single':'单选','multiple':'多选','true_false':'判断'}[q['type']]
+ doc.add_page_break();kind={'single':'单选','multiple':'多选','true_false':'判断','programming':'编程'}[q['type']]
  doc.add_paragraph(kind+'题示例',style='Heading 1');doc.add_paragraph('替换右列内容后使用，左列字段名保持不变。')
  vals=[q['external_id'],kind,'模板示例','数学基础',q['stem'],*[next((o['content'] for o in q['options'] if o['key']==k),'') for k in 'ABCDEFGH'],('正确' if q['answer'] else '错误') if isinstance(q['answer'],bool) else '|'.join(q['answer']),q['explanation'],'基础运算','简单','','示例题目','','']
  table(list(zip(headers,vals)))

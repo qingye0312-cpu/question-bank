@@ -54,10 +54,10 @@ export async function prepare({check = false, sourceDirectory} = {}) {
   const ids = new Set();
   for (const q of questions) {
     if (!q.question_id || ids.has(q.question_id) || !['1.0','1.1'].includes(q.schema_version)
-        || !['single', 'multiple', 'true_false'].includes(q.type) || !q.stem?.trim()
+        || !['single', 'multiple', 'true_false', 'programming'].includes(q.type) || !q.stem?.trim()
         || !Array.isArray(q.options) || !Array.isArray(q.tags)
         || (q.attachments?.length ?? 0) || q.extensions != null) throw new Error('题库存在无效记录、重复 ID 或不支持的附件');
-    if (q.answer === null ? q.status !== 'needs_review'
+    if (q.answer === null ? (q.type !== 'programming' && q.status !== 'needs_review')
       : q.type === 'true_false' ? typeof q.answer !== 'boolean'
       : !Array.isArray(q.answer) || !q.answer.length || q.answer.some(key => !q.options.some(o => o.key === key))) {
       throw new Error(`答案格式无效：${q.question_id}`);

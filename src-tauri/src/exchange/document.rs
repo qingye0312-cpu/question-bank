@@ -6,7 +6,8 @@ fn from_fields(fields: &HashMap<String, String>) -> Result<Question> {
         "单选" => "single",
         "多选" => "multiple",
         "判断" => "true_false",
-        _ => return Err("题型必须为单选、多选、判断".into()),
+        "编程" => "programming",
+        _ => return Err("题型必须为单选、多选、判断或编程".into()),
     };
     let options: Vec<Choice> = "ABCDEFGH"
         .chars()
@@ -24,7 +25,9 @@ fn from_fields(fields: &HashMap<String, String>) -> Result<Question> {
         })
         .collect();
     let a = get("答案");
-    let answer = if a.is_empty() && !get("记录元数据").is_empty() {
+    let answer = if kind == "programming" {
+        Value::Null
+    } else if a.is_empty() && !get("记录元数据").is_empty() {
         Value::Null
     } else if kind == "true_false" {
         match a.as_str() {
@@ -66,6 +69,7 @@ fn fields(q: &Question) -> Vec<(String, String)> {
         match q.kind.as_str() {
             "single" => "单选",
             "multiple" => "多选",
+            "programming" => "编程",
             _ => "判断",
         }
         .into(),

@@ -20,6 +20,7 @@ const SpeedQuestion = memo(function SpeedQuestion({question, query, line, previe
 });
 
 export function answerText(q: Hit['question']) {
+  if (q.type === 'programming') return '暂无标准答案';
   return q.answer === null ? '待核对' : typeof q.answer === 'boolean' ? (q.answer ? '正确' : '错误') : q.answer.join(' · ') || '待核对';
 }
 
@@ -149,7 +150,7 @@ export function SpeedResults({bankId, query, revision, fontScale, previewEnabled
       : !items.length ? <div className="speed-message">没有找到题目</div> : null}
   </div>
     {previewEnabled && preview && question && <QuestionPreview id={previewId} anchor={preview.anchor} fontScale={fontScale}>
-      <div className="question-preview-heading"><span>题目预览</span><span className={`type-badge ${question.type}`}>{({single: '单选', multiple: '多选', true_false: '判断'} as Record<string, string>)[question.type]}</span>{question.external_id && <span>{question.external_id}</span>}</div>
+      <div className="question-preview-heading"><span>题目预览</span><span className={`type-badge ${question.type}`}>{({single: '单选', multiple: '多选', true_false: '判断', programming: '编程'} as Record<string, string>)[question.type]}</span>{question.external_id && <span>{question.external_id}</span>}</div>
       <h2 className="question-preview-stem"><SearchMark text={question.stem} query={query}/></h2>
       {question.options.length > 0 && <div className="question-preview-options">{question.options.map(option => {
         const correct = Array.isArray(question.answer) && question.answer.includes(option.key);

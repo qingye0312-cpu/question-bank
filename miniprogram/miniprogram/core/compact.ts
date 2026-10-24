@@ -3,7 +3,7 @@ import type {Question} from './search';
 
 // Mobile read-only projection. Editorial provenance and option UUIDs stay in desktop source.
 export type CompactBank = {v: 1|2; release: string; dict: string[]; rows: unknown[][]};
-const types = ['single', 'multiple', 'true_false'] as const;
+const types = ['single', 'multiple', 'true_false', 'programming'] as const;
 export function encodeCompact(questions: Question[], release: string): CompactBank {
   const counts = new Map<string, number>();
   const strings = (q: Question): string[] => [q.chapter, ...q.tags, q.explanation, ...q.options.map(o => o.content)];

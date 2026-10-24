@@ -4,7 +4,7 @@ import {SearchMark} from './speed-results';
 import {useQuestionResults} from './use-question-results';
 import type {Hit, Results} from './types';
 
-const kinds: Record<string, string> = {single: '单选', multiple: '多选', true_false: '判断'};
+const kinds: Record<string, string> = {single: '单选', multiple: '多选', true_false: '判断', programming: '编程'};
 type Props = {
   bankId: string; query: string; kind: string; trash: boolean; revision: number;
   fontScale: number; active: Hit | null; keyboardEnabled: boolean;
