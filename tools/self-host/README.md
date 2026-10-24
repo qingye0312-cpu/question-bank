@@ -5,7 +5,7 @@
 ## 运行边界
 
 - 公网 `8.141.124.97:8013` 同时提供 SSH 和 HTTPS。FRP 转到容器 `127.0.0.1:8444`，sslh 按协议分到 SSH `22` 或 Caddy `8443`；Caddy 反向代理到题库服务 `127.0.0.1:8080`。
-- 桌面默认通过 `https://8.141.124.97:8013` 自动获取所有云端题库，使用内置 CA 公钥定向验证该服务。小程序已配置 `https://qbank.creart.top`，使用公网 443；部署需接通此入口的可信域名证书和微信 `request` 合法域名，不能使用桌面的私有 CA 或直接照搬 IP 地址。
+- 桌面默认通过 `https://8.141.124.97:8013` 自动获取所有云端题库，使用内置 CA 公钥定向验证该服务。小程序已配置 `https://qbank.creart.top:8013`，共用现有端口转发；部署需接通此入口的可信域名证书，并将完整地址（含 `:8013`）加入微信 `request` 合法域名，不能使用桌面的私有 CA 或直接照搬 IP 地址。
 - `/var/lib/qbank-auth` 是唯一业务数据目录，部署前应完整备份。
 - `QBANK_UPLOAD_ENABLED` 和 `QBANK_SYNC_ENABLED` 控制上传与合并；没有状态文件时目录可读但 revision 为 0。
 
@@ -45,6 +45,14 @@ sh mac/scripts/env.sh cargo test --manifest-path src-tauri/Cargo.toml --test clo
 ```
 
 第二条命令只读访问真实服务，将目录内所有题库应用到隔离临时数据库，核对题数和幂等，不写入日常数据库或远端题库。普通浏览器尚未信任这份私有 CA，小程序的域名及公开证书接入需要另行完成。[Caddy 内部证书说明](https://caddyserver.com/docs/automatic-https#local-https)、[sslh 协议分流说明](https://github.com/yrutschle/sslh)。
+
+## 小程序域名共用 8013
+
+客户端和微信 `request` 合法域名均为 `https://qbank.creart.top:8013`。现有 FRP／sslh 不需要增加端口：SSH 继续进入 `22`，TLS 继续进入 `8443`，Caddy 根据 SNI 区分域名与桌面的 IP 入口。
+
+[Caddyfile.domain](Caddyfile.domain) 是待证书就绪后接入的域名站点模板，不能当作已生效配置。通过 DNS 验证获得覆盖 `qbank.creart.top` 的可信证书，将完整链和私钥安装到 `/etc/caddy/certs/qbank.creart.top/fullchain.pem` 与 `key.pem`，目录权限 `0750`、文件权限 `0640`、所有者 `root:caddy`；确认 Caddy 可读。备份主配置后，将模板安装为 `/etc/caddy/qbank-domain.caddy`，在主配置末尾添加 `import /etc/caddy/qbank-domain.caddy`，验证配置并热重载，最后同时验证域名 HTTPS、原 IP HTTPS 和 SSH。
+
+证书私钥及 DNS API 密钥只能保存在受限服务器文件中，不提交 Git。推荐 DNS API 自动续期，并在续期成功后安装证书、校验配置和热重载；手动添加 TXT 的方案需每次续期重新配合。HTTP-01 验证固定使用 80、TLS-ALPN-01 固定使用 443，不能把验证端口改成 8013；DNS-01 不要求开放这些端口。[证书验证方式](https://letsencrypt.org/docs/challenge-types/)
 
 ## 初次种入题库
 

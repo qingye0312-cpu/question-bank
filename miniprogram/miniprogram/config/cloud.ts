@@ -1,7 +1,7 @@
 // HTTPS reverse-proxy origin in front of the self-hosted Alpine service.
 // Add this exact origin to the Mini Program's request domain allowlist.
 // No application secret, cloud key or session token belongs in this file.
-const AUTH_ORIGIN = 'https://qbank.creart.top';
+const AUTH_ORIGIN = 'https://qbank.creart.top:8013';
 export const PRODUCTION_AUTH_ORIGIN = AUTH_ORIGIN;
 const DEVELOPMENT_AUTH_ORIGIN = AUTH_ORIGIN;
 export function authOrigin():string {
