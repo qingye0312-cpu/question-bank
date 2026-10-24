@@ -27,7 +27,7 @@
     "test:intake": "node scripts/sync-client-assets.mjs --check && node --test tests/intake.test.mjs",
     "build:cloud": "node scripts/build-cloud.mjs",
     "build:self-host": "node scripts/build-self-host.mjs",
-    "test:cloud": "node --test tests/cloud-auth.test.mjs tests/cloud-workflow.test.mjs",
+    "test:cloud": "node --test tests/cloud-auth.test.mjs tests/cloud-workflow.test.mjs tests/wechat-maintainer.test.mjs",
     "test:self-host": "pnpm build:cloud && pnpm build:self-host && node --test tests/self-host.test.mjs",
     "cloud:doctor": "node tools/cloud/ops.mjs doctor",
     "cloud:verify": "node tools/cloud/ops.mjs verify",

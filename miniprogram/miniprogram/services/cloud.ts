@@ -56,7 +56,7 @@ export function createCloudClient(deps:{origin:()=>string;login:()=>Promise<stri
     }
     return response;
   }
-  async function startLogin(path:string,body:unknown,allowPending=false):Promise<CloudAccess>{
+  async function startLogin(path:string,body:unknown|((code:string)=>unknown),allowPending=false):Promise<CloudAccess>{
     if(pending)return pending;
     const run=(async()=>{
       const base=origin(),epoch=generation,started=now();session=undefined;
@@ -76,12 +76,12 @@ export function createCloudClient(deps:{origin:()=>string;login:()=>Promise<stri
     })();
     pending=run;void run.finally(()=>{if(pending===run)pending=undefined;}).catch(()=>{});return run;
   }
-  function login():Promise<CloudAccess>{return startLogin('/v1/auth/wechat',(code)=>({code}),false)}
+  function login():Promise<CloudAccess>{return startLogin('/v1/auth/wechat',(code:string)=>({code}),false)}
   async function loginWithPhone(phoneCode:string,nickname=''):Promise<CloudAccess>{
     if(!/^[A-Za-z0-9_-]{8,256}$/.test(phoneCode))throw new Error('未取得手机号授权凭证，请点击授权按钮');
-    return startLogin('/v1/auth/wechat-phone',(loginCode)=>({login_code:loginCode,phone_code:phoneCode,nickname}),true);
+    return startLogin('/v1/auth/wechat-phone',(loginCode:string)=>({login_code:loginCode,phone_code:phoneCode,nickname}),true);
   }
-  async function applyMaintainer(bankId:string,name:string,phoneCode:string,nickname=''){
+  async function applyMaintainer(bankId:string,_name:string,phoneCode:string,nickname=''){
     if(!active()?.phone)await loginWithPhone(phoneCode,nickname);
     const current=active();if(!current)throw new Error('手机号登录已失效，请重新授权');
     const result=object((await call('/v1/maintainer-applications','POST',{bank_ids:[bankId],nickname},current)).body);

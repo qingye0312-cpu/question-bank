@@ -81,7 +81,23 @@ function createHandler({ env = () => process.env, store, exchangeCode, exchangeP
         return respond(200,{access_token:token,expires_in:LIMITS.sessionSeconds,openid:identity.openid,phone:identity.phone_masked,nickname:account?.nickname||String(body.nickname||'').trim(),status:account?.status||'pending',banks:config.banks.filter(b=>Object.hasOwn(grants,b.bank_id)),permissions:[...new Set(Object.values(grants).flat())]});
       }
       if (path === '/v1/auth/wechat') {
-        fail(410,'LEGACY_AUTH_REMOVED','旧版微信登录已停用，请使用手机号快捷登录');
+        // Kept only as a controlled migration shim for already-installed
+        // clients. New clients use /v1/auth/wechat-phone and deployments can
+        // set QBANK_LEGACY_AUTH_DISABLED=true to remove this route entirely.
+        if(env().QBANK_LEGACY_AUTH_DISABLED==='true')fail(410,'LEGACY_AUTH_REMOVED','旧版微信登录已停用，请使用手机号快捷登录');
+        throttle('login:all', 100);throttle(`login:${String(headers['x-scf-remote-addr'] || 'unknown').slice(0, 100)}`, 10);
+        const body = jsonBody(event, 1024);
+        if (!exact(body, ['code']) || typeof body.code !== 'string' || !/^[A-Za-z0-9_-]{8,256}$/.test(body.code))
+          fail(400, 'CODE_REQUIRED', '请提供 wx.login 返回的临时 code');
+        let identity;
+        try { identity = await exchangeCode({ appId: config.appId, appSecret: config.appSecret, code: body.code }); }
+        catch (error) { if (error instanceof HttpError) throw error; fail(502, 'WECHAT_UNAVAILABLE', '微信登录校验暂不可用，请重试'); }
+        if (!identity || !OPENID.test(identity.openid)) fail(401, 'WECHAT_LOGIN_FAILED', '微信登录凭证无效，请重新登录');
+        const banks = Object.hasOwn(config.developers, identity.openid) ? config.developers[identity.openid] : [];
+        if (!banks.length) fail(403, 'DEVELOPER_NOT_ALLOWED', '此微信用户尚未获得上传授权', { openid: identity.openid });
+        return respond(200, { access_token: sign({ sub: identity.openid, aud: 'qbank-upload-v1',
+          app_id: config.appId, auth_version: config.authVersion, iat: now, exp: now + LIMITS.sessionSeconds }, config),
+        expires_in: LIMITS.sessionSeconds, openid: identity.openid, banks: config.banks.filter(b => banks.includes(b.bank_id)) });
       }
       const auth = verify(typeof headers.authorization === 'string' && headers.authorization.startsWith('Bearer ')
         ? headers.authorization.slice(7) : null, config, now, await access.read());
