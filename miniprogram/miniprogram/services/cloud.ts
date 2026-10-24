@@ -22,6 +22,9 @@ function readBanks(value:unknown):Bank[]{
 const messages:Record<string,string>={
   DEVELOPER_NOT_ALLOWED:'此微信账号尚未获得开发者上传授权，请联系题库维护者',
   BANK_FORBIDDEN:'没有当前题库的上传权限，请重新登录确认授权',
+  PHONE_LOGIN_REQUIRED:'请先在“上传”页使用微信手机号登录并申请维护者权限',
+  APPLICATION_PENDING:'此手机号已有待审批申请，请等待桌面最高权限处理',
+  ALREADY_MAINTAINER:'此手机号已经是题库维护者，正在刷新授权',
   BANK_NAME_MISMATCH:'题库名称与云端目录不一致，请联系题库维护者',
   UPLOAD_DISABLED:'上传服务暂未开放，本地题目仍然保留',
   RATE_LIMITED:'操作较频繁，请稍后重试',
@@ -84,7 +87,15 @@ export function createCloudClient(deps:{origin:()=>string;login:()=>Promise<stri
   async function applyMaintainer(bankId:string,_name:string,phoneCode:string,nickname=''){
     if(!active()?.phone)await loginWithPhone(phoneCode,nickname);
     const current=active();if(!current)throw new Error('手机号登录已失效，请重新授权');
-    const result=object((await call('/v1/maintainer-applications','POST',{bank_ids:[bankId],nickname},current)).body);
+    let result:Record<string,unknown>;
+    try { result=object((await call('/v1/maintainer-applications','POST',{bank_ids:[bankId],nickname},current)).body); }
+    catch(error){
+      // The same phone button is also the re-login action after desktop approval.
+      // A repeat application is therefore a successful refresh, not a failed upload.
+      if(error instanceof UploadError && (error.code==='ALREADY_MAINTAINER'||error.code==='APPLICATION_PENDING'))
+        return {id:'',status:error.code==='ALREADY_MAINTAINER'?'approved':'pending',phone:current.phone||'',nickname:current.nickname||nickname,bank_ids:[bankId]};
+      throw error;
+    }
     if(!result.application)throw new Error('申请响应无效');
     return result.application as {id:string;status:string;phone:string;nickname:string;bank_ids:string[]};
   }

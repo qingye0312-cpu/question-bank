@@ -39,7 +39,7 @@ export function syncBank(id:string):Promise<boolean>{
   // A concurrent server update produces a mismatch: retry on the next sync,
   // never install formal and pending snapshots from different revisions.
   if(snapshot.revision===0)return false;
-  buildPostings([...(snapshot.formal||[]),...snapshot.pending]);
+  buildPostings([...((snapshot.formal||[]).concat(snapshot.pending))] as unknown as import('../core/search').Question[]);
   await write(path(id),{manifest,wrapper});return true;
  })();inflight.set(id,task);void task.finally(()=>inflight.delete(id)).catch(()=>{});return task;
 }

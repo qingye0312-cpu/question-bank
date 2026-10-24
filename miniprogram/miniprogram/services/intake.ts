@@ -54,7 +54,7 @@ export async function importDelta(text:string){
  const result=await updateLocal(data=>{
   const batch=data.batches.find(b=>b.id===delta.batch_id);if(batch&&batch.bankId!==delta.bank_id)throw new Error('增量包批次属于另一题库');
   const old=[...previous,...data.entries.filter(e=>e.bankId===delta.bank_id).map(e=>e.question)];
-  const byId=new Map(old.map(q=>[q.question_id,q])),byContent=new Map<string,Question[]>();
+  const byId=new Map(old.map(q=>[q.question_id,q])),byContent=new Map<string,(Question|import('../core/intake').IntakeQuestion)[]>();
   for(const q of old){const key=identityKey(q);byContent.set(key,[...(byContent.get(key)||[]),q])}
   let skipped=0,conflicts=0;const incoming:typeof questions=[];
   if(!data.banks.some(b=>b.id===delta.bank_id))data.banks.push({id:delta.bank_id,name:delta.name});

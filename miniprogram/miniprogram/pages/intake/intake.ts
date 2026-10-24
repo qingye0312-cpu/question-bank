@@ -44,12 +44,17 @@ Page({
  onBool(e:WechatMiniprogram.TouchEvent){if(this.data.locked||this.data.busy)return;const r=controller?.current?.reply;if(r)controller!.change({reply:toggleAnswer(r,e.currentTarget.dataset.value==='true')})},
  onAddOption(){if(this.data.locked||this.data.busy)return;const r=controller?.current?.reply;if(r&&r.options.length<8)controller!.change({reply:{...r,options:[...r.options,{key:String.fromCharCode(65+r.options.length),content:''}]}})},
  onOptionMenu(e:WechatMiniprogram.TouchEvent){if(this.data.locked||this.data.busy)return;const r=controller?.current?.reply;if(!r)return;const index=Number(e.currentTarget.dataset.index),actions=['上移','下移','删除'];wx.showActionSheet({itemList:actions,success:result=>{const current=controller?.current?.reply;if(!alive||this.data.locked||this.data.busy||current!==r)return;const order=r.options.map((_,i)=>i),action=result.tapIndex;if(action===2){if(r.options.length<=2&&r.type!=='true_false'){this.setData({error:'选择题至少保留两个选项'});return;}order.splice(index,1);}else{const to=index+(action===0?-1:1);if(to<0||to>=order.length)return;[order[index],order[to]]=[order[to],order[index]];}controller!.change({reply:reorderOptions(r,order)})}})},
- onUpload(){void this.run(async()=>{await controller!.upload();this.setData({tab:'uploads',notice:'全部题目已统一压缩编码，任务已保存。可以继续录题。'})})},
+ onUpload(){
+  if(!cloud.state().loggedIn){this.setData({tab:'uploads',error:'上传前请先使用微信手机号登录；在下方点击“使用微信手机号申请”完成授权'});return;}
+  void this.run(async()=>{await controller!.upload();this.setData({tab:'uploads',notice:'全部题目已统一压缩编码，任务已保存。可以继续录题。'})})
+ },
  onMaintainerNickname(e:WechatMiniprogram.Input){this.setData({maintainerNickname:e.detail.value})},
  onApplyMaintainer(e:WechatMiniprogram.CustomEvent<{code?:string}>){const code=e.detail?.code;if(!code){this.setData({error:'需要同意微信手机号授权后才能申请'});return;}void this.run(async()=>{const bank=this.data.banks[this.data.bankIndex];if(!bank)throw Error('请先选择题库');const application=await cloud.applyMaintainer(bank.id,bank.name,code,this.data.maintainerNickname);this.setData({maintainerApplication:application.status,notice:application.status==='pending'?'申请已提交，等待桌面最高权限批准':'已获得维护者授权'})})},
- onRetry(){void this.run(async()=>{if(!cloud.state().loggedIn)await cloud.login();await controller!.retry()})},
+ onRetry(){
+  if(!cloud.state().loggedIn){this.setData({tab:'uploads',error:'恢复上传前请先使用微信手机号登录；在下方点击授权按钮'});return;}
+  void this.run(()=>controller!.retry())
+ },
  onSync(){void this.run(()=>controller!.sync())},
- onLogin(){void this.run(async()=>{await cloud.login();this.setData({notice:'授权成功，点击上传才会提交本次题目'})})},
  onLogout(){cloud.logout();void pauseUploads().catch(e=>{controller!.error=String(e);controller!.render()});this.setData({loggedIn:false})},
  onExport(){void this.run(async()=>{const file=await controller!.export();this.setData({...file,notice:'已导出，题目仍可修改；未触发上传'})})},
  onShare(){if(!this.data.filePath)return;(wx as WechatMiniprogram.Wx & {shareFileMessage:(options:{filePath:string;fileName:string;fail:(e:{errMsg:string})=>void})=>void}).shareFileMessage({filePath:this.data.filePath,fileName:this.data.fileName,fail:e=>this.setData({error:e.errMsg})})},

@@ -137,7 +137,7 @@ export function loadBank(id=activeBankId()):Promise<BankBundle>{
     const drafts=await readDraftFile(id),ids=new Set(drafts.map(r=>r.id));
     const working=[...local.entries.filter(e=>e.bankId===id&&!ids.has(e.question.question_id)).map(e=>e.question),...drafts.filter(r=>!r.removed&&!r.issues.length&&r.question).map(r=>r.question!)];
     const merged=combineLayers(formal,cached?.snapshot.pending||[],working);
-    bundle.bank.append(merged.filter(q=>q.cloud_layer!=='formal'));
+    bundle.bank.append(merged.filter(q=>q.cloud_layer!=='formal') as unknown as import('../core/search').Question[]);
 
     return {bank:bundle.bank,manifest:{...bundle.manifest,question_count:bundle.bank.count}};
   })().catch(error=>{banks.delete(id);throw error});
