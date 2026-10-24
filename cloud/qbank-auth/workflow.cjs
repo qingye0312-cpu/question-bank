@@ -107,8 +107,11 @@ function createWorkflow({store,validateStandardQuestion,clock}){
     const target=await atRevision(b,body.target_revision);
     if(!target)deny(404,'VERSION_MISSING','目标版本不存在或已损坏');
     if(target.formal===null)deny(409,'SEED_REQUIRED','目标版本尚未形成正式题库');
-    const rolledAt=new Date(clock()).toISOString(),releaseId=target.release_id||sha256(JSON.stringify(target.formal));
-    s.formal=structuredClone(target.formal);s.pending=[];s.resolved=structuredClone(target.resolved||[]);
+    // The bank's current name belongs to its identity, even when restoring
+    // question content from a version created before a rename.
+    const restored=structuredClone(target.formal).map(q=>({...q,bank:s.name}));
+    const rolledAt=new Date(clock()).toISOString(),releaseId=target.name===s.name&&target.release_id?target.release_id:sha256(JSON.stringify(restored));
+    s.formal=restored;s.pending=[];s.resolved=structuredClone(target.resolved||[]);
     s.release_version=target.release_version;s.merged_at=target.merged_at||rolledAt;s.release_id=releaseId;
     s.release_name=releaseName(rolledAt,s.name,'回退',s.release_version,s.bank_id,releaseId);
     s.rollback={target_revision:target.revision,from_revision:s.revision,rolled_back_at:rolledAt,actor:sha256(auth.openid)};s.rollback_at=rolledAt;

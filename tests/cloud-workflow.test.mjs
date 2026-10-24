@@ -103,6 +103,26 @@ test('question validation remains strict while direct merge has no review queue'
   assert.throws(()=>validateStandardQuestion({...questions[0],status:'queued'},delta.name));
 });
 
+test('rollback after a bank rename keeps its current name and preserves the older immutable version',async()=>{
+ const s=setup(),token=await s.login(),base=await seed(s,token);
+ const previous=await s.store.readState(id),name='HarmonyOS 高级认证';
+ const renamed={...structuredClone(previous),name,revision:2,release_version:2,
+  formal:previous.formal.map(q=>({...q,bank:name,tags:[...q.tags,'06月25日录入']}))};
+ renamed.release_id=sha256(JSON.stringify(renamed.formal));
+ assert.equal(await s.store.createState(renamed),true);
+ s.env.QBANK_BANKS=JSON.stringify([{bank_id:id,name}]);
+ const current=readManifest((await s.call('GET',`/v1/banks/${id}/manifest`)).data);
+ const snapshot=readSnapshot((await s.call('GET',`/v1/banks/${id}/snapshot-file`)).data,current);
+ assert.equal(snapshot.name,name);assert.ok(snapshot.formal[0].tags.includes('06月25日录入'));
+ const response=await s.call('POST',`/v1/banks/${id}/rollback`,{operation_id:randomUUID(),base_revision:2,target_revision:1},token);
+ assert.equal(response.status,200,JSON.stringify(response.data));
+ const restored=readSnapshot((await s.call('GET',`/v1/banks/${id}/snapshot-file`)).data,readManifest(response.data));
+ assert.equal(restored.revision,3);assert.equal(restored.name,name);assert.deepEqual(restored.formal[0].options,base.options);
+ assert.equal(restored.formal[0].bank,name);assert.equal(restored.formal[0].question_id,base.question_id);
+ assert.equal(response.data.release_id,sha256(JSON.stringify([{...base,bank:name}])));
+ assert.deepEqual(await s.store.readStateAt(id,1),previous);
+});
+
 test('conflicting answers reject the whole multi-question upload without a partial revision',async()=>{
  const s=setup(),token=await s.login();const base=await seed(s,token);
  const added={...questions[0],question_id:randomUUID(),stem:'本批新题'};
