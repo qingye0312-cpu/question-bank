@@ -17,6 +17,9 @@ getent group qbank >/dev/null 2>&1 || addgroup -S qbank
 id qbank >/dev/null 2>&1 || adduser -S -D -H -s /sbin/nologin -G qbank qbank
 mkdir -p "$RELEASE_ROOT" "$ENV_DIR" "$DATA_ROOT" /var/log/qbank-auth /run
 chmod 700 "$ENV_DIR" "$DATA_ROOT"
+touch /var/log/qbank-auth.log /var/log/qbank-auth.err
+chown qbank:qbank /var/log/qbank-auth.log /var/log/qbank-auth.err
+chmod 640 /var/log/qbank-auth.log /var/log/qbank-auth.err
 
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 release="$RELEASE_ROOT/$stamp"
@@ -47,6 +50,12 @@ QBANK_SYNC_ENABLED=true
 EOF
   chmod 600 "$ENV_FILE"
 fi
+
+# The service runs as qbank and must be able to read its private environment.
+# Keep the directory and file inaccessible to other unprivileged users.
+chown qbank:qbank "$ENV_DIR" "$ENV_FILE"
+chmod 700 "$ENV_DIR"
+chmod 600 "$ENV_FILE"
 
 if [ -n "$QUESTIONS" ] && [ -f "$QUESTIONS" ] && [ ! -d "$DATA_ROOT/states/ad50971f-66af-51c2-bb0e-dc798b03b369" ]; then
   mkdir -p "$DATA_ROOT/import"
