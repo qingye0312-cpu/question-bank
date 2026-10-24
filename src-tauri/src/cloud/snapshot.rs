@@ -139,25 +139,39 @@ pub fn apply(store: &Store, payload: &str, digest: &str) -> Result<()> {
         .into_iter()
         .filter(|q| !locals.contains(&q.question_id))
         .collect();
-    tx.execute(
-        "INSERT OR IGNORE INTO cloud_baselines VALUES(?1,?2)",
-        params![s.bank_id, serde_json::to_string(&baseline).map_err(err)?],
-    )
-    .map_err(err)?;
     let formal = match &s.formal {
-        Some(q) => q.clone(),
+        Some(q) => {
+            // The baseline is the authoritative cloud layer, not a one-time
+            // import marker. Replace it on every revision, including rollback.
+            tx.execute(
+                "INSERT INTO cloud_baselines VALUES(?1,?2) ON CONFLICT(bank_id) DO UPDATE SET payload=excluded.payload",
+                params![s.bank_id, serde_json::to_string(q).map_err(err)?],
+            )
+            .map_err(err)?;
+            q.clone()
+        }
         None => {
-            let raw: String = tx
+            let raw: Option<String> = tx
                 .query_row(
                     "SELECT payload FROM cloud_baselines WHERE bank_id=?1",
                     [&s.bank_id],
                     |r| r.get(0),
                 )
                 .map_err(err)?;
-            serde_json::from_str(&raw).map_err(err)?
+            if let Some(raw) = raw {
+                serde_json::from_str(&raw).map_err(err)?
+            } else {
+                let raw = serde_json::to_string(&baseline).map_err(err)?;
+                tx.execute(
+                    "INSERT INTO cloud_baselines VALUES(?1,?2)",
+                    params![s.bank_id, raw],
+                )
+                .map_err(err)?;
+                baseline
+            }
         }
     };
-    let mut st=tx.prepare("SELECT o.data FROM intake_originals o JOIN intake_entries e ON e.bank_id=o.bank_id AND e.question_id=o.question_id WHERE o.bank_id=?1 AND o.deleted=0 ORDER BY e.created_at,o.question_id").map_err(err)?;
+    let mut st=tx.prepare("SELECT o.data FROM intake_originals o JOIN intake_entries e ON e.bank_id=o.bank_id AND e.question_id=o.question_id WHERE o.bank_id=?1 AND o.deleted=0 AND e.upload_status='pending' ORDER BY e.created_at,o.question_id").map_err(err)?;
     let drafts = st
         .query_map([&s.bank_id], |r| r.get::<_, String>(0))
         .map_err(err)?
