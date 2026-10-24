@@ -18,7 +18,7 @@ export async function cachedSnapshot(id:string):Promise<{manifest:CloudManifest;
  try{const c=await checked(path(id)),manifest=readManifest(c.manifest);if(manifest.bank_id!==id)throw Error('题库身份错误');return {manifest,snapshot:readSnapshot(c.wrapper,manifest)};}catch{return null;}
 }
 function requestFailureMessage(message:string):string {
- if(/url not in domain|不在.*合法域名|domain list/i.test(message))return '云端域名未加入微信 request 合法域名，暂用本地题库';
+ if(/url not in domain|不在.*合法域名|domain list/i.test(message))return '微信 request 合法域名校验未通过，暂用本地题库';
  if(/ssl|tls|certificate|证书|err_connection_reset/i.test(message))return '云端 HTTPS 连接失败，继续使用本地题库';
  if(/timeout|timed out|超时/i.test(message))return '云端请求超时，继续使用本地题库';
  return '无法连接云端，请检查网络或服务状态；本地题库仍可使用';

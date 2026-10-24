@@ -50,7 +50,7 @@ sh mac/scripts/env.sh cargo test --manifest-path src-tauri/Cargo.toml --test clo
 
 客户端统一配置 `https://qbank.creart.top:8013`，微信 `request` 合法域名需填写相同地址。目录、版本检查、快照下载、微信登录、维护者申请和压缩上传均使用该入口。两端按完整云目录缓存所有题库，相同修订与摘要不重复下载，离线保留本地缓存。
 
-**2026-10-24 部署状态：域名公开证书已安装，容器内 HTTPS 与 sslh 分流验证通过；公网域名连接仍被重置，接入服务商的域名放行／备案问题待处理。** 原 IP HTTPS、SSH 和初级／高级题库下载通过实测。微信后台合法域名保存结果及真机登录、上传、同步尚未验收。本机开发者工具已恢复域名校验。
+**2026-10-24 部署状态：域名公开证书已安装，容器内 HTTPS 与 sslh 分流验证通过；公网域名连接仍被重置，需接入服务商排查转发、域名放行和备案限制。** 原 IP HTTPS、SSH 和初级／高级题库下载通过实测。用户截图已确认微信后台保存完整 request 域名；本机开发者工具启用域名校验，但仍读到旧列表，需刷新项目域名信息后重新编译。真机登录、上传、同步尚未验收。
 
 [Caddyfile.domain](Caddyfile.domain) 已安装为 `/etc/caddy/qbank-domain.caddy` 并由主配置导入，Caddy 根据 SNI 区分域名公开证书与桌面 IP 的内部 CA 证书。证书位于 `/etc/caddy/certs/qbank.creart.top/versions/`，`current` 原子链接选择当前完整链与私钥；目录权限 `0750`、文件权限 `0640`、所有者 `root:caddy`。证书及私钥不进入仓库。
 
