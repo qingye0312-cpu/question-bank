@@ -2,7 +2,7 @@ import {UploadError} from '../core/queue';
 import {authOrigin} from '../config/cloud';
 import {prepareUpload,verifyReceipt} from '../core/upload';
 type Bank={bank_id:string;name:string};
-type Session={openid:string;token:string;origin:string;expiresAt:number;banks:Bank[];uploadsEnabled:boolean};
+type Session={openid:string;token:string;origin:string;expiresAt:number;banks:Bank[];uploadsEnabled:boolean;status?:string;phone?:string;nickname?:string};
 type Response={status:number;body:unknown};
 type Transport=(origin:string,path:string,method:'GET'|'POST',body:unknown,token?:string)=>Promise<Response>;
 export type CloudAccess={openid?:string;configured:boolean;loggedIn:boolean;banks:Bank[];uploadsEnabled:boolean};
@@ -56,25 +56,37 @@ export function createCloudClient(deps:{origin:()=>string;login:()=>Promise<stri
     }
     return response;
   }
-  function login():Promise<CloudAccess>{
+  async function startLogin(path:string,body:unknown,allowPending=false):Promise<CloudAccess>{
     if(pending)return pending;
     const run=(async()=>{
       const base=origin(),epoch=generation,started=now();session=undefined;
       const code=await deps.login();
       if(!/^[A-Za-z0-9_-]{8,256}$/.test(code))throw new Error('未取得微信登录凭证，请重试');
-      const result=object((await call('/v1/auth/wechat','POST',{code})).body);
+      const result=object((await call(path,'POST',typeof body==='function'?(body as (code:string)=>unknown)(code):body)).body);
       if(typeof result.access_token!=='string'||!/^v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(result.access_token)
         ||result.access_token.length>4096||!Number.isInteger(result.expires_in)||Number(result.expires_in)<30||Number(result.expires_in)>900)
         throw new Error('云端登录响应无效，请重试');
-      const current:Session={openid:result.openid as string,token:result.access_token,origin:base,expiresAt:started+Number(result.expires_in)*1000,banks:readBanks(result.banks),uploadsEnabled:false};
+      const current:Session={openid:result.openid as string,token:result.access_token,origin:base,expiresAt:started+Number(result.expires_in)*1000,banks:readBanks(result.banks),uploadsEnabled:false,status:typeof result.status==='string'?result.status:undefined,phone:typeof result.phone==='string'?result.phone:undefined,nickname:typeof result.nickname==='string'?result.nickname:undefined};
       const me=object((await call('/v1/me','GET',undefined,current)).body);
-      if(typeof result.openid!=='string'||me.openid!==result.openid||!Array.isArray(me.permissions)||!me.permissions.includes('upload')||typeof me.uploads_enabled!=='boolean')
+      if(typeof result.openid!=='string'||me.openid!==result.openid||!Array.isArray(me.permissions)||(!allowPending&&!me.permissions.includes('upload'))||typeof me.uploads_enabled!=='boolean')
         throw new Error('云端身份或权限校验失败，请重新登录');
       current.banks=readBanks(me.banks);current.uploadsEnabled=me.uploads_enabled;
       if(epoch!==generation||base!==deps.origin())throw new Error('登录已取消，请重新登录');
       session=current;return state();
     })();
     pending=run;void run.finally(()=>{if(pending===run)pending=undefined;}).catch(()=>{});return run;
+  }
+  function login():Promise<CloudAccess>{return startLogin('/v1/auth/wechat',(code)=>({code}),false)}
+  async function loginWithPhone(phoneCode:string,nickname=''):Promise<CloudAccess>{
+    if(!/^[A-Za-z0-9_-]{8,256}$/.test(phoneCode))throw new Error('未取得手机号授权凭证，请点击授权按钮');
+    return startLogin('/v1/auth/wechat-phone',(loginCode)=>({login_code:loginCode,phone_code:phoneCode,nickname}),true);
+  }
+  async function applyMaintainer(bankId:string,name:string,phoneCode:string,nickname=''){
+    if(!active()?.phone)await loginWithPhone(phoneCode,nickname);
+    const current=active();if(!current)throw new Error('手机号登录已失效，请重新授权');
+    const result=object((await call('/v1/maintainer-applications','POST',{bank_ids:[bankId],nickname},current)).body);
+    if(!result.application)throw new Error('申请响应无效');
+    return result.application as {id:string;status:string;phone:string;nickname:string;bank_ids:string[]};
   }
   async function authorize(bankId:string,name:string){
     if(!active())await login();
@@ -96,7 +108,7 @@ export function createCloudClient(deps:{origin:()=>string;login:()=>Promise<stri
     return {receipt:verifyReceipt(body.receipt,expected),duplicate:body.duplicate as boolean};
   }
   async function health(){return object((await call('/health','GET',undefined)).body)}
-  return {state,login,logout,authorize,upload,health};
+  return {state,login,loginWithPhone,applyMaintainer,logout,authorize,upload,health};
 }
 
 const request:Transport=(origin,path,method,body,token)=>new Promise((resolve,reject)=>{
