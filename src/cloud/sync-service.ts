@@ -14,9 +14,11 @@ export function syncDesktop(bankId:string,advertised?:CloudManifest):Promise<boo
  const task=(async()=>{
   const m=readManifest(advertised||await cloudCall(`/v1/banks/${bankId}/manifest`));if(m.bank_id!==bankId)throw Error('题库身份不一致');
   checkOrigin();
-  const versions=await invoke<{bank_id:string;revision:number;sha256:string}[]>('cloud_versions'),old=versions.find(v=>v.bank_id===bankId);
+  const versions=await invoke<{bank_id:string;revision:number}[]>('cloud_versions'),old=versions.find(v=>v.bank_id===bankId);
   checkOrigin();
-  if(old){if(old.revision>m.revision)throw Error('拒绝云端版本倒退');if(old.revision===m.revision){if(old.sha256!==m.sha256)throw Error('同版本内容发生变化');return false;}}
+  // Revision is the cache version. Any mismatch downloads and replaces the
+  // cache, including restored content; equal revisions skip I/O.
+  if(old?.revision===m.revision)return false;
   if(m.revision===0)return false;
   const wrapper=await cloudCall<unknown>(snapshotPath(m));readSnapshot(wrapper,m);
   checkOrigin();
@@ -31,7 +33,7 @@ export function syncDesktopCatalog():Promise<{changed:boolean;failed:string[]}>{
   const catalog=await fetchCatalog();let changed=false;const failed:string[]=[];
   for(const bank of catalog){
    if(origin!==cloudOrigin())throw Error('服务地址已改变，本次同步已取消');
-   try{changed=(await syncDesktop(bank.bank_id,bank))||changed;}catch{failed.push(bank.name);}
+   try{changed=(await syncDesktop(bank.bank_id,bank))||changed;}catch(error){failed.push(`${bank.name}（${error instanceof Error?error.message:String(error)}）`);}
   }
   return {changed,failed};
  })();catalogSyncs.set(origin,task);void task.finally(()=>{if(catalogSyncs.get(origin)===task)catalogSyncs.delete(origin)}).catch(()=>{});return task;

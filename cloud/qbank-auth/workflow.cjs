@@ -1,7 +1,7 @@
 'use strict';
-// One immutable state object is the commit point for a release, its merge log,
-// and its rollback lineage. Every upload creates a new revision or is replayed
-// from the durable submission/merge records; no last-writer-wins mutation.
+// Each revision is immutable: uploads commit a full state and rollbacks commit
+// a compact reference. Upload retries replay durable submission/merge records;
+// concurrent writers never overwrite one another.
 const {HttpError,sha256}=require('./common.cjs');
 const {packText}=require('./codec.cjs');
 const {key,answer,releaseName,projected,manifest}=require('./projection.cjs');
@@ -97,7 +97,7 @@ function createWorkflow({store,validateStandardQuestion,clock}){
    if(operation){
     if(!UUID.test(operation))deny(422,'OPERATION_INVALID','合并任务 ID 无效');
     const old=(s.operations||[]).find(o=>o.id===operation);
-    if(old){if(old.hash!==operationHash)deny(409,'OPERATION_CONFLICT','任务 ID 已用于不同内容');return old.result;}
+    if(old){if(old.hash!==operationHash)deny(409,'OPERATION_CONFLICT','任务 ID 已用于不同内容');if(action==='rollback')await store.finalizeRollback?.(b.bank_id,old.result.revision);return old.result;}
    }
    if(!body||body.base_revision!==s.revision)deny(409,'REVISION_CONFLICT','云端题库已更新，请刷新后重试');
    if(action==='rollback'){
@@ -115,9 +115,17 @@ function createWorkflow({store,validateStandardQuestion,clock}){
     s.release_version=target.release_version;s.merged_at=target.merged_at||rolledAt;s.release_id=releaseId;
     s.release_name=releaseName(rolledAt,s.name,'回退',s.release_version,s.bank_id,releaseId);
     s.rollback={target_revision:target.revision,from_revision:s.revision,rolled_back_at:rolledAt,actor:sha256(auth.openid)};s.rollback_at=rolledAt;
-    s.operations=s.operations||[];const projectedResult=manifest({...s,revision:s.revision+1,updated_at:rolledAt});
-    s.operations.push({id:operation,hash:operationHash,result:projectedResult});
-    return commit(s,rolledAt);
+    const fromRevision=s.revision,nextRevision=fromRevision+1;
+    const projectedResult=manifest({...s,revision:nextRevision,updated_at:rolledAt});
+    const operationRecord={id:operation,hash:operationHash,result:projectedResult};
+    s.revision=nextRevision;s.updated_at=rolledAt;
+    s.operations=[...(s.operations||[]),operationRecord];
+    if(!await store.createRollback(s,target.revision,operationRecord)){
+     const latestState=await latest(b),previous=(latestState.operations||[]).find(o=>o.id===operation);
+     if(previous){if(previous.hash!==operationHash)deny(409,'OPERATION_CONFLICT','任务 ID 已用于不同内容');return previous.result;}
+     deny(409,'REVISION_CONFLICT','云端题库已更新，请刷新后重新核对');
+    }
+    return projectedResult;
    }
    if(action!=='seed')deny(405,'METHOD_NOT_ALLOWED','不支持此请求方法');
    if(!auth.capabilities?.includes('cloud_bank:create'))deny(403,'CREATE_FORBIDDEN','首版初始化需要桌面最高权限');

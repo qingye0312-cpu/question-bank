@@ -35,8 +35,16 @@ function authChecks(config) {
 function authConfigured(config) {
   return Object.values(authChecks(config)).every(status => status === 'ok');
 }
+function sessionConfigured(config) {
+  const checks=authChecks(config);
+  return checks.WX_APP_ID==='ok'&&checks.QBANK_SESSION_SECRET==='ok'&&checks.QBANK_BANKS==='ok';
+}
+function requireSessionConfig(config) {
+  if (!sessionConfigured(config)) fail(503, 'AUTH_NOT_CONFIGURED', '会话服务尚未配置完成');
+}
 function requireAuthConfig(config) {
+  requireSessionConfig(config);
   if (!authConfigured(config)) fail(503, 'AUTH_NOT_CONFIGURED', '登录服务尚未配置完成');
 }
 
-module.exports={loadConfig,authChecks,authConfigured,requireAuthConfig};
+module.exports={loadConfig,authChecks,authConfigured,sessionConfigured,requireSessionConfig,requireAuthConfig};

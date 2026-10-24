@@ -1,10 +1,11 @@
 'use strict';
-const {timingSafeEqual,randomUUID}=require('node:crypto');
+const {timingSafeEqual,randomUUID,randomBytes}=require('node:crypto');
 const {VERSION,LIMITS,UUID,HASH,sha256,object,HttpError,fail,exact}=require('./common.cjs');
-const {loadConfig,authChecks,authConfigured,requireAuthConfig}=require('./config.cjs');
+const {loadConfig,authChecks,authConfigured,requireAuthConfig,requireSessionConfig}=require('./config.cjs');
 const {sign,verify}=require('./auth.cjs');
 const {decodeUpload,jsonBody,receipt}=require('./submission.cjs');
 const {createAccessRegistry,validateWechatIdentity}=require('./access.cjs');
+const {DUMMY_HASH,hashPassword,normalizeUsername,validUsername,validatePassword,verifyPassword}=require('./password.cjs');
 
 function createHandler({ env = () => process.env, store, exchangeWechat, parseDelta, parseModelReply, validateStandardQuestion, clock = Date.now }) {
   const workflow = require('./workflow.cjs').createWorkflow({store,validateStandardQuestion,clock});
@@ -39,16 +40,16 @@ function createHandler({ env = () => process.env, store, exchangeWechat, parseDe
       if (method === 'GET' && path === '/health') return respond(200, {
         service: 'qbank-auth', version: VERSION, auth_configured: authConfigured(config),
         auth_checks: authChecks(config),
-        uploads_enabled: config.uploadsEnabled, sync_enabled: config.syncEnabled, capabilities:['confirmed-upload-v1','snapshot-v2','cloud-file-gzip-base64-v1','recorded-at-v1','merge-v1','cloud-bank-promotion-v1','session-upload-v1','wechat-manual-application-v1','maintainer-approval-v1','certificate-import-v1'], limits: LIMITS,
+        uploads_enabled: config.uploadsEnabled, sync_enabled: config.syncEnabled, capabilities:['confirmed-upload-v1','snapshot-v2','cloud-file-gzip-base64-v1','recorded-at-v1','merge-v1','cloud-bank-promotion-v1','session-upload-v1','wechat-manual-application-v1','maintainer-approval-v1','certificate-import-v1','password-maintainer-v1'], limits: LIMITS,
       });
       const publicResult = await workflow.read(method,path,config);
       if(publicResult !== undefined)return respond(200,publicResult);
       const workflowRoute = /^\/v1\/banks\/[0-9a-f-]{36}\/(seed|history|rollback)$/.test(path||'');
       const maintainerRoute = method==='GET' && ['/v1/maintainer-applications','/v1/maintainer-accounts'].includes(path)
-        || method==='POST' && (path==='/v1/maintainer-applications' || /^\/v1\/maintainer-applications\/[0-9a-f-]{36}\/decision$/.test(path) || /^\/v1\/maintainer-accounts\/[0-9a-f-]{36}\/revoke$/.test(path));
-      if (!workflowRoute && !maintainerRoute && !['POST /v1/auth/desktop', 'POST /v1/auth/wechat-login', 'GET /v1/me', 'POST /v1/uploads', 'POST /v1/banks/promote'].includes(`${method} ${path}`))
+        || method==='POST' && (path==='/v1/maintainer-applications' || /^\/v1\/maintainer-applications\/[0-9a-f-]{36}\/decision$/.test(path) || /^\/v1\/maintainer-accounts\/[0-9a-f-]{36}\/(?:revoke|password-reset)$/.test(path));
+      if (!workflowRoute && !maintainerRoute && !['POST /v1/auth/desktop', 'POST /v1/auth/wechat-login', 'POST /v1/auth/register', 'POST /v1/auth/password-login', 'POST /v1/auth/password-reset', 'GET /v1/me', 'POST /v1/uploads', 'POST /v1/banks/promote'].includes(`${method} ${path}`))
         fail(404, 'NOT_FOUND', '接口不存在');
-      requireAuthConfig(config);
+      if(path==='/v1/auth/wechat-login')requireAuthConfig(config);else requireSessionConfig(config);
       const now = Math.floor(clock() / 1000);
       if (method === 'POST' && headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json')
         fail(415, 'JSON_REQUIRED', '请使用 application/json');
@@ -62,6 +63,85 @@ function createHandler({ env = () => process.env, store, exchangeWechat, parseDe
         return respond(200,{access_token:sign({sub:`d_${maintainer.id}`,aud:'qbank-desktop-v1',app_id:config.appId,
           auth_version:config.authVersion,key_version:maintainer.key_sha256,iat:now,exp:now+LIMITS.sessionSeconds},config),
           expires_in:LIMITS.sessionSeconds,banks:config.banks.filter(b=>Object.hasOwn(maintainer.grants,b.bank_id)),grants:maintainer.grants});
+      }
+      if(path==='/v1/auth/register'){
+        throttle('login:all',100);
+        const client=String(headers['x-forwarded-for']||headers['x-client-address']||'unknown').slice(0,100);
+        throttle(`register:${client}`,10);
+        const body=jsonBody(event,8192);
+        if(!exact(body,['username','password','phone','real_name','nickname','identity_description','bank_ids']))fail(422,'REGISTRATION_INVALID','注册信息不完整');
+        const username=normalizeUsername(body.username);
+        if(!validUsername(username))fail(422,'USERNAME_INVALID','账号需为 4 至 32 位字母、数字、点、下划线或连字符');
+        validatePassword(body.password);
+        const phone=access.normalizePhone(body.phone),phoneHash=access.phoneHash(phone);
+        const realName=typeof body.real_name==='string'?body.real_name.trim():'';
+        if(!realName||realName.length>40)fail(422,'REAL_NAME_REQUIRED','请填写 1 至 40 字的真实姓名');
+        if(typeof body.nickname!=='string'||body.nickname.length>80)fail(422,'NICKNAME_INVALID','昵称最多 80 字，可以不填');
+        const nickname=body.nickname.trim();
+        const identityDescription=typeof body.identity_description==='string'?body.identity_description.trim():'';
+        if(!identityDescription||identityDescription.length>500)fail(422,'IDENTITY_REQUIRED','请填写 1 至 500 字的身份说明，方便管理员核实');
+        if(!Array.isArray(body.bank_ids)||!body.bank_ids.length||body.bank_ids.length>100||body.bank_ids.some(id=>!UUID.test(id)))fail(422,'BANKS_REQUIRED','请选择要申请的题库');
+        const bankIds=[...new Set(body.bank_ids)];
+        if(bankIds.some(id=>!config.banks.some(bank=>bank.bank_id===id)))fail(422,'BANKS_REQUIRED','请选择有效的云端题库');
+        const passwordHash=await hashPassword(body.password);
+        let accountId,applicationId;
+        const result=await access.update(registry=>{
+          if(registry.password_accounts.some(account=>account.username===username))fail(409,'USERNAME_TAKEN','此账号已注册，请直接登录');
+          const at=new Date(clock()).toISOString();accountId=randomUUID();applicationId=randomUUID();
+          const account={id:accountId,username,password_hash:passwordHash,phone,phone_hash:phoneHash,phone_masked:access.maskPhone(phone),phone_source:'self_reported',real_name:realName,nickname,identity_description:identityDescription,grants:{},status:'pending',created_at:at};
+          const application={id:applicationId,auth_type:'password',account_id:accountId,username,...{phone,phone_hash,phone_masked:access.maskPhone(phone),phone_source:'self_reported',real_name,nickname,identity_description},bank_ids:bankIds,status:'pending',created_at:at};
+          registry.password_accounts.push(account);registry.maintainer_applications.push(application);
+        });
+        const application=result.maintainer_applications.find(item=>item.id===applicationId);
+        return respond(201,{account:{id:accountId,username,status:'pending'},application:{id:application.id,status:application.status,phone:application.phone_masked,real_name:application.real_name,nickname:application.nickname,identity_description:application.identity_description,bank_ids:application.bank_ids}});
+      }
+      if(path==='/v1/auth/password-login'){
+        throttle('login:all',100);
+        const client=String(headers['x-forwarded-for']||headers['x-client-address']||'unknown').slice(0,100);
+        throttle(`password-login:${client}`,10);
+        const body=jsonBody(event,2048),username=normalizeUsername(body?.username);
+        throttle(`password-user:${username||'invalid'}`,10);
+        if(!exact(body,['username','password'])||typeof body.password!=='string'){
+          await verifyPassword(typeof body?.password==='string'?body.password:'',DUMMY_HASH);
+          fail(401,'CREDENTIALS_INVALID','账号或密码不正确');
+        }
+        const registry=await access.read(),account=validUsername(username)?registry.password_accounts.find(item=>item.username===username):undefined;
+        const usable=account&&account.status!=='revoked'&&account.status!=='password_reset_required';
+        const matches=await verifyPassword(body.password,usable?account.password_hash:DUMMY_HASH);
+        if(!usable||!matches)fail(401,'CREDENTIALS_INVALID','账号或密码不正确');
+        const now=Math.floor(clock()/1000),subject=`p_${account.id}`;
+        const token=sign({sub:subject,aud:'qbank-maintainer-account-v1',app_id:config.appId,auth_version:config.authVersion,
+          password_version:sha256(account.password_hash),iat:now,exp:now+LIMITS.sessionSeconds},config);
+        const grants=account.status==='approved'&&object(account.grants)?account.grants:{};
+        return respond(200,{access_token:token,expires_in:LIMITS.sessionSeconds,openid:subject,username:account.username,
+          phone:account.phone_masked||'',status:account.status||'pending',banks:config.banks.filter(bank=>Object.hasOwn(grants,bank.bank_id)),
+          permissions:[...new Set(Object.values(grants).flat())]});
+      }
+      if(path==='/v1/auth/password-reset'){
+        throttle('login:all',100);
+        const client=String(headers['x-forwarded-for']||headers['x-client-address']||'unknown').slice(0,100);
+        throttle(`password-reset:${client}`,5);
+        const body=jsonBody(event,2048),username=normalizeUsername(body?.username);
+        throttle(`password-reset-user:${username||'invalid'}`,5);
+        if(!exact(body,['username','reset_token','password'])||!validUsername(username)||typeof body.reset_token!=='string'||body.reset_token.length<32||body.reset_token.length>128)
+          fail(401,'PASSWORD_RESET_INVALID','重置码无效或已过期，请联系管理员重新发放');
+        const registry=await access.read(),candidate=sha256(body.reset_token);
+        const account=registry.password_accounts.find(item=>item.username===username&&item.status==='password_reset_required');
+        const stored=account&&HASH.test(account.password_reset_sha256||'')?account.password_reset_sha256:'0'.repeat(64);
+        const matches=timingSafeEqual(Buffer.from(candidate,'hex'),Buffer.from(stored,'hex'));
+        if(!account||!matches||!Number.isSafeInteger(account.password_reset_expires_at)||account.password_reset_expires_at<=clock())
+          fail(401,'PASSWORD_RESET_INVALID','重置码无效或已过期，请联系管理员重新发放');
+        const passwordHash=await hashPassword(body.password);
+        await access.update(next=>{
+          const target=next.password_accounts.find(item=>item.id===account.id);
+          const expected=target&&HASH.test(target.password_reset_sha256||'')?target.password_reset_sha256:'0'.repeat(64);
+          const valid=target?.status==='password_reset_required'&&timingSafeEqual(Buffer.from(candidate,'hex'),Buffer.from(expected,'hex'))
+            &&Number.isSafeInteger(target.password_reset_expires_at)&&target.password_reset_expires_at>clock();
+          if(!valid)fail(401,'PASSWORD_RESET_INVALID','重置码无效或已过期，请联系管理员重新发放');
+          target.password_hash=passwordHash;target.status='pending';target.grants={};
+          delete target.password_reset_sha256;delete target.password_reset_expires_at;delete target.password_reset_issued_at;
+        });
+        return respond(200,{username,status:'pending'});
       }
       if(path==='/v1/auth/wechat-login'){
         throttle('login:all',100);throttle(`login:${String(headers['x-forwarded-for']||headers['x-client-address']||'unknown').slice(0,100)}`,10);
@@ -81,42 +161,84 @@ function createHandler({ env = () => process.env, store, exchangeWechat, parseDe
       }
       const auth = verify(typeof headers.authorization === 'string' && headers.authorization.startsWith('Bearer ')
         ? headers.authorization.slice(7) : null, config, now, await access.read());
-      if (path === '/v1/me') return respond(200, { openid: auth.openid, phone: auth.phone_masked||'', nickname:auth.nickname||'', account_status:auth.account_status|| (auth.desktop?'desktop':'approved'),
+      if (path === '/v1/me') return respond(200, { openid: auth.openid, username:auth.username||'', auth_type:auth.password_account?'password':auth.wechat?'wechat':auth.desktop?'key':'', phone: auth.phone_masked||'', nickname:auth.nickname||'', account_status:auth.account_status|| (auth.desktop?'desktop':'approved'),
         banks: config.banks.filter(b => auth.banks.includes(b.bank_id)), permissions: [...new Set(Object.values(auth.grants).flat())], grants:auth.grants, capabilities:auth.capabilities||[], uploads_enabled: config.uploadsEnabled });
       const isAdmin=auth.desktop&&auth.capabilities?.includes('wechat:manage');
       if(path==='/v1/maintainer-applications'&&method==='GET'){
         if(!isAdmin)fail(403,'ROLE_FORBIDDEN','只有桌面最高权限可以管理维护者申请');
         const registry=await access.read();
-        return respond(200,{applications:registry.maintainer_applications.filter(a=>a.status==='pending').map(a=>({id:a.id,phone:a.phone,real_name:a.real_name,phone_source:a.phone_source,nickname:a.nickname,identity_description:a.identity_description,bank_ids:a.bank_ids,created_at:a.created_at,status:a.status}))});
+        return respond(200,{applications:registry.maintainer_applications.filter(a=>a.status==='pending').map(a=>{
+          const account=a.auth_type==='password'?registry.password_accounts.find(item=>item.id===a.account_id):undefined;
+          return {id:a.id,auth_type:a.auth_type||'wechat',username:a.username||'',phone:a.phone,real_name:a.real_name,phone_source:a.phone_source,nickname:a.nickname,identity_description:a.identity_description,bank_ids:a.bank_ids,created_at:a.created_at,status:a.status,password_reset:!!a.password_reset,password_reset_required:account?.status==='password_reset_required'};
+        })});
       }
       if(path==='/v1/maintainer-accounts'&&method==='GET'){
         if(!isAdmin)fail(403,'ROLE_FORBIDDEN','只有桌面最高权限可以管理维护者账号');
         const registry=await access.read();
-        return respond(200,{accounts:registry.wechat_accounts.map(a=>({id:a.id,phone:a.phone,real_name:a.real_name,phone_source:a.phone_source,nickname:a.nickname,identity_description:a.identity_description,openid:a.openid,grants:a.grants,status:a.status,created_at:a.created_at,approved_at:a.approved_at||null,revoked_at:a.revoked_at||null}))});
+        const accounts=[
+          ...registry.wechat_accounts.map(a=>({id:a.id,auth_type:'wechat',username:'',phone:a.phone,real_name:a.real_name,phone_source:a.phone_source,nickname:a.nickname,identity_description:a.identity_description,openid:a.openid,grants:a.grants,status:a.status,created_at:a.created_at,approved_at:a.approved_at||null,revoked_at:a.revoked_at||null})),
+          ...registry.password_accounts.map(a=>({id:a.id,auth_type:'password',username:a.username,phone:a.phone,real_name:a.real_name,phone_source:a.phone_source,nickname:a.nickname,identity_description:a.identity_description,openid:`p_${a.id}`,grants:a.grants,status:a.status,created_at:a.created_at,approved_at:a.approved_at||null,revoked_at:a.revoked_at||null})),
+        ];
+        return respond(200,{accounts});
+      }
+      const resetMatch=/^\/v1\/maintainer-accounts\/([0-9a-f-]{36})\/password-reset$/.exec(path||'');
+      if(resetMatch&&method==='POST'){
+        if(!isAdmin)fail(403,'ROLE_FORBIDDEN','只有桌面最高权限可以重置维护者密码');
+        const resetToken=randomBytes(32).toString('base64url'),expiresAt=clock()+24*60*60*1000;
+        await access.update(registry=>{
+          const account=registry.password_accounts.find(item=>item.id===resetMatch[1]);
+          if(!account)fail(404,'ACCOUNT_MISSING','账号不存在或不支持密码重置');
+          if(account.status==='revoked')fail(409,'MAINTAINER_REVOKED','已撤销的账号不能重置密码');
+          const related=registry.maintainer_applications.filter(item=>item.auth_type==='password'&&item.account_id===account.id);
+          const pending=related.find(item=>item.status==='pending');
+          const latest=related.slice().sort((a,b)=>String(b.created_at||'').localeCompare(String(a.created_at||'')))[0];
+          const granted=Object.entries(object(account.grants)?account.grants:{}).filter(([,roles])=>Array.isArray(roles)&&roles.includes('upload')).map(([id])=>id);
+          const bankIds=[...new Set([...granted,...(pending?.bank_ids||[]),...(latest?.bank_ids||[])])].filter(id=>config.banks.some(bank=>bank.bank_id===id));
+          if(!bankIds.length)fail(409,'APPLICATION_MISSING','账号没有可重新申请的题库，请先创建维护申请');
+          const at=new Date(clock()).toISOString();
+          const details={auth_type:'password',account_id:account.id,username:account.username,phone:account.phone,phone_hash:account.phone_hash,
+            phone_masked:account.phone_masked,phone_source:account.phone_source||'self_reported',real_name:account.real_name,nickname:account.nickname,
+            identity_description:account.identity_description,bank_ids:bankIds,password_reset:true,status:'pending',updated_at:at};
+          if(pending)Object.assign(pending,details);
+          else registry.maintainer_applications.push({id:randomUUID(),...details,created_at:at});
+          account.status='password_reset_required';account.grants={};account.password_reset_sha256=sha256(resetToken);
+          account.password_reset_expires_at=expiresAt;account.password_reset_issued_at=clock();
+        });
+        return respond(200,{status:'password_reset_required',reset_token:resetToken,expires_at:new Date(expiresAt).toISOString()});
       }
       if(path==='/v1/maintainer-applications'&&method==='POST'){
-        if(!auth.wechat)fail(403,'WECHAT_LOGIN_REQUIRED','请在小程序登录微信后提交申请');
+        if(!auth.wechat&&!auth.password_account)fail(403,'LOGIN_REQUIRED','请先使用维护者账号登录');
         const body=jsonBody(event,8192);if(!Array.isArray(body?.bank_ids)||!body.bank_ids.length||body.bank_ids.length>100||body.bank_ids.some(id=>!UUID.test(id)))fail(422,'BANKS_REQUIRED','请选择要维护的题库');
-        const phone=access.normalizePhone(body.phone),phoneHash=access.phoneHash(phone);
-        const realName=typeof body.real_name==='string'?body.real_name.trim():'';
+        const isPassword=!!auth.password_account;
+        const profileAccount=isPassword?(await access.read()).password_accounts.find(account=>account.id===auth.account_id):undefined;
+        if(isPassword&&!profileAccount)fail(403,'MAINTAINER_REVOKED','维护者账号已撤销，请联系管理员');
+        if(isPassword&&!exact(body,['bank_ids']))fail(422,'APPLICATION_INVALID','账号资料不可通过申请接口修改');
+        const phone=isPassword?profileAccount.phone:access.normalizePhone(body.phone),phoneHash=isPassword?profileAccount.phone_hash:access.phoneHash(phone);
+        const realName=isPassword?profileAccount.real_name:(typeof body.real_name==='string'?body.real_name.trim():'');
         if(!realName||realName.length>40)fail(422,'REAL_NAME_REQUIRED','请填写 1 至 40 字的真实姓名');
-        if(body.nickname!==undefined&&(typeof body.nickname!=='string'||body.nickname.length>80))fail(422,'NICKNAME_INVALID','昵称最多 80 字');
-        const nickname=(body.nickname||'').trim();
-        const identityDescription=typeof body.identity_description==='string'?body.identity_description.trim():'';
+        if(!isPassword&&body.nickname!==undefined&&(typeof body.nickname!=='string'||body.nickname.length>80))fail(422,'NICKNAME_INVALID','昵称最多 80 字');
+        const nickname=isPassword?profileAccount.nickname:(body.nickname||'').trim();
+        const identityDescription=isPassword?profileAccount.identity_description:(typeof body.identity_description==='string'?body.identity_description.trim():'');
         if(!identityDescription||identityDescription.length>500)fail(422,'IDENTITY_REQUIRED','请填写 1 至 500 字的身份说明，方便管理员核实');
         const validBanks=[...new Set(body.bank_ids)];if(validBanks.some(id=>!config.banks.some(b=>b.bank_id===id)))fail(422,'BANKS_REQUIRED','请选择有效的云端题库');
         let applicationId,created=false;
         const result=await access.update(registry=>{
-          const phoneOwner=registry.wechat_accounts.find(a=>a.phone_hash===phoneHash&&a.status==='approved');
-          if(phoneOwner&&phoneOwner.openid!==auth.openid)fail(409,'PHONE_IN_USE','此手机号已绑定其他微信账号，请联系管理员核实');
-          const existing=registry.wechat_accounts.find(a=>a.openid===auth.openid&&a.status==='approved');
+          const subject=isPassword?auth.account_id:auth.openid;
+          const existing=isPassword?registry.password_accounts.find(a=>a.id===subject):registry.wechat_accounts.find(a=>a.openid===subject&&a.status==='approved');
+          if(isPassword&&!existing)fail(403,'MAINTAINER_REVOKED','维护者账号已撤销，请联系管理员');
+          if(isPassword&&existing.status==='password_reset_required')fail(409,'PASSWORD_RESET_REQUIRED','请先完成密码重置，再重新申请维护权限');
+          const phoneOwner=[...registry.wechat_accounts,...registry.password_accounts].find(a=>a.phone_hash===phoneHash&&a.status==='approved'
+            &&(isPassword?a.id!==subject:a.openid!==subject));
+          if(phoneOwner)fail(409,'PHONE_IN_USE','此手机号已绑定其他已授权账号，请联系管理员核实');
+          if(existing?.status==='revoked')fail(409,'MAINTAINER_REVOKED','此账号已撤销，请联系管理员核实');
           if(existing&&existing.phone_hash!==phoneHash)fail(409,'PHONE_CHANGE_REQUIRES_ADMIN','已授权账号修改手机号需联系管理员核实');
           const requested=validBanks.filter(id=>!existing?.grants?.[id]?.includes('upload'));
           if(!requested.length)fail(409,'ALREADY_MAINTAINER','已经获得所选题库的维护权限');
-          const pending=registry.maintainer_applications.find(a=>a.openid===auth.openid&&a.status==='pending');
+          const pending=registry.maintainer_applications.find(a=>a.status==='pending'&&(isPassword?a.auth_type==='password'&&a.account_id===subject:(a.auth_type||'wechat')==='wechat'&&a.openid===subject));
+          if(isPassword&&existing?.status==='rejected')existing.status='pending';
           const details={phone,phone_hash:phoneHash,phone_masked:access.maskPhone(phone),phone_source:'self_reported',real_name:realName,nickname,identity_description:identityDescription};
           if(pending){Object.assign(pending,details,{bank_ids:[...new Set([...pending.bank_ids,...requested])],updated_at:new Date(clock()).toISOString()});applicationId=pending.id;created=false;}
-          else {applicationId=randomUUID();created=true;registry.maintainer_applications.push({id:applicationId,...details,openid:auth.openid,bank_ids:requested,status:'pending',created_at:new Date(clock()).toISOString()});}
+          else {applicationId=randomUUID();created=true;registry.maintainer_applications.push({id:applicationId,auth_type:isPassword?'password':'wechat',...(isPassword?{account_id:subject,username:profileAccount.username}:{openid:subject}),...details,bank_ids:requested,status:'pending',created_at:new Date(clock()).toISOString()});}
         });
         const application=result.maintainer_applications.find(a=>a.id===applicationId);
         return respond(created?201:200,{application:{id:application.id,status:application.status,phone:application.phone_masked,real_name:application.real_name,nickname:application.nickname,identity_description:application.identity_description,bank_ids:application.bank_ids}});
@@ -128,18 +250,28 @@ function createHandler({ env = () => process.env, store, exchangeWechat, parseDe
         const result=await access.update(registry=>{
           const application=registry.maintainer_applications.find(a=>a.id===decisionMatch[1]);if(!application)fail(404,'APPLICATION_MISSING','维护者申请不存在');
           if(application.status!=='pending')fail(409,'APPLICATION_DECIDED','此申请已经处理');
+          const resetAccount=application.auth_type==='password'?registry.password_accounts.find(a=>a.id===application.account_id):undefined;
+          if(resetAccount?.status==='password_reset_required')fail(409,'PASSWORD_RESET_REQUIRED','申请人尚未完成密码重置，暂不能处理申请');
           const at=new Date(clock()).toISOString();application.status=body.decision==='approve'?'approved':'rejected';application.decided_at=at;application.decided_by=auth.maintainer_id;application.note=typeof body.note==='string'?body.note.slice(0,1000):'';
           if(body.decision==='approve'){
             const requested=new Set(application.bank_ids),grants=object(body.grants)?body.grants:{};
             const selected={};for(const id of requested){const roles=Array.isArray(grants[id])?grants[id]:['upload'];if(!roles.length||roles.some(r=>r!=='upload'))fail(422,'GRANTS_INVALID','手机号维护者只能授予上传权限');selected[id]=['upload'];}
-            const other=registry.wechat_accounts.find(a=>a.phone_hash===application.phone_hash&&a.openid!==application.openid&&a.status==='approved');
+            const passwordAccount=application.auth_type==='password';
+            const existing=passwordAccount?registry.password_accounts.find(a=>a.id===application.account_id):registry.wechat_accounts.find(a=>a.openid===application.openid);
+            if(passwordAccount&&!existing)fail(409,'ACCOUNT_MISSING','账号不存在或已删除');
+            if(passwordAccount&&existing.status==='password_reset_required')fail(409,'PASSWORD_RESET_REQUIRED','申请人尚未完成密码重置，暂不能重新授权');
+            const other=[...registry.wechat_accounts,...registry.password_accounts].find(a=>a.phone_hash===application.phone_hash&&a.status==='approved'
+              &&(passwordAccount?a.id!==application.account_id:a.openid!==application.openid));
             if(other)fail(409,'PHONE_IN_USE','此手机号已绑定其他微信账号，请核实后再审批');
-            const existing=registry.wechat_accounts.find(a=>a.openid===application.openid);
-            if(existing?.status==='revoked')fail(409,'MAINTAINER_REVOKED','此微信账号已撤销，请核实后重新分配');
+            if(existing?.status==='revoked')fail(409,'MAINTAINER_REVOKED','此账号已撤销，请核实后重新分配');
             if(existing&&existing.phone_hash!==application.phone_hash)fail(409,'PHONE_CHANGE_REQUIRES_ADMIN','此账号手机号已改变，请核实后重新申请');
             const details={phone:application.phone,phone_hash:application.phone_hash,phone_masked:application.phone_masked,phone_source:'self_reported',real_name:application.real_name,nickname:application.nickname,identity_description:application.identity_description,grants:{...existing?.grants,...selected},status:'approved',approved_at:at,approved_by:auth.maintainer_id};
-            if(existing)Object.assign(existing,details);
+            if(existing){Object.assign(existing,details);delete existing.password_reset_sha256;delete existing.password_reset_expires_at;delete existing.password_reset_issued_at;}
             else registry.wechat_accounts.push({id:randomUUID(),openid:application.openid,created_at:at,...details});
+          }
+          else if(application.auth_type==='password'){
+            const existing=registry.password_accounts.find(a=>a.id===application.account_id);
+            if(existing&&existing.status!=='approved'&&existing.status!=='revoked'){existing.status='rejected';existing.grants={};delete existing.password_reset_sha256;delete existing.password_reset_expires_at;delete existing.password_reset_issued_at;}
           }
         });
         const app=result.maintainer_applications.find(a=>a.id===decisionMatch[1]);return respond(200,{id:app.id,status:app.status});
@@ -147,8 +279,9 @@ function createHandler({ env = () => process.env, store, exchangeWechat, parseDe
       const revokeMatch=/^\/v1\/maintainer-accounts\/([0-9a-f-]{36})\/revoke$/.exec(path||'');
       if(revokeMatch&&method==='POST'){
         if(!isAdmin)fail(403,'ROLE_FORBIDDEN','只有桌面最高权限可以撤销维护者账号');
-        const result=await access.update(registry=>{const account=registry.wechat_accounts.find(a=>a.id===revokeMatch[1]);if(!account)fail(404,'ACCOUNT_MISSING','维护者账号不存在');if(account.status==='revoked')return;account.status='revoked';account.revoked_at=new Date(clock()).toISOString();account.revoked_by=auth.maintainer_id;});
-        return respond(200,{id:revokeMatch[1],status:result.wechat_accounts.find(a=>a.id===revokeMatch[1]).status});
+        const result=await access.update(registry=>{const account=[...registry.wechat_accounts,...registry.password_accounts].find(a=>a.id===revokeMatch[1]);if(!account)fail(404,'ACCOUNT_MISSING','维护者账号不存在');if(account.status==='revoked')return;account.status='revoked';delete account.password_reset_sha256;delete account.password_reset_expires_at;delete account.password_reset_issued_at;account.revoked_at=new Date(clock()).toISOString();account.revoked_by=auth.maintainer_id;});
+        const account=[...result.wechat_accounts,...result.password_accounts].find(a=>a.id===revokeMatch[1]);
+        return respond(200,{id:revokeMatch[1],status:account.status});
       }
       if(path==='/v1/banks/promote')return respond(200,await workflow.promote(jsonBody(event,LIMITS.expandedBytes),config,auth));
       if(workflowRoute)return respond(200,await workflow.write(method,path,method==='POST'?jsonBody(event,LIMITS.expandedBytes):undefined,config,auth));

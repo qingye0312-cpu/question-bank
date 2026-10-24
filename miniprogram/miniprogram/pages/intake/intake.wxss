@@ -48,6 +48,14 @@ textarea{min-height:100rpx}
 .file-tools{display:flex;flex-direction:column;gap:18rpx}
 .maintainer-apply{margin-top:36rpx;padding:24rpx;border:2rpx solid var(--border);border-radius:18rpx;background:var(--surface-soft)}
 .maintainer-apply input{margin-top:16rpx}.maintainer-apply button{width:100%;margin-top:16rpx}
+.auth-mode{display:flex;gap:12rpx;margin:22rpx 0;border-bottom:2rpx solid var(--border)}
+.auth-mode button{flex:1;margin:0;border-radius:12rpx 12rpx 0 0;background:transparent;color:var(--muted);border-bottom:4rpx solid transparent}
+.auth-mode button.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
+.account-panel{margin-top:22rpx;padding:18rpx;background:var(--surface);border-radius:14rpx}
+.account-name{font-size:32rpx;font-weight:650;word-break:break-all}
+.maintainer-apply button.secondary-button{background:transparent;border:2rpx solid var(--border);color:var(--ink)}
+.maintainer-apply button.forgot-button{background:transparent;color:var(--muted);font-size:26rpx}
+.auth-note{margin-top:20rpx}
 .file-tools button{width:100%;font-size:27rpx}
 .footer{position:fixed;bottom:0;left:0;right:0;background:var(--surface);border-top:2rpx solid var(--border);padding:16rpx 28rpx calc(20rpx + env(safe-area-inset-bottom));z-index:10}
 .save-status{font-size:24rpx;color:var(--muted);margin-bottom:12rpx}

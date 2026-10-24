@@ -38,6 +38,10 @@ export function readSnapshot(value:unknown,m:CloudManifest):CloudSnapshot{
  if(s.merges!=null&&(!Array.isArray(s.merges)||s.merges.length>10000||s.merges.some(m=>!m||typeof m.batch_id!=='string'||!uuid.test(m.batch_id)||!validTime(m.merged_at)||![m.question_count,m.added_count,m.duplicate_count,m.revision,m.release_version].every(Number.isSafeInteger))))throw Error('合并记录无效');
  for(const layer of [s.formal||[],s.pending]){
   const ids=new Set();for(const q of layer){
+   // Older released snapshots can mark an unresolved question as verified.
+   // Preserve its text and issue, but present it as a review item so one
+   // missing answer does not block downloading the entire bank.
+   if(q&&q.status==='verified'&&q.type!=='programming'&&q.answer===null&&Array.isArray(q.issues)&&q.issues.length)q.status='needs_review';
    validateStandardQuestion(q,s.name);
    if(ids.has(q.question_id))throw Error('云端题目 ID 重复');
    ids.add(q.question_id);

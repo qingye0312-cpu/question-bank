@@ -2,8 +2,8 @@
 import {invoke} from '@tauri-apps/api/core';
 import {UploadError} from '../../shared/queue';
 import desktopService from '../../shared/desktop-service.json';
-export type Access={capabilities?:string[];openid?:string;phone?:string;nickname?:string;account_status?:string;maintainer_id?:string;banks:{bank_id:string;name:string}[];grants:Record<string,string[]>;uploads_enabled:boolean};
-type Session={token:string;origin:string;expires:number;access:Access};
+export type Access={capabilities?:string[];openid?:string;username?:string;auth_type?:'key'|'password'|'wechat'|'';phone?:string;nickname?:string;account_status?:string;maintainer_id?:string;banks:{bank_id:string;name:string}[];grants:Record<string,string[]>;uploads_enabled:boolean};
+type Session={token:string;origin:string;expires:number;access:Access;authType:'key'|'password'};
 const ORIGIN_KEY='qbank-cloud-origin-v1';
 let session:Session|undefined;
 let generation=0;
@@ -20,7 +20,7 @@ export function remembersMachine(){return localStorage.getItem(rememberKey())===
 let credentialWrite:Promise<unknown>=Promise.resolve();
 function storeCredential(origin:string,key:string|null){const task=credentialWrite.catch(()=>{}).then(()=>invoke('credential_save',{origin,key}));credentialWrite=task;return task;}
 export async function cloudForget(){const origin=cloudOrigin();localStorage.removeItem(rememberKey(origin));await storeCredential(origin,null);}
-export function cloudLogout(){session=undefined;generation++;onLogout();if(remembersMachine())void cloudForget().catch(()=>{});}
+export function cloudLogout(){const authType=session?.authType;session=undefined;generation++;onLogout();if(authType==='key'&&remembersMachine())void cloudForget().catch(()=>{});}
 
 export async function cloudCall<T>(path:string,body?:unknown,authenticated=false):Promise<T>{
  const origin=cloudOrigin();if(!origin)throw Error('请先配置云端 HTTPS 服务地址');
@@ -28,9 +28,9 @@ export async function cloudCall<T>(path:string,body?:unknown,authenticated=false
  const current=session;const response=await invoke<{status:number;body:T&{error?:{message?:string;code?:string}}}>('cloud_request',{origin,path,body:body??null,token:authenticated?session!.token:null}).catch(e=>{const message=typeof e?.message==='string'?e.message:String(e);throw new UploadError(message,0,message.startsWith('NETWORK:')?'NETWORK':'NATIVE_REQUEST_FAILED')});
  if(response.status<200||response.status>=300){if((response.status===401||response.body.error?.code==='MAINTAINER_REVOKED')&&session===current)cloudLogout();throw new UploadError(response.body.error?.message||'自托管服务请求未完成，请重试',response.status,response.body.error?.code);}return response.body;
 }
-async function acceptLogin(result:{access_token:string;expires_in:number},attempt:number,origin:string,started:number){
+async function acceptLogin(result:{access_token:string;expires_in:number},attempt:number,origin:string,started:number,authType:'key'|'password'='key'){
  if(!/^v1\.[\w-]+\.[\w-]+$/.test(result.access_token)||result.expires_in<1||result.expires_in>900||origin!==cloudOrigin()||attempt!==generation)throw Error('登录响应无效');
- session={token:result.access_token,origin,expires:started+result.expires_in*1000,access:{banks:[],grants:{},uploads_enabled:false}};
+ session={token:result.access_token,origin,expires:started+result.expires_in*1000,access:{banks:[],grants:{},uploads_enabled:false},authType};
  try{const me=await cloudCall<Access>('/v1/me',undefined,true);if(!Array.isArray(me.banks)||!me.grants)throw Error('维护权限响应无效');if(attempt!==generation||!session)throw Error('登录已取消，请重新验证');session.access=me;return me;}catch(e){if(attempt===generation)session=undefined;throw e;}
 }
 export async function cloudLogin(key:string,remember=false){
@@ -40,6 +40,11 @@ export async function cloudLogin(key:string,remember=false){
  if(remember){await storeCredential(origin,key);if(attempt!==generation||origin!==cloudOrigin()){await storeCredential(origin,null);throw Error('登录已取消，本机凭据已清除');}localStorage.setItem(rememberKey(origin),'yes');}
  else if(remembersMachine())await cloudForget();
  return me;
+}
+export async function cloudLoginPassword(username:string,password:string){
+ session=undefined;const attempt=++generation,origin=cloudOrigin(),started=Date.now();
+ const result=await cloudCall<{access_token:string;expires_in:number}>('/v1/auth/password-login',{username,password});
+ return acceptLogin(result,attempt,origin,started,'password');
 }
 export type MaintainerCertificate={format:'qbank-maintainer-certificate-1';key:string;certificate_id:string;maintainer_id?:string;roles?:string[];issued_at?:string;expires_at?:string;service_origin?:string};
 export function parseMaintainerCertificate(value:unknown):MaintainerCertificate{
@@ -54,6 +59,6 @@ export function resumeDesktop():Promise<Access|undefined>{
  const attempt=++generation,origin=cloudOrigin(),started=Date.now();
  const task=(async()=>{const response=await invoke<{status:number;body:{access_token:string;expires_in:number}}>('credential_login',{origin});
   if(response.status!==200){if(response.status===401||response.status===403){if(attempt===generation)cloudLogout();}throw new UploadError('本机凭据无法完成登录，请手动验证',response.status);}
-  return acceptLogin(response.body,attempt,origin,started);
+  return acceptLogin(response.body,attempt,origin,started,'key');
  })();renewing=task;void task.finally(()=>{if(renewing===task)renewing=undefined}).catch(()=>{});return task;
 }

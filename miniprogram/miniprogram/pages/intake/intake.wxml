@@ -35,18 +35,53 @@
   <button class="disclosure" bindtap="onTools">文件工具 {{tools?'⌃':'⌄'}}</button><view wx:if="{{tools}}" class="file-tools"><button bindtap="onExport">导出待上传题目</button><button wx:if="{{filePath}}" bindtap="onShare">转发导出文件</button><button bindtap="onImport">从聊天导入文件</button><button bindtap="onCreateBank">新建私人本地题库</button></view>
  </view>
  <view wx:else class="uploads"><view class="muted">每次点击上传只发送一个压缩包，重试使用原包。</view><view wx:for="{{jobs}}" wx:key="id" class="record"><view><view class="record-title">{{item.label}}</view><view class="muted">{{item.time}}</view><view class="warning">{{item.error}}</view><view wx:if="{{item.syncError}}" class="warning">已上传，下载尚未完成：{{item.syncError}}<button bindtap="onSync" disabled="{{busy}}">重试下载</button></view></view></view><view wx:if="{{!jobs.length}}" class="empty">还没有上传任务</view><button bindtap="onRetry" disabled="{{busy}}">恢复已确认任务</button><view class="maintainer-apply">
-  <view class="label">申请成为题库维护者</view>
-  <view class="muted">填写申请信息，提交时登录微信以绑定账号，由桌面管理员核实后授权。</view>
-  <view class="label identity-label">手机号（必填）</view>
-  <input type="number" maxlength="11" placeholder-class="theme-placeholder" value="{{maintainerPhone}}" bindinput="onMaintainerPhone" placeholder="11 位手机号" disabled="{{busy || applying}}"/>
-  <view class="label identity-label">真实姓名（必填）</view>
-  <input maxlength="40" placeholder-class="theme-placeholder" value="{{maintainerRealName}}" bindinput="onMaintainerRealName" placeholder="填写真实姓名" disabled="{{busy || applying}}"/>
-  <view class="label identity-label">昵称（选填）</view>
-  <input maxlength="80" placeholder-class="theme-placeholder" value="{{maintainerNickname}}" bindinput="onMaintainerNickname" placeholder="昵称，可以不填" disabled="{{busy || applying}}"/>
-  <view class="label identity-label">身份说明（必填）</view>
-  <textarea class="identity-input" placeholder-class="theme-placeholder" value="{{maintainerIdentity}}" bindinput="onMaintainerIdentity" maxlength="500" auto-height="{{true}}" placeholder="班级/单位或与题库的关系，方便管理员核实" disabled="{{busy || applying}}"/>
-  <view class="muted identity-count">{{maintainerIdentity.length}} / 500</view>
-  <button bindtap="onApplyMaintainer" loading="{{applying}}" disabled="{{busy || applying}}">{{applying?'正在提交…':maintainerApplication==='approved'?'刷新维护权限':maintainerApplication==='pending'?'更新申请 / 查看授权':'登录微信并提交申请'}}</button>
+  <view class="label">题库维护者账号</view>
+  <view class="muted">注册账号并提交维护申请，桌面管理员核实后授予题库上传权限。</view>
+  <view wx:if="{{loggedIn}}" class="account-panel">
+   <view class="account-name">{{maintainerUsername || '微信维护者账号'}}</view>
+   <view class="muted">登录方式：{{maintainerAuthType==='password'?'账号密码':'微信'}} · 状态：{{maintainerAccountStatus==='approved'?'已授权':maintainerAccountStatus==='rejected'?'申请被拒绝':maintainerAccountStatus==='revoked'?'权限已撤销':'等待管理员审核'}}</view>
+   <button class="secondary-button" bindtap="onRequestCurrentBank" loading="{{applying}}" disabled="{{busy || applying}}">申请维护当前题库</button>
+   <button class="secondary-button" bindtap="onLogout" disabled="{{busy || applying}}">退出登录</button>
+  </view>
+  <view wx:else>
+   <view class="auth-mode"><button class="{{authMode==='register'?'active':''}}" data-mode="register" bindtap="onAuthMode" disabled="{{busy || applying}}">注册</button><button class="{{authMode==='login'?'active':''}}" data-mode="login" bindtap="onAuthMode" disabled="{{busy || applying}}">登录</button></view>
+   <view class="label identity-label">账号</view>
+   <input maxlength="32" placeholder-class="theme-placeholder" value="{{maintainerUsername}}" bindinput="onMaintainerUsername" placeholder="4 至 32 位字母、数字或 . _ -" disabled="{{busy || applying}}"/>
+   <block wx:if="{{authMode==='reset'}}">
+    <view class="muted auth-note">需联系管理员重新设置维护者状态并获取一次性重置码。</view>
+    <view class="label identity-label">管理员提供的重置码</view>
+    <input maxlength="128" placeholder-class="theme-placeholder" value="{{maintainerResetToken}}" bindinput="onMaintainerResetToken" placeholder="输入一次性重置码" disabled="{{busy || applying}}"/>
+    <view class="label identity-label">新密码</view>
+    <input password maxlength="128" placeholder-class="theme-placeholder" value="{{maintainerPassword}}" bindinput="onMaintainerPassword" placeholder="至少 12 个字符" disabled="{{busy || applying}}"/>
+    <view class="label identity-label">确认新密码</view>
+    <input password maxlength="128" placeholder-class="theme-placeholder" value="{{maintainerPasswordConfirm}}" bindinput="onMaintainerPasswordConfirm" placeholder="再次输入新密码" disabled="{{busy || applying}}"/>
+    <button bindtap="onResetMaintainerPassword" loading="{{applying}}" disabled="{{busy || applying}}">{{applying?'正在重置…':'重置密码'}}</button>
+    <button class="secondary-button" bindtap="onAuthMode" data-mode="login" disabled="{{busy || applying}}">返回登录</button>
+   </block>
+   <block wx:elif="{{authMode==='register'}}">
+    <view class="label identity-label">密码</view>
+    <input password maxlength="128" placeholder-class="theme-placeholder" value="{{maintainerPassword}}" bindinput="onMaintainerPassword" placeholder="至少 12 个字符" disabled="{{busy || applying}}"/>
+    <view class="label identity-label">确认密码</view>
+    <input password maxlength="128" placeholder-class="theme-placeholder" value="{{maintainerPasswordConfirm}}" bindinput="onMaintainerPasswordConfirm" placeholder="再次输入密码" disabled="{{busy || applying}}"/>
+    <view class="label identity-label">手机号（必填）</view>
+    <input type="number" maxlength="11" placeholder-class="theme-placeholder" value="{{maintainerPhone}}" bindinput="onMaintainerPhone" placeholder="11 位手机号，供管理员核实" disabled="{{busy || applying}}"/>
+    <view class="label identity-label">真实姓名（必填）</view>
+    <input maxlength="40" placeholder-class="theme-placeholder" value="{{maintainerRealName}}" bindinput="onMaintainerRealName" placeholder="填写真实姓名" disabled="{{busy || applying}}"/>
+    <view class="label identity-label">昵称（选填）</view>
+    <input maxlength="80" placeholder-class="theme-placeholder" value="{{maintainerNickname}}" bindinput="onMaintainerNickname" placeholder="昵称，可以不填" disabled="{{busy || applying}}"/>
+    <view class="label identity-label">身份说明（必填）</view>
+    <textarea class="identity-input" placeholder-class="theme-placeholder" value="{{maintainerIdentity}}" bindinput="onMaintainerIdentity" maxlength="500" auto-height="{{true}}" placeholder="班级/单位或与题库的关系，方便管理员核实" disabled="{{busy || applying}}"/>
+    <view class="muted identity-count">{{maintainerIdentity.length}} / 500</view>
+    <view class="muted auth-note">注册后可立即登录；题库上传权限需由桌面管理员审批。</view>
+    <button bindtap="onRegisterMaintainer" loading="{{applying}}" disabled="{{busy || applying}}">{{applying?'正在创建账号…':'创建账号并提交维护申请'}}</button>
+   </block>
+   <block wx:else>
+    <view class="label identity-label">密码</view>
+    <input password maxlength="128" placeholder-class="theme-placeholder" value="{{maintainerPassword}}" bindinput="onMaintainerPassword" placeholder="输入密码" disabled="{{busy || applying}}"/>
+    <button bindtap="onLoginMaintainer" loading="{{applying}}" disabled="{{busy || applying}}">{{applying?'正在登录…':'账号密码登录'}}</button>
+    <button class="forgot-button" bindtap="onForgotMaintainerPassword" disabled="{{busy || applying}}">忘记密码？</button>
+   </block>
+  </view>
   <view wx:if="{{applicationMessage}}" class="{{applicationError?'issue':'notice'}}" role="alert">{{applicationMessage}}</view>
  </view></view>
  <view wx:if="{{error}}" class="issue" role="alert">{{error}}</view><view wx:if="{{notice}}" class="notice">{{notice}}</view>

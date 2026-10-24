@@ -1,4 +1,6 @@
 .cloud-access{border:0.076923rem solid var(--line,#dce4dd);padding:1.230769rem;margin:1.230769rem 0;border-radius:0.923077rem}
+.cloud-login-mode{display:flex;gap:.6rem;margin:1rem 0}
+.cloud-login-mode button[aria-pressed="true"]{border-color:var(--accent);color:var(--accent);font-weight:600}
 .cloud-bank{display:flex;align-items:center;gap:0.923077rem;padding:0.923077rem 0;flex-wrap:wrap}
 .cloud-bank span{color:var(--muted)}
 .pending-label{display:block;font-size:0.769231rem;line-height:1.2;color:var(--warning)}
@@ -27,4 +29,5 @@
 .maintainer-row>div:last-child{display:flex;gap:.5rem;flex-shrink:0}
 .maintainer-identity{margin:.4rem 0;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.6}
 .maintainer-identity strong{display:block;font-size:.85rem;color:var(--muted)}
+.maintainer-reset-code{display:inline-block;margin:.6rem 0;padding:.6rem;border-radius:.4rem;background:var(--surface-soft);user-select:all;overflow-wrap:anywhere}
 @media(max-width:42rem){.maintainer-row{align-items:flex-start;flex-direction:column}}

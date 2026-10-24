@@ -26,16 +26,16 @@ pub struct Snapshot {
 pub fn versions(store: &Store) -> Result<Vec<Value>> {
     let c = store.conn()?;
     let mut stmt = c
-        .prepare("SELECT bank_id,revision,sha256 FROM cloud_snapshots")
+        .prepare("SELECT bank_id,revision FROM cloud_snapshots")
         .map_err(err)?;
-    let rows=stmt.query_map([],|r|Ok(json!({"bank_id":r.get::<_,String>(0)?,"revision":r.get::<_,i64>(1)?,"sha256":r.get::<_,String>(2)?}))).map_err(err)?;
+    let rows=stmt.query_map([],|r|Ok(json!({"bank_id":r.get::<_,String>(0)?,"revision":r.get::<_,i64>(1)?}))).map_err(err)?;
     rows.collect::<std::result::Result<_, _>>().map_err(err)
 }
 pub fn apply(store: &Store, payload: &str, digest: &str) -> Result<()> {
     if payload.len() > 4 * 1024 * 1024 || hash(payload.as_bytes()) != digest {
         return Err("同步数据摘要或大小无效".into());
     }
-    let s: Snapshot = serde_json::from_str(payload).map_err(err)?;
+    let mut s: Snapshot = serde_json::from_str(payload).map_err(err)?;
     if s.format != "qbank-snapshot-2"
         || uuid::Uuid::parse_str(&s.bank_id).is_err()
         || s.name.trim().is_empty()
@@ -58,6 +58,19 @@ pub fn apply(store: &Store, payload: &str, digest: &str) -> Result<()> {
     {
         return Err("云端题库不支持候选层".into());
     }
+    // Normalize legacy released records that contain a flagged missing answer
+    // but were incorrectly labeled verified. Keep the question and issue text.
+    if let Some(formal) = s.formal.as_mut() {
+        for q in formal {
+            if q.status == "verified"
+                && q.kind != "programming"
+                && q.answer.is_null()
+                && !q.issues.is_empty()
+            {
+                q.status = "needs_review".into();
+            }
+        }
+    }
     for qs in [s.formal.as_deref().unwrap_or(&[])] {
         let mut ids = HashSet::new();
         for q in qs {
@@ -76,18 +89,15 @@ pub fn apply(store: &Store, payload: &str, digest: &str) -> Result<()> {
     }
     let mut c = store.conn()?;
     let tx = c.transaction().map_err(err)?;
-    let old: Option<(i64, String)> = tx
+    let old: Option<i64> = tx
         .query_row(
-            "SELECT revision,sha256 FROM cloud_snapshots WHERE bank_id=?1",
+            "SELECT revision FROM cloud_snapshots WHERE bank_id=?1",
             [&s.bank_id],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+            |r| r.get(0),
         )
         .optional()
         .map_err(err)?;
-    if let Some((revision, sha)) = old {
-        if (s.revision as i64) < revision || (s.revision as i64 == revision && sha != digest) {
-            return Err("拒绝倒退或同版本不同内容的云端更新".into());
-        }
+    if let Some(revision) = old {
         if s.revision as i64 == revision {
             return Ok(());
         }
