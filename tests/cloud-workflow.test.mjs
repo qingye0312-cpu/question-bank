@@ -143,3 +143,15 @@ test('reading flagged source material does not relax new-upload validation',asyn
  }
  assert.equal((await s.store.readState(id)).revision,1);
 });
+
+test('quality status repair creates one reversible version and never changes or fabricates question content',async()=>{
+ const {repairBankStatus}=require('../tools/self-host/repair-bank-status.cjs');const {releaseName}=require('../cloud/qbank-auth/projection.cjs');
+ const s=setup(),base={...questions[0],answer:null,status:'verified',issues:['原始资料没有答案']};
+ const state={format:'qbank-state-1',bank_id:id,name:delta.name,revision:1,release_version:1,formal:[base],pending:[],resolved:[],batches:[],merge_history:[]};await s.store.createState(state);
+ const run=()=>repairBankStatus({store:s.store,bankId:id,validateQuestion:validateStandardQuestion,releaseName});
+ const result=await run();assert.equal(result.changed,1);assert.equal(result.revision,2);
+ const current=await s.store.readState(id);assert.deepEqual(current.formal[0],{...base,status:'needs_review'});assert.equal((await s.store.readStateAt(id,1)).formal[0].status,'verified');
+ assert.equal((await run()).changed,0);assert.equal((await s.store.listStates(id)).length,2);
+ const invalid=setup();await invalid.store.createState({...state,formal:[{...base,stem:''}]});
+ await assert.rejects(()=>repairBankStatus({store:invalid.store,bankId:id,validateQuestion:validateStandardQuestion,releaseName}));assert.equal((await invalid.store.listStates(id)).length,1);
+});

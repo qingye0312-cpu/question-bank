@@ -8,7 +8,7 @@ import {invoke, isTauri} from '@tauri-apps/api/core';
 import {getCurrentWebview} from '@tauri-apps/api/webview';
 import {CloudPanel} from './cloud-panel';
 import {SoftwareUpdate} from './software-update';
-import {cloudOrigin,fetchCatalog,syncDesktop,startCloudWorker} from './cloud-client';
+import {startCloudWorker} from './cloud-client';
 import {IntakePanel} from './intake-panel';
 import {PromptTemplate} from './prompt-template';
 import {APP_VERSION} from './generated/client-assets';
@@ -69,9 +69,9 @@ function App(){
   try{localStorage.setItem(preferenceKey,JSON.stringify({...preferences,mode,bankId}));}catch{/* A full disk must not stop offline search. */}
  },[preferences,mode,bankId,fontScale]);
  useEffect(()=>{if(banks.length&&((bankId&&!banks.some(b=>b.id===bankId))||(mode==='speed'&&!bankId)))setBankId(banks[0].id)},[banks,bankId,mode]);
- useEffect(()=>startCloudWorker(()=>{void refresh()}),[]);
+ useEffect(()=>startCloudWorker(()=>{void refresh()},setNotice),[]);
  useEffect(()=>{void invoke<{configured:boolean;version?:string}>('software_update_check').then(result=>{if(result.version)setNotice(`软件有新版本 ${result.version}，可在设置中查看并安装。`);}).catch(()=>{});},[]);
- useEffect(()=>{work('正在打开本地题库',async()=>{const local=await refresh();setInfo(await invoke('app_info'));if(cloudOrigin())void fetchCatalog().then(async catalog=>{const updates=await Promise.allSettled(catalog.filter(b=>local.some(k=>k.id===b.bank_id)).map(b=>syncDesktop(b.bank_id)));if(updates.some(r=>r.status==='fulfilled'&&r.value))await refresh();if(updates.some(r=>r.status==='rejected'))setNotice('部分题库暂未更新，已保留各自本地版本。');}).catch(()=>{setNotice('云端版本暂未更新，继续使用本地题库。');});});},[]);
+ useEffect(()=>{work('正在打开本地题库',async()=>{await refresh();setInfo(await invoke('app_info'));});},[]);
  useEffect(()=>{const handle=(e:KeyboardEvent)=>{if((e.metaKey||e.ctrlKey)&&e.shiftKey&&e.key.toLowerCase()==='o'&&!modal){e.preventDefault();openOcr();return}if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'&&!modal){e.preventDefault();input.current?.focus();input.current?.select();}if(e.key==='Escape'){if(modal&&!busy){setModal('');setDraft(null)}else{input.current?.focus();}}};window.addEventListener('keydown',handle);return()=>window.removeEventListener('keydown',handle);},[results,active,modal,busy]);
  useEffect(()=>{const paste=(e:ClipboardEvent)=>{if(modal||busy||!e.clipboardData)return;const item=Array.from(e.clipboardData.items).find(i=>i.type.startsWith('image/'));if(item){const file=item.getAsFile();if(file){e.preventDefault();readImage(file).then(image=>openOcr({image})).catch(e=>setError(String(e)))}return}const value=e.clipboardData.getData('text/plain');if(value.includes('qbank-photo-question-1')){e.preventDefault();openIntake(value);return}if(looksLikeQuestion(value)){e.preventDefault();openOcr({text:value})}};window.addEventListener('paste',paste);return()=>window.removeEventListener('paste',paste)},[modal,busy]);
  useEffect(()=>{if(benchPending.current){requestAnimationFrame(()=>requestAnimationFrame(()=>{const done=benchPending.current;benchPending.current=null;done?.(results)}));}},[results]);

@@ -1,4 +1,13 @@
 use super::*;
+
+fn is_embedded_service(url: &reqwest::Url) -> bool {
+    let settings: Value = serde_json::from_str(include_str!("../../../shared/desktop-service.json"))
+        .expect("valid desktop service configuration");
+    let endpoint = reqwest::Url::parse(settings["origin"].as_str().unwrap())
+        .expect("valid desktop service origin");
+    url.origin() == endpoint.origin()
+}
+
 pub fn request(
     origin: &str,
     path: &str,
@@ -19,9 +28,19 @@ pub fn request(
     if !allowed_path(path) {
         return Err("不支持的云端接口".into());
     }
-    let client = reqwest::blocking::Client::builder()
+    let mut builder = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(20))
-        .redirect(reqwest::redirect::Policy::none())
+        .redirect(reqwest::redirect::Policy::none());
+    if is_embedded_service(&url) {
+        // Trust this deployment's CA only for its exact HTTPS origin. Leaf
+        // renewal remains automatic; hostname and certificate expiry checks stay on.
+        let certificate = reqwest::Certificate::from_pem(include_bytes!(
+            "../../resources/qbank-pve-root-ca.pem"
+        ))
+        .map_err(|_| "内置服务证书无效")?;
+        builder = builder.tls_certs_only([certificate]);
+    }
+    let client = builder
         .build()
         .map_err(|_| "网络初始化失败")?;
     let endpoint = format!("{}{}", origin.trim_end_matches('/'), path);
@@ -66,7 +85,16 @@ fn allowed_path(path: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::allowed_path;
+    use super::{allowed_path, is_embedded_service};
+
+    #[test]
+    fn embedded_ca_is_scoped_to_the_exact_ip_and_https_port() {
+        assert!(is_embedded_service(&reqwest::Url::parse("https://8.141.124.97:8013").unwrap()));
+        for address in ["http://8.141.124.97:8013", "https://8.141.124.97", "https://8.141.124.97:8443", "https://8.141.124.98:8013", "https://8.141.124.97.example.com:8013"] {
+            assert!(!is_embedded_service(&reqwest::Url::parse(address).unwrap()), "{address}");
+        }
+        reqwest::Certificate::from_pem(include_bytes!("../../resources/qbank-pve-root-ca.pem")).unwrap();
+    }
 
     #[test]
     fn desktop_allows_current_maintenance_routes_only() {

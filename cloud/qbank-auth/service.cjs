@@ -6,7 +6,7 @@ const {sign,verify}=require('./auth.cjs');
 const {decodeUpload,jsonBody,receipt}=require('./submission.cjs');
 const {createAccessRegistry,validateWechatIdentity}=require('./access.cjs');
 
-function createHandler({ env = () => process.env, store, exchangePhone, parseDelta, parseModelReply, validateStandardQuestion, clock = Date.now }) {
+function createHandler({ env = () => process.env, store, exchangeWechat, parseDelta, parseModelReply, validateStandardQuestion, clock = Date.now }) {
   const workflow = require('./workflow.cjs').createWorkflow({store,validateStandardQuestion,clock});
   const access = createAccessRegistry({store,clock});
   const rate = new Map();
@@ -39,14 +39,14 @@ function createHandler({ env = () => process.env, store, exchangePhone, parseDel
       if (method === 'GET' && path === '/health') return respond(200, {
         service: 'qbank-auth', version: VERSION, auth_configured: authConfigured(config),
         auth_checks: authChecks(config),
-        uploads_enabled: config.uploadsEnabled, sync_enabled: config.syncEnabled, capabilities:['confirmed-upload-v1','snapshot-v2','cloud-file-gzip-base64-v1','recorded-at-v1','merge-v1','cloud-bank-promotion-v1','session-upload-v1','wechat-phone-v1','maintainer-approval-v1','certificate-import-v1'], limits: LIMITS,
+        uploads_enabled: config.uploadsEnabled, sync_enabled: config.syncEnabled, capabilities:['confirmed-upload-v1','snapshot-v2','cloud-file-gzip-base64-v1','recorded-at-v1','merge-v1','cloud-bank-promotion-v1','session-upload-v1','wechat-manual-application-v1','maintainer-approval-v1','certificate-import-v1'], limits: LIMITS,
       });
       const publicResult = await workflow.read(method,path,config);
       if(publicResult !== undefined)return respond(200,publicResult);
       const workflowRoute = /^\/v1\/banks\/[0-9a-f-]{36}\/(seed|history|rollback)$/.test(path||'');
       const maintainerRoute = method==='GET' && ['/v1/maintainer-applications','/v1/maintainer-accounts'].includes(path)
         || method==='POST' && (path==='/v1/maintainer-applications' || /^\/v1\/maintainer-applications\/[0-9a-f-]{36}\/decision$/.test(path) || /^\/v1\/maintainer-accounts\/[0-9a-f-]{36}\/revoke$/.test(path));
-      if (!workflowRoute && !maintainerRoute && !['POST /v1/auth/desktop', 'POST /v1/auth/wechat-phone', 'GET /v1/me', 'POST /v1/uploads', 'POST /v1/banks/promote'].includes(`${method} ${path}`))
+      if (!workflowRoute && !maintainerRoute && !['POST /v1/auth/desktop', 'POST /v1/auth/wechat-login', 'GET /v1/me', 'POST /v1/uploads', 'POST /v1/banks/promote'].includes(`${method} ${path}`))
         fail(404, 'NOT_FOUND', '接口不存在');
       requireAuthConfig(config);
       const now = Math.floor(clock() / 1000);
@@ -63,22 +63,21 @@ function createHandler({ env = () => process.env, store, exchangePhone, parseDel
           auth_version:config.authVersion,key_version:maintainer.key_sha256,iat:now,exp:now+LIMITS.sessionSeconds},config),
           expires_in:LIMITS.sessionSeconds,banks:config.banks.filter(b=>Object.hasOwn(maintainer.grants,b.bank_id)),grants:maintainer.grants});
       }
-      if(path==='/v1/auth/wechat-phone'){
+      if(path==='/v1/auth/wechat-login'){
         throttle('login:all',100);throttle(`login:${String(headers['x-forwarded-for']||headers['x-client-address']||'unknown').slice(0,100)}`,10);
-        const body=jsonBody(event,2048);
-        if(!body||typeof body.login_code!=='string'||!/^[A-Za-z0-9_-]{8,256}$/.test(body.login_code)||typeof body.phone_code!=='string'||!/^[A-Za-z0-9_-]{8,256}$/.test(body.phone_code))
-          fail(400,'CODE_REQUIRED','请提供微信登录和手机号授权凭证');
-        if(body.nickname!==undefined&& (typeof body.nickname!=='string'||body.nickname.length>80))fail(422,'NICKNAME_INVALID','昵称长度无效');
+        const body=jsonBody(event,1024);
+        if(!exact(body,['login_code'])||typeof body.login_code!=='string'||!/^[A-Za-z0-9_-]{8,256}$/.test(body.login_code))
+          fail(400,'CODE_REQUIRED','请提供微信登录凭证');
         let identity;
         try{
-          if(typeof exchangePhone!=='function')fail(503,'WECHAT_PHONE_UNAVAILABLE','服务端尚未配置手机号登录校验');
-          identity=validateWechatIdentity(await exchangePhone({appId:config.appId,appSecret:config.appSecret,loginCode:body.login_code,phoneCode:body.phone_code}));
+          if(typeof exchangeWechat!=='function')fail(503,'WECHAT_UNAVAILABLE','服务端尚未配置微信登录校验');
+          identity=validateWechatIdentity(await exchangeWechat({appId:config.appId,appSecret:config.appSecret,loginCode:body.login_code}));
         }catch(error){if(error instanceof HttpError)throw error;fail(502,'WECHAT_UNAVAILABLE','微信登录校验暂不可用，请重试');}
-        const registry=await access.read(),account=registry.wechat_accounts.find(a=>a.phone_hash===identity.phone_hash&&a.status!=='revoked');
-        const nowSeconds=now;
-        const token=sign({sub:identity.openid,phone_hash:identity.phone_hash,phone_masked:identity.phone_masked,nickname:String(body.nickname||identity.nickname||'').trim(),aud:'qbank-wechat-v2',app_id:config.appId,auth_version:config.authVersion,iat:nowSeconds,exp:nowSeconds+LIMITS.sessionSeconds},config);
+        const registry=await access.read(),account=registry.wechat_accounts.find(a=>a.openid===identity.openid);
+        if(account?.status==='revoked')fail(403,'MAINTAINER_REVOKED','维护者权限已撤销，请联系管理员');
+        const token=sign({sub:identity.openid,aud:'qbank-wechat-v3',app_id:config.appId,auth_version:config.authVersion,iat:now,exp:now+LIMITS.sessionSeconds},config);
         const grants=account?.status==='approved'&&object(account.grants)?account.grants:{};
-        return respond(200,{access_token:token,expires_in:LIMITS.sessionSeconds,openid:identity.openid,phone:identity.phone_masked,nickname:account?.nickname||String(body.nickname||'').trim(),status:account?.status||'pending',banks:config.banks.filter(b=>Object.hasOwn(grants,b.bank_id)),permissions:[...new Set(Object.values(grants).flat())]});
+        return respond(200,{access_token:token,expires_in:LIMITS.sessionSeconds,openid:identity.openid,phone:account?.phone_masked||'',nickname:account?.nickname||'',status:account?.status||'pending',banks:config.banks.filter(b=>Object.hasOwn(grants,b.bank_id)),permissions:[...new Set(Object.values(grants).flat())]});
       }
       const auth = verify(typeof headers.authorization === 'string' && headers.authorization.startsWith('Bearer ')
         ? headers.authorization.slice(7) : null, config, now, await access.read());
@@ -88,28 +87,39 @@ function createHandler({ env = () => process.env, store, exchangePhone, parseDel
       if(path==='/v1/maintainer-applications'&&method==='GET'){
         if(!isAdmin)fail(403,'ROLE_FORBIDDEN','只有桌面最高权限可以管理维护者申请');
         const registry=await access.read();
-        return respond(200,{applications:registry.maintainer_applications.filter(a=>a.status==='pending').map(a=>({id:a.id,phone:a.phone_masked,nickname:a.nickname,identity_description:a.identity_description,bank_ids:a.bank_ids,created_at:a.created_at,status:a.status}))});
+        return respond(200,{applications:registry.maintainer_applications.filter(a=>a.status==='pending').map(a=>({id:a.id,phone:a.phone,real_name:a.real_name,phone_source:a.phone_source,nickname:a.nickname,identity_description:a.identity_description,bank_ids:a.bank_ids,created_at:a.created_at,status:a.status}))});
       }
       if(path==='/v1/maintainer-accounts'&&method==='GET'){
         if(!isAdmin)fail(403,'ROLE_FORBIDDEN','只有桌面最高权限可以管理维护者账号');
         const registry=await access.read();
-        return respond(200,{accounts:registry.wechat_accounts.map(a=>({id:a.id,phone:a.phone_masked,nickname:a.nickname,identity_description:a.identity_description,openid:a.openid,grants:a.grants,status:a.status,created_at:a.created_at,approved_at:a.approved_at||null,revoked_at:a.revoked_at||null}))});
+        return respond(200,{accounts:registry.wechat_accounts.map(a=>({id:a.id,phone:a.phone,real_name:a.real_name,phone_source:a.phone_source,nickname:a.nickname,identity_description:a.identity_description,openid:a.openid,grants:a.grants,status:a.status,created_at:a.created_at,approved_at:a.approved_at||null,revoked_at:a.revoked_at||null}))});
       }
       if(path==='/v1/maintainer-applications'&&method==='POST'){
-        if(!auth.phone)fail(403,'PHONE_LOGIN_REQUIRED','请先完成微信手机号快捷登录');
+        if(!auth.wechat)fail(403,'WECHAT_LOGIN_REQUIRED','请在小程序登录微信后提交申请');
         const body=jsonBody(event,8192);if(!Array.isArray(body?.bank_ids)||!body.bank_ids.length||body.bank_ids.length>100||body.bank_ids.some(id=>!UUID.test(id)))fail(422,'BANKS_REQUIRED','请选择要维护的题库');
-        const nickname=typeof body.nickname==='string'?body.nickname.trim().slice(0,80):auth.nickname||'';
+        const phone=access.normalizePhone(body.phone),phoneHash=access.phoneHash(phone);
+        const realName=typeof body.real_name==='string'?body.real_name.trim():'';
+        if(!realName||realName.length>40)fail(422,'REAL_NAME_REQUIRED','请填写 1 至 40 字的真实姓名');
+        if(body.nickname!==undefined&&(typeof body.nickname!=='string'||body.nickname.length>80))fail(422,'NICKNAME_INVALID','昵称最多 80 字');
+        const nickname=(body.nickname||'').trim();
         const identityDescription=typeof body.identity_description==='string'?body.identity_description.trim():'';
         if(!identityDescription||identityDescription.length>500)fail(422,'IDENTITY_REQUIRED','请填写 1 至 500 字的身份说明，方便管理员核实');
-        const validBanks=[...new Set(body.bank_ids)].filter(id=>config.banks.some(b=>b.bank_id===id));if(!validBanks.length)fail(422,'BANKS_REQUIRED','请选择有效题库');
+        const validBanks=[...new Set(body.bank_ids)];if(validBanks.some(id=>!config.banks.some(b=>b.bank_id===id)))fail(422,'BANKS_REQUIRED','请选择有效的云端题库');
+        let applicationId,created=false;
         const result=await access.update(registry=>{
-          const existing=registry.wechat_accounts.find(a=>a.phone_hash===auth.phone_hash&&a.status!=='revoked');
-          if(existing)fail(409,'ALREADY_MAINTAINER','此手机号已经是题库维护者');
-          const pending=registry.maintainer_applications.find(a=>a.phone_hash===auth.phone_hash&&a.status==='pending');
-          if(pending)fail(409,'APPLICATION_PENDING','此手机号已有待审批申请');
-          registry.maintainer_applications.push({id:randomUUID(),phone_hash:auth.phone_hash,phone_masked:auth.phone_masked,nickname,identity_description:identityDescription,openid:auth.openid,bank_ids:validBanks,status:'pending',created_at:new Date(clock()).toISOString()});
+          const phoneOwner=registry.wechat_accounts.find(a=>a.phone_hash===phoneHash&&a.status==='approved');
+          if(phoneOwner&&phoneOwner.openid!==auth.openid)fail(409,'PHONE_IN_USE','此手机号已绑定其他微信账号，请联系管理员核实');
+          const existing=registry.wechat_accounts.find(a=>a.openid===auth.openid&&a.status==='approved');
+          if(existing&&existing.phone_hash!==phoneHash)fail(409,'PHONE_CHANGE_REQUIRES_ADMIN','已授权账号修改手机号需联系管理员核实');
+          const requested=validBanks.filter(id=>!existing?.grants?.[id]?.includes('upload'));
+          if(!requested.length)fail(409,'ALREADY_MAINTAINER','已经获得所选题库的维护权限');
+          const pending=registry.maintainer_applications.find(a=>a.openid===auth.openid&&a.status==='pending');
+          const details={phone,phone_hash:phoneHash,phone_masked:access.maskPhone(phone),phone_source:'self_reported',real_name:realName,nickname,identity_description:identityDescription};
+          if(pending){Object.assign(pending,details,{bank_ids:[...new Set([...pending.bank_ids,...requested])],updated_at:new Date(clock()).toISOString()});applicationId=pending.id;created=false;}
+          else {applicationId=randomUUID();created=true;registry.maintainer_applications.push({id:applicationId,...details,openid:auth.openid,bank_ids:requested,status:'pending',created_at:new Date(clock()).toISOString()});}
         });
-        const application=result.maintainer_applications.at(-1);return respond(201,{application:{id:application.id,status:application.status,phone:application.phone_masked,nickname:application.nickname,identity_description:application.identity_description,bank_ids:application.bank_ids}});
+        const application=result.maintainer_applications.find(a=>a.id===applicationId);
+        return respond(created?201:200,{application:{id:application.id,status:application.status,phone:application.phone_masked,real_name:application.real_name,nickname:application.nickname,identity_description:application.identity_description,bank_ids:application.bank_ids}});
       }
       const decisionMatch=/^\/v1\/maintainer-applications\/([0-9a-f-]{36})\/decision$/.exec(path||'');
       if(decisionMatch&&method==='POST'){
@@ -122,7 +132,14 @@ function createHandler({ env = () => process.env, store, exchangePhone, parseDel
           if(body.decision==='approve'){
             const requested=new Set(application.bank_ids),grants=object(body.grants)?body.grants:{};
             const selected={};for(const id of requested){const roles=Array.isArray(grants[id])?grants[id]:['upload'];if(!roles.length||roles.some(r=>r!=='upload'))fail(422,'GRANTS_INVALID','手机号维护者只能授予上传权限');selected[id]=['upload'];}
-            registry.wechat_accounts.push({id:randomUUID(),phone_hash:application.phone_hash,phone_masked:application.phone_masked,nickname:application.nickname,identity_description:application.identity_description,openid:application.openid,grants:selected,status:'approved',created_at:at,approved_at:at,approved_by:auth.maintainer_id});
+            const other=registry.wechat_accounts.find(a=>a.phone_hash===application.phone_hash&&a.openid!==application.openid&&a.status==='approved');
+            if(other)fail(409,'PHONE_IN_USE','此手机号已绑定其他微信账号，请核实后再审批');
+            const existing=registry.wechat_accounts.find(a=>a.openid===application.openid);
+            if(existing?.status==='revoked')fail(409,'MAINTAINER_REVOKED','此微信账号已撤销，请核实后重新分配');
+            if(existing&&existing.phone_hash!==application.phone_hash)fail(409,'PHONE_CHANGE_REQUIRES_ADMIN','此账号手机号已改变，请核实后重新申请');
+            const details={phone:application.phone,phone_hash:application.phone_hash,phone_masked:application.phone_masked,phone_source:'self_reported',real_name:application.real_name,nickname:application.nickname,identity_description:application.identity_description,grants:{...existing?.grants,...selected},status:'approved',approved_at:at,approved_by:auth.maintainer_id};
+            if(existing)Object.assign(existing,details);
+            else registry.wechat_accounts.push({id:randomUUID(),openid:application.openid,created_at:at,...details});
           }
         });
         const app=result.maintainer_applications.find(a=>a.id===decisionMatch[1]);return respond(200,{id:app.id,status:app.status});

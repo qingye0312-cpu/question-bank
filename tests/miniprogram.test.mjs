@@ -6,6 +6,7 @@ import {createHash} from 'node:crypto';
 import vm from 'node:vm';
 import ts from 'typescript';
 import * as intakeCore from '../shared/intake.ts';
+import {applicationFields} from '../miniprogram/miniprogram/services/maintainer-application.ts';
 import * as core from '../miniprogram/miniprogram/core/search.ts';
 import * as compact from '../miniprogram/miniprogram/core/compact.ts';
 import {brotliDecompressSync} from 'node:zlib';
@@ -259,6 +260,9 @@ async function loadPage(path, mocks = {}, searchCore = core, services = {}) {
   vm.runInNewContext(outputText, {
     exports: {}, require: name => name.endsWith('/appearance') ? {themePageData:()=>({}),showPageTheme:()=>{},hidePageTheme:()=>{}}
       : name.endsWith('/foreground') ? {foregroundGeneration:()=>1}
+      : name.endsWith('/maintainer-application') ? {applicationFields}
+      : name.endsWith('/intake-controller') ? services.controller
+      : name.endsWith('/cloud') ? services.cloud
       : name.endsWith('/search') ? searchCore
       : name.endsWith('/intake') ? intakeCore
       : name.endsWith('/bank') ? (services.bank||{loadBank: async () => ({bank: bank(), manifest}),listBanks:async()=>[{id:manifest.bank_id,name:manifest.name}],activeBankId:()=>manifest.bank_id,selectBank:()=>{}})
@@ -452,4 +456,46 @@ test('Android opens question details with and without a search and renders match
   assert.equal(page.data.error, '');
   assert.ok(page.data.rows.length > 0);
   page.onUnload();
+});
+
+
+test('a failed selected-bank download does not hide newly discovered cloud banks',async()=>{
+ const advanced='c86104f7-4570-4089-9338-7989ce528a9d';let fresh=false,selected=manifest.bank_id;
+ const page=await loadPage('pages/index/index.ts',{},core,{
+  bank:{loadBank:async()=>({bank:bank(),manifest}),listBanks:async()=>[{id:manifest.bank_id,name:manifest.name},...(fresh?[{id:advanced,name:'高级题库'}]:[])],activeBankId:()=>selected,selectBank:id=>selected=id},
+  sync:{cloudCatalog:()=>fresh?[{bank_id:manifest.bank_id},{bank_id:advanced}]:[],refreshCatalog:async()=>{fresh=true;},syncBank:async()=>{throw Error('下载暂不可用')}},
+ });
+ page.layout=new core.VirtualList(0);await page.initialize();await page.syncCloud();
+ assert.equal(page.data.banks.length,2);assert.equal(page.data.banks[1].id,advanced);assert.match(page.data.syncNotice,/下载/);assert.equal(page.data.total,914);
+});
+test('a cloud bank without a cache is downloaded before it becomes searchable, and page returns do not resync',async()=>{
+ const advanced='c86104f7-4570-4089-9338-7989ce528a9d';let selected=advanced,cached=false,downloads=0,invalidations=0,refreshes=0;
+ const page=await loadPage('pages/index/index.ts',{},core,{
+  bank:{loadBank:async()=>{if(!cached)throw Error('尚未下载');return {bank:bank(),manifest:{...manifest,bank_id:advanced}}},listBanks:async()=>[{id:manifest.bank_id,name:manifest.name},{id:advanced,name:'高级题库'}],activeBankId:()=>selected,selectBank:id=>selected=id,invalidateBank:()=>invalidations++},
+  sync:{cloudCatalog:()=>[{bank_id:advanced}],refreshCatalog:async()=>refreshes++,syncBank:async()=>{downloads++;cached=true;return true;}},
+ });
+ page.layout=new core.VirtualList(0);await page.initialize();assert.equal(page.data.bankId,advanced);assert.equal(page.data.ready,false);assert.match(page.data.error,/尚未下载/);
+ await page.syncCloud();assert.equal(page.data.ready,true);assert.equal(page.data.total,914);assert.equal(invalidations,1);
+ page.foregroundSeen=1;page.onShow();page.onShow();assert.equal(downloads,1);assert.equal(refreshes,1);
+});
+
+test('maintainer application button shows validation, progress and persistent errors without a phone authorization popup',async()=>{
+ let configured=false,submits=0,emitter,resolve;
+ class Controller{constructor(emit){emitter=emit;}async open(){}dispose(){}async flush(){}render(){emitter({records:[],error:''})}}
+ const messages=[];
+ const page=await loadPage('pages/intake/intake.ts',{showToast:o=>messages.push(o.title)},core,{
+  controller:{IntakeController:Controller},
+  cloud:{cloud:{state:()=>({configured,loggedIn:false}),applyMaintainer:async(_id,form)=>{submits++;assert.equal(form.realName,'张三');await new Promise(r=>resolve=r);throw Error('测试网络中断');}}},
+  sync:{refreshCatalog:async()=>[{bank_id:manifest.bank_id}]},
+ });
+ page.onLoad();await new Promise(r=>setTimeout(r,0));
+ await page.onApplyMaintainer();assert.match(page.data.applicationMessage,/手机号/);assert.equal(submits,0);assert.equal(page.data.applying,false);
+ page.setData({maintainerPhone:'13812345678',maintainerRealName:'张三',maintainerIdentity:'课程助教'});
+ await page.onApplyMaintainer();assert.match(page.data.applicationMessage,/HTTPS/);assert.equal(submits,0);
+ configured=true;const pending=page.onApplyMaintainer();await new Promise(r=>setTimeout(r,0));
+ assert.equal(page.data.applying,true);assert.match(page.data.applicationMessage,/登录微信/);await page.onApplyMaintainer();assert.equal(submits,1);
+ resolve();await pending;assert.equal(page.data.applying,false);assert.match(page.data.applicationMessage,/网络中断/);
+ emitter({records:[],error:''});assert.match(page.data.applicationMessage,/网络中断/);assert.equal(messages.length,3);
+ const markup=await readFile(new URL('pages/intake/intake.wxml',base),'utf8');assert.ok(!markup.includes('getPhoneNumber'));assert.match(markup,/真实姓名（必填）/);assert.match(markup,/昵称（选填）/);
+ page.onUnload();
 });

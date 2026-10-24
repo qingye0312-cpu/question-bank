@@ -19,7 +19,7 @@ function verify(token, config, now, registry) {
   let payload;
   try { payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')); }
   catch { fail(401, 'SESSION_INVALID', '登录已失效，请重新登录'); }
-  if (!object(payload) || !OPENID.test(payload.sub) || !['qbank-desktop-v1','qbank-wechat-v2'].includes(payload.aud)
+  if (!object(payload) || !OPENID.test(payload.sub) || !['qbank-desktop-v1','qbank-wechat-v3'].includes(payload.aud)
     || payload.app_id !== config.appId || payload.auth_version !== config.authVersion
     || !Number.isSafeInteger(payload.exp) || !Number.isSafeInteger(payload.iat)
     || payload.exp <= now || payload.iat > now + 30 || payload.exp - payload.iat !== LIMITS.sessionSeconds)
@@ -30,13 +30,13 @@ function verify(token, config, now, registry) {
     return {openid:payload.sub,banks:Object.keys(maintainer.grants),grants:maintainer.grants,desktop:true,
       capabilities:config.creators.includes(maintainer.id)?['cloud_bank:create','wechat:manage']:[] ,maintainer_id:maintainer.id};
   }
-  if(payload.aud==='qbank-wechat-v2'){
-    const account=(registry?.wechat_accounts||[]).find(a=>a.openid===payload.sub&&a.phone_hash===payload.phone_hash);
+  if(payload.aud==='qbank-wechat-v3'){
+    const account=(registry?.wechat_accounts||[]).find(a=>a.openid===payload.sub);
     if(account?.status==='revoked')fail(403,'MAINTAINER_REVOKED','题库维护者授权已撤销，请重新申请');
     const approved=account?.status==='approved';
     const grants=approved&&object(account.grants)?account.grants:{};
-    return {openid:payload.sub,phone_hash:payload.phone_hash,phone_masked:account?.phone_masked||payload.phone_masked||'',nickname:account?.nickname||payload.nickname||'',
-      banks:Object.keys(grants),grants,desktop:false,phone:true,pending:!approved,account_status:account?.status||'pending'};
+    return {openid:payload.sub,phone_masked:account?.phone_masked||'',nickname:account?.nickname||'',real_name:account?.real_name||'',
+      banks:Object.keys(grants),grants,desktop:false,wechat:true,pending:!approved,account_status:account?.status||'pending'};
   }
 }
 

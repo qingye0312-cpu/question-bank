@@ -5,13 +5,12 @@
 // the filesystem self-host without introducing a second mutable configuration.
 const {OPENID,sha256,fail}=require('./common.cjs');
 const REGISTRY_ID='00000000-0000-0000-0000-000000000000';
-const PHONE=/^\+?[0-9]{6,20}$/;
 
 function normalizePhone(value){
-  if(typeof value!=='string')fail(422,'PHONE_INVALID','微信未返回有效手机号');
-  const text=value.trim().replace(/[\s()-]/g,'');
-  if(!PHONE.test(text))fail(422,'PHONE_INVALID','微信未返回有效手机号');
-  return text;
+  if(typeof value!=='string')fail(422,'PHONE_INVALID','请填写有效的 11 位手机号');
+  const text=value.trim().replace(/[\s()-]/g,'').replace(/^(?:\+86|0086)/,'');
+  if(!/^1[3-9]\d{9}$/.test(text))fail(422,'PHONE_INVALID','请填写有效的 11 位手机号');
+  return '+86'+text;
 }
 function maskPhone(value){
   const text=String(value),digits=text.replace(/^\+/,'');
@@ -38,14 +37,12 @@ function createAccessRegistry({store,clock=Date.now}){
     }
     fail(409,'REVISION_CONFLICT','授权目录正在更新，请刷新后重试');
   }
-  async function findPhone(phoneHash){return (await read()).wechat_accounts.find(a=>a.phone_hash===phoneHash)||null;}
-  return {read,update,findPhone,normalizePhone,maskPhone,phoneHash:value=>sha256(normalizePhone(value)),REGISTRY_ID};
+  return {read,update,normalizePhone,maskPhone,phoneHash:value=>sha256(normalizePhone(value)),REGISTRY_ID};
 }
 
 function validateWechatIdentity(identity){
   if(!identity||typeof identity!=='object'||!OPENID.test(identity.openid))fail(401,'WECHAT_LOGIN_FAILED','微信登录凭证无效，请重新登录');
-  const phone=normalizePhone(identity.phone);
-  return {openid:identity.openid,phone,phone_hash:sha256(phone),phone_masked:maskPhone(phone),nickname:typeof identity.nickname==='string'?identity.nickname.trim().slice(0,80):''};
+  return {openid:identity.openid};
 }
 
 module.exports={REGISTRY_ID,createAccessRegistry,normalizePhone,maskPhone,validateWechatIdentity};

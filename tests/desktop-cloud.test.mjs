@@ -15,7 +15,7 @@ const payload=JSON.stringify({format:'qbank-snapshot-2',bank_id:bank,name:'测�
 const wrapper=packText(payload);
 const manifest={bank_id:bank,name:'测试库',revision:1,release_version:1,updated_at:'2026-10-17T00:00:00Z',minimum_client:'0.2.7',protocol:2,snapshot_format:'qbank-cloud-file-1',bytes:Buffer.byteLength(payload),sha256:wrapper.sha256};
 const pause=()=>{let resolve;const promise=new Promise(r=>{resolve=r;});return {promise,resolve};};
-function client(invoke, state=new Map(), storage=new Map()){
+function client(invoke, state=new Map(), storage=new Map(), initialOrigin='https://first.example'){
  const module={exports:{}};
  const native=invoke;invoke=async(command,args)=>{if(command==='client_state'){if(args.value!==null)state.set(args.key,structuredClone(args.value));return structuredClone(state.get(args.key)||null);}return native(command,args)};
  const root=fileURLToPath(new URL('../',import.meta.url)),cache=new Map();
@@ -24,13 +24,47 @@ function client(invoke, state=new Map(), storage=new Map()){
   file=path.resolve(file);if(cache.has(file))return cache.get(file).exports;
   const entry={exports:{}};cache.set(file,entry);
   const source=fs.readFileSync(file,'utf8').replaceAll('import.meta.env','BUILD_ENV');
-  const compiled=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText;
-  const require=name=>name==='@tauri-apps/api/core'?{invoke}:name.endsWith('shared/queue')?queue:name.endsWith('shared/sync')?sync:load(path.resolve(path.dirname(file),name+'.ts'));
+  const compiled=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020,esModuleInterop:true}}).outputText;
+  const require=name=>name==='@tauri-apps/api/core'?{invoke}:name.endsWith('shared/queue')?queue:name.endsWith('shared/sync')?sync:name.endsWith('.json')?JSON.parse(fs.readFileSync(path.resolve(path.dirname(file),name),'utf8')):load(path.resolve(path.dirname(file),name+'.ts'));
   vm.runInContext('(function(module,exports,require){'+compiled+'\n})',context)(entry,entry.exports,require);return entry.exports;
  }
  module.exports=load(path.join(root,'src/cloud-client.ts'));
- module.exports.setCloudOrigin('https://first.example');return module.exports;
+ if(initialOrigin)module.exports.setCloudOrigin(initialOrigin);return module.exports;
 }
+
+test('desktop discovers absent cloud banks over the default IP and reuses catalog manifests without downloading unchanged banks',async()=>{
+ const second='c86104f7-4570-4089-9338-7989ce528a9d',calls=[],saved=[],versions=[];let offline=false;
+ const text=JSON.stringify({...JSON.parse(payload),bank_id:second,name:'高级题库'}),packed=packText(text);
+ const next={...manifest,bank_id:second,name:'高级题库',bytes:Buffer.byteLength(text),sha256:packed.sha256};
+ const c=client(async(command,args)=>{
+  if(command==='cloud_versions')return versions;
+  if(command==='cloud_apply'){saved.push(args);const snapshot=JSON.parse(args.payload);versions.push({bank_id:snapshot.bank_id,revision:snapshot.revision,sha256:args.sha256});return;}
+  assert.equal(command,'cloud_request');assert.equal(args.origin,'https://8.141.124.97:8013');calls.push(args.path);
+  if(offline)throw Error('NETWORK: offline');
+  return {status:200,body:args.path==='/v1/catalog'?{banks:[manifest,next]}:args.path.includes(second)?packed:wrapper};
+ },new Map(),new Map(),null);
+ const first=c.syncDesktopCatalog();assert.equal(c.syncDesktopCatalog(),first);
+ const result=await first;assert.equal(result.changed,true);assert.equal(result.failed.length,0);
+ assert.equal(saved.length,2);assert.ok(saved.some(s=>JSON.parse(s.payload).bank_id===second));
+ assert.equal(calls.filter(p=>p.endsWith('/manifest')).length,0);
+ assert.equal((await c.syncDesktopCatalog()).changed,false);assert.equal(saved.length,2);
+ assert.equal(calls.filter(p=>p.endsWith('/snapshot-file')).length,2);
+ offline=true;await assert.rejects(c.syncDesktopCatalog(),/offline/);
+ assert.equal(saved.length,2);assert.equal(versions.length,2);
+});
+
+test('one desktop bank failing validation does not prevent discovery of another bank',async()=>{
+ const second='c86104f7-4570-4089-9338-7989ce528a9d',saved=[];
+ const text=JSON.stringify({...JSON.parse(payload),bank_id:second,name:'高级题库'}),packed=packText(text);
+ const next={...manifest,bank_id:second,name:'高级题库',bytes:Buffer.byteLength(text),sha256:packed.sha256};
+ const c=client(async(command,args)=>{
+  if(command==='cloud_versions')return [];
+  if(command==='cloud_apply'){saved.push(args);return;}
+  return {status:200,body:args.path==='/v1/catalog'?{banks:[manifest,next]}:args.path.includes(second)?packed:packText(payload+' ')};
+ });
+ const result=await c.syncDesktopCatalog();assert.equal(result.changed,true);assert.deepEqual([...result.failed],['测试库']);
+ assert.equal(saved.length,1);assert.equal(JSON.parse(saved[0].payload).bank_id,second);
+});
 test('desktop anonymous sync coalesces requests and rejects corrupt, rolled back or altered revisions before writing',async()=>{
  let mode='ok',saved=[],versions=[];const calls=[];
  const c=client(async(command,args)=>{

@@ -18,7 +18,7 @@
     "prepare:miniprogram": "node scripts/sync-client-assets.mjs && node scripts/build-miniprogram-vendor.mjs && node tools/mobile-index/build.mjs",
     "serve:miniprogram": "node tools/mobile-index/server.mjs",
     "check:miniprogram": "node scripts/sync-client-assets.mjs --check && node scripts/build-miniprogram-vendor.mjs --check && node tools/mobile-index/build.mjs --check && tsc --noEmit -p miniprogram/tsconfig.json",
-    "test:miniprogram": "node --test tests/miniprogram.test.mjs tests/miniprogram-cloud.test.mjs",
+    "test:miniprogram": "node --test tests/miniprogram.test.mjs tests/miniprogram-cloud.test.mjs tests/miniprogram-sync.test.mjs",
     "prepare:ocr": "node scripts/prepare-ocr.mjs",
     "test:intake": "node scripts/sync-client-assets.mjs --check && node --test tests/intake.test.mjs",
     "build:self-host": "node scripts/build-self-host.mjs",

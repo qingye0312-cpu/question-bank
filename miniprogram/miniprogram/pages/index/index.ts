@@ -78,7 +78,7 @@ Page({
     // Page onShow also fires when returning from detail; only app foreground entries sync.
     if(generation!==this.foregroundSeen){
       this.foregroundSeen=generation;
-      if(this.data.ready&&!this.data.loading)void this.syncCloud();
+      if(!this.data.loading)void this.syncCloud();
     }
   },
   onReady() { this.measureViewport(); },
@@ -96,6 +96,10 @@ Page({
     try {
       const banks=await listBanks();
       const id=banks.some(b=>b.id===preferredBankId)?preferredBankId:banks.some(b=>b.id===activeBankId())?activeBankId():banks[0].id;
+      if(!this.alive||epoch!==this.loadEpoch)return;
+      this.bank=undefined;this.ids=[];this.start=-1;this.end=-1;
+      selectBank(id);
+      this.setData({banks,bankId:id,bankIndex:banks.findIndex(b=>b.id===id),bankName:banks.find(b=>b.id===id)!.name,ready:false,rows:[],total:0,count:0,before:0,after:0});
       const {bank, manifest} = await loadBank(id);
       if (!this.alive||epoch!==this.loadEpoch) return;
       selectBank(id);
@@ -107,15 +111,22 @@ Page({
       if (this.alive&&epoch===this.loadEpoch) this.setData({loading: false, error: error instanceof Error ? error.message : '题库加载失败，请重试'});
     }
   },
-  async syncCloud(catalogRefreshAttempted=false){
+  async syncCloud(catalogRefreshAttempted=false,force=false){
     if(this.data.syncing||!this.alive)return;this.setData({syncing:true});const id=this.data.bankId;
-    try{if(!catalogRefreshAttempted)await refreshCatalog();const changed=await syncBank(id);if(!this.alive)return;
-      const banks=await listBanks();this.setData({banks,bankIndex:banks.findIndex(b=>b.id===this.data.bankId),bankName:banks.find(b=>b.id===this.data.bankId)?.name||this.data.bankName,syncNotice:'云端版本已核对'},()=>this.measureViewport());
-      if(changed){invalidateBank(id);if(this.data.bankId===id)await this.initialize();}
+    try{
+      if(!catalogRefreshAttempted)await refreshCatalog(force);
+      if(!this.alive)return;
+      // Publish the directory independently of the selected bank's download.
+      const banks=await listBanks();this.setData({banks,bankIndex:banks.findIndex(b=>b.id===this.data.bankId),bankName:banks.find(b=>b.id===this.data.bankId)?.name||this.data.bankName},()=>this.measureViewport());
+      const manifest=cloudCatalog().find(b=>b.bank_id===id);
+      if(!manifest){this.setData({syncNotice:`已发现 ${cloudCatalog().length} 个云端题库 · 当前使用本地题库`});return;}
+      const changed=await syncBank(id,manifest);if(!this.alive)return;
+      this.setData({syncNotice:`云端 ${cloudCatalog().length} 个题库 · 版本已核对`});
+      if(changed||!this.data.ready){invalidateBank(id);if(this.data.bankId===id)await this.initialize(id);}
     }catch(e){if(this.alive)this.setData({syncNotice:e instanceof Error?e.message:'同步暂未完成，本地题库仍可使用'});}
     finally{if(this.alive){this.setData({syncing:false});if(this.data.bankId!==id)void this.syncCloud();}}
   },
-  onSync(){void this.syncCloud();},
+  onSync(){void this.syncCloud(false,true);},
   measureViewport() {
     if (!this.alive) return;
     wx.createSelectorQuery().in(this).select('.results').boundingClientRect(rect => {

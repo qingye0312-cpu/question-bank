@@ -1,0 +1,14 @@
+{
+	admin 127.0.0.1:2019
+	auto_https disable_redirects
+	skip_install_trust
+	default_sni 8.141.124.97
+}
+
+# The desktop trusts this service's public root CA for this IP endpoint only.
+# Caddy renews its leaf certificate; its private CA remains on the server.
+https://8.141.124.97:8443 {
+	bind 127.0.0.1
+	tls internal
+	reverse_proxy 127.0.0.1:8080
+}

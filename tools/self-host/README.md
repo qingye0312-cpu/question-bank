@@ -4,8 +4,8 @@
 
 ## 运行边界
 
-- SSH 端口 `8013` 只用于管理；应用默认绑定 `127.0.0.1:8080`。
-- 对外访问需要反向代理提供 HTTPS，并把该域名加入微信小程序 `request` 合法域名；SSH 管理 IP 不能直接作为小程序 HTTPS 地址。
+- 公网 `8.141.124.97:8013` 同时提供 SSH 和 HTTPS。FRP 转到容器 `127.0.0.1:8444`，sslh 按协议分到 SSH `22` 或 Caddy `8443`；Caddy 反向代理到题库服务 `127.0.0.1:8080`。
+- 桌面默认通过 `https://8.141.124.97:8013` 自动获取所有云端题库，使用内置 CA 公钥定向验证该服务。小程序仍需可信域名证书和微信 `request` 合法域名；当前等待域名配置，不能使用桌面的私有 CA 或直接照搬 IP 地址。
 - `/var/lib/qbank-auth` 是唯一业务数据目录，部署前应完整备份。
 - `QBANK_UPLOAD_ENABLED` 和 `QBANK_SYNC_ENABLED` 控制上传与合并；没有状态文件时目录可读但 revision 为 0。
 
@@ -31,6 +31,21 @@ QBANK_PORT=8080
 
 环境文件不纳入 Git，也不通过聊天传递。
 
+## HTTPS 与 SSH 共用端口
+
+配置模板见 [Caddyfile](Caddyfile) 和 [sslh.conf](sslh.conf)。Alpine 安装 `caddy`、`sslh`、`openssl` 后，将模板分别安装到 `/etc/caddy/Caddyfile`、`/etc/sslh.conf`。先在回环端口验证两种协议，保留 FRP 配置备份和独立的定时恢复脚本，最后把现有 `remotePort = 8013` 对应的 `localPort` 从 `22` 改为 `8444`。只有公网 HTTPS 验证和新 SSH 登录都成功，才取消恢复任务；不直接关闭 SSH 监听。
+
+Caddy 使用内部 CA 自动签发、续期 IP 证书。公开根证书通过已验证的 SSH 连接取得，保存于 [qbank-pve-root-ca.pem](../../src-tauri/resources/qbank-pve-root-ca.pem)，随桌面编译；只对 [desktop-service.json](../../shared/desktop-service.json) 的完整 HTTPS origin 生效，其他 origin 使用系统信任。客户端仍校验 IP、证书有效期和签发链，不安装全局根证书，不允许跳过 TLS 校验。
+
+根和中间证书私钥留在服务器 `/var/lib/caddy/.local/share/caddy/pki/`，必须与业务数据一起备份，禁止放入代码或客户端。叶子证书自动续期无需更新客户端；更换根 CA 时需要重新分发包含新公钥的桌面版。Caddy 管理接口仅监听回环 `2019`。
+
+```sh
+curl --cacert src-tauri/resources/qbank-pve-root-ca.pem https://8.141.124.97:8013/health
+sh mac/scripts/env.sh cargo test --manifest-path src-tauri/Cargo.toml --test cloud_live -- --ignored --nocapture
+```
+
+第二条命令只读访问真实服务，将目录内所有题库应用到隔离临时数据库，核对题数和幂等，不写入日常数据库或远端题库。普通浏览器尚未信任这份私有 CA，小程序的域名及公开证书接入需要另行完成。[Caddy 内部证书说明](https://caddyserver.com/docs/automatic-https#local-https)、[sslh 协议分流说明](https://github.com/yrutschle/sslh)。
+
 ## 初次种入题库
 
 先备份存储目录，再执行一次：
@@ -40,6 +55,16 @@ node /opt/qbank-auth/current/seed-bank.cjs /var/lib/qbank-auth/import/questions.
 ```
 
 种入脚本遇到同题库已有状态会拒绝覆盖。种入之后依次核对 `GET /health`、`GET /v1/catalog`、题库 manifest 和快照摘要。
+
+## 题目质量状态修复
+
+`repair-bank-status.cjs` 仅处理“没有答案且带问题说明，却被标为已核实”的矛盾数据。执行前备份数据，再以 `qbank` 用户运行：
+
+```sh
+su qbank -s /bin/sh -c 'node /opt/qbank-auth/current/repair-bank-status.cjs <bank_id> /var/lib/qbank-auth'
+```
+
+工具只把符合条件的题目状态改为 `needs_review`，不修改题干、选项或答案，不猜测答案。修复记录包含时间、题目 ID 和前后修订，保存为新的不可变版本；其他数据错误会中止写入，重复执行无变化时不增加版本。
 
 ## 维护者密钥
 

@@ -2,8 +2,10 @@ import {authOrigin} from '../config/cloud';
 import {readManifest,readSnapshot,snapshotPath,type CloudManifest,type CloudSnapshot} from '../core/sync';
 import {buildPostings} from '../core/search';
 import {sha256} from '../core/intake';
+import {foregroundGeneration} from './foreground';
 const inflight=new Map<string,Promise<boolean>>();
 let catalog:CloudManifest[]=[];
+let catalogRequest:Promise<CloudManifest[]>|undefined,restoring:Promise<void>|undefined,catalogGeneration=-1,catalogOrigin='';
 export function cloudCatalog(){return catalog;}
 const path=(id:string)=>`${wx.env.USER_DATA_PATH}/qbank-cloud-${id}.json`;
 const read=(filePath:string)=>new Promise<string>((resolve,reject)=>wx.getFileSystemManager().readFile({filePath,encoding:'utf8',success:r=>resolve(r.data as string),fail:reject}));
@@ -22,16 +24,28 @@ function request(endpoint:string):Promise<unknown>{
   try{const text=typeof r.data==='string'?r.data:JSON.stringify(r.data);if(text.length>8388608)throw Error('响应过大');resolve(JSON.parse(text));}catch{reject(Error('云端返回无效数据'));}
  },fail:()=>reject(Error('网络不可用，继续使用本地题库'))}));
 }
-export async function restoreCatalog(){try{catalog=(await checked(`${wx.env.USER_DATA_PATH}/qbank-cloud-catalog.json`)).map(readManifest);}catch{/* Bundled and local banks remain available. */}}
-export async function refreshCatalog(){const response=await request('/v1/catalog') as {banks:unknown[]};
- if(!Array.isArray(response.banks)||response.banks.length>100)throw Error('云端目录无效');const next=response.banks.map(readManifest);
- if(new Set(next.map(m=>m.bank_id)).size!==next.length)throw Error('云端目录含重复题库');
- await write(`${wx.env.USER_DATA_PATH}/qbank-cloud-catalog.json`,next);catalog=next;return catalog;
+export function restoreCatalog():Promise<void>{
+ if(!restoring)restoring=(async()=>{try{catalog=(await checked(`${wx.env.USER_DATA_PATH}/qbank-cloud-catalog.json`)).map(readManifest);}catch{/* Bundled and local banks remain available. */}})();
+ return restoring;
 }
-export function syncBank(id:string):Promise<boolean>{
+export function refreshCatalog(force=false):Promise<CloudManifest[]>{
+ if(catalogRequest)return catalogRequest;
+ const generation=foregroundGeneration(),origin=authOrigin();
+ if(!force&&catalogGeneration===generation&&catalogOrigin===origin)return Promise.resolve(catalog);
+ const task=(async()=>{
+  // Finish disk restoration first, so a slow restore cannot overwrite a fresh directory.
+  await restoreCatalog();
+  const response=await request('/v1/catalog') as {banks:unknown[]};
+  if(!Array.isArray(response.banks)||response.banks.length>100)throw Error('云端目录无效');const next=response.banks.map(readManifest);
+  if(new Set(next.map(m=>m.bank_id)).size!==next.length)throw Error('云端目录含重复题库');
+  await write(`${wx.env.USER_DATA_PATH}/qbank-cloud-catalog.json`,next);
+  catalog=next;catalogGeneration=generation;catalogOrigin=origin;return catalog;
+ })();catalogRequest=task;void task.finally(()=>{if(catalogRequest===task)catalogRequest=undefined;}).catch(()=>{});return task;
+}
+export function syncBank(id:string,advertised?:CloudManifest):Promise<boolean>{
  if(inflight.has(id))return inflight.get(id)!;
  const task=(async()=>{
-  const manifest=readManifest(await request(`/v1/banks/${id}/manifest`));if(manifest.bank_id!==id)throw Error('题库身份不符');
+  const manifest=readManifest(advertised||await request(`/v1/banks/${id}/manifest`));if(manifest.bank_id!==id)throw Error('题库身份不符');
   const previous=await cachedSnapshot(id);
   if(previous){if(manifest.revision<previous.manifest.revision)throw Error('云端版本倒退，旧版仍然保留');
    if(manifest.revision===previous.manifest.revision){if(manifest.sha256!==previous.manifest.sha256)throw Error('相同版本内容发生变化');return false;}}

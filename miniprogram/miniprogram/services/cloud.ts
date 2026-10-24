@@ -1,6 +1,7 @@
 import {UploadError} from '../core/queue';
 import {authOrigin} from '../config/cloud';
 import {prepareUpload,verifyReceipt} from '../core/upload';
+import {applicationFields,type MaintainerForm} from './maintainer-application';
 type Bank={bank_id:string;name:string};
 type Session={openid:string;token:string;origin:string;expiresAt:number;banks:Bank[];uploadsEnabled:boolean;status?:string;phone?:string;nickname?:string};
 type Response={status:number;body:unknown};
@@ -21,11 +22,17 @@ function readBanks(value:unknown):Bank[]{
 }
 const messages:Record<string,string>={
   BANK_FORBIDDEN:'没有当前题库的上传权限，请重新登录确认授权',
-  PHONE_LOGIN_REQUIRED:'请先在“上传”页使用微信手机号登录并申请维护者权限',
+  WECHAT_LOGIN_REQUIRED:'请先在“上传”页填写申请信息并登录微信',
+  PHONE_INVALID:'请填写有效的 11 位手机号',
+  REAL_NAME_REQUIRED:'请填写 1 至 40 字的真实姓名',
+  NICKNAME_INVALID:'昵称最多 80 字，可以不填',
+  PHONE_IN_USE:'此手机号已绑定其他微信账号，请联系管理员核实',
+  PHONE_CHANGE_REQUIRES_ADMIN:'已授权账号修改手机号需联系管理员核实',
+  BANKS_REQUIRED:'请选择有效的云端题库；私人本地题库不能申请云端权限',
+  WECHAT_UNAVAILABLE:'微信登录校验暂不可用，请联系管理员检查服务端配置',
   IDENTITY_REQUIRED:'请填写 1 至 500 字的身份说明，方便管理员核实',
   MAINTAINER_REVOKED:'维护者权限已撤销，请联系管理员',
-  APPLICATION_PENDING:'此手机号已有待审批申请，请等待桌面最高权限处理',
-  ALREADY_MAINTAINER:'此手机号已经是题库维护者，正在刷新授权',
+  ALREADY_MAINTAINER:'已获得所选题库的维护权限，正在刷新授权',
   BANK_NAME_MISMATCH:'题库名称与云端目录不一致，请联系题库维护者',
   UPLOAD_DISABLED:'上传服务暂未开放，本地题目仍然保留',
   RATE_LIMITED:'操作较频繁，请稍后重试',
@@ -45,7 +52,8 @@ export function createCloudClient(deps:{origin:()=>string;login:()=>Promise<stri
   let session:Session|undefined, pending:Promise<CloudAccess>|undefined, generation=0;
   const now=deps.now||Date.now;
   function origin(){const value=deps.origin();
-    if(!/^https:\/\/[a-z0-9.-]+(?::443)?$/i.test(value))throw new Error('云端上传尚未配置，仍可本地录题、导出和分享');
+    const match=/^https:\/\/[a-z0-9.-]+(?::([0-9]{1,5}))?$/i.exec(value);
+    if(!match||(match[1]&&(Number(match[1])<1||Number(match[1])>65535)))throw new Error('云端 HTTPS 地址尚未配置，请联系管理员；本地录题仍可使用');
     return value;}
   function active(){if(session&&(session.expiresAt<=now()+15000||session.origin!==deps.origin()))session=undefined;return session;}
   function state():CloudAccess {const current=active();return {openid:current?.openid,configured:!!deps.origin(),loggedIn:!!current,
@@ -80,29 +88,26 @@ export function createCloudClient(deps:{origin:()=>string;login:()=>Promise<stri
     })();
     pending=run;void run.finally(()=>{if(pending===run)pending=undefined;}).catch(()=>{});return run;
   }
-  async function loginWithPhone(phoneCode:string,nickname=''):Promise<CloudAccess>{
-    if(!/^[A-Za-z0-9_-]{8,256}$/.test(phoneCode))throw new Error('未取得手机号授权凭证，请点击授权按钮');
-    return startLogin('/v1/auth/wechat-phone',(loginCode:string)=>({login_code:loginCode,phone_code:phoneCode,nickname}),true);
+  async function loginWechat():Promise<CloudAccess>{
+    return startLogin('/v1/auth/wechat-login',(loginCode:string)=>({login_code:loginCode}),true);
   }
-  async function applyMaintainer(bankId:string,_name:string,phoneCode:string,nickname:string,identityDescription:string){
-    const identity=identityDescription.trim();
-    if(!identity||identity.length>500)throw new Error('请填写 1 至 500 字的身份说明，方便管理员核实');
-    if(!active()?.phone)await loginWithPhone(phoneCode,nickname);
-    const current=active();if(!current)throw new Error('手机号登录已失效，请重新授权');
+  async function applyMaintainer(bankId:string,form:MaintainerForm){
+    const fields=applicationFields(form);
+    // Re-read grants after desktop approval; the typed phone never authenticates an account.
+    await loginWechat();
+    const current=active();if(!current)throw new Error('微信登录已失效，请重试');
     let result:Record<string,unknown>;
-    try { result=object((await call('/v1/maintainer-applications','POST',{bank_ids:[bankId],nickname,identity_description:identity},current)).body); }
+    try { result=object((await call('/v1/maintainer-applications','POST',{bank_ids:[bankId],...fields},current)).body); }
     catch(error){
-      // The same phone button is also the re-login action after desktop approval.
-      // A repeat application is therefore a successful refresh, not a failed upload.
-      if(error instanceof UploadError && (error.code==='ALREADY_MAINTAINER'||error.code==='APPLICATION_PENDING'))
-        return {id:'',status:error.code==='ALREADY_MAINTAINER'?'approved':'pending',phone:current.phone||'',nickname:current.nickname||nickname,identity_description:identity,bank_ids:[bankId]};
+      if(error instanceof UploadError && error.code==='ALREADY_MAINTAINER'&&current.banks.some(bank=>bank.bank_id===bankId))
+        return {id:'',status:'approved',...fields,bank_ids:[bankId]};
       throw error;
     }
     if(!result.application)throw new Error('申请响应无效');
-    return result.application as {id:string;status:string;phone:string;nickname:string;identity_description:string;bank_ids:string[]};
+    return result.application as {id:string;status:string;phone:string;real_name:string;nickname:string;identity_description:string;bank_ids:string[]};
   }
   async function authorize(bankId:string,name:string){
-    const current=active();if(!current)throw new UploadError('请先在“上传”页使用微信手机号登录并申请维护者权限',403,'PHONE_LOGIN_REQUIRED');
+    const current=active();if(!current)throw new UploadError('请先在“上传”页填写申请信息并登录微信',403,'WECHAT_LOGIN_REQUIRED');
     const me=object((await call('/v1/me','GET',undefined,current)).body);
     if(!Array.isArray(me.permissions)||!me.permissions.includes('upload')||typeof me.uploads_enabled!=='boolean')throw new Error('云端权限响应无效');
     if(active()!==current||me.openid!==current.openid)throw new UploadError('登录已取消或身份改变',401,'SIGNED_OUT');
@@ -120,7 +125,7 @@ export function createCloudClient(deps:{origin:()=>string;login:()=>Promise<stri
     return {receipt:verifyReceipt(body.receipt,expected),duplicate:body.duplicate as boolean};
   }
   async function health(){return object((await call('/health','GET',undefined)).body)}
-  return {state,loginWithPhone,applyMaintainer,logout,authorize,upload,health};
+  return {state,loginWechat,applyMaintainer,logout,authorize,upload,health};
 }
 
 const request:Transport=(origin,path,method,body,token)=>new Promise((resolve,reject)=>{

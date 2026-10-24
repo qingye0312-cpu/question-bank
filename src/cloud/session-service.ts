@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 import {invoke} from '@tauri-apps/api/core';
 import {UploadError} from '../../shared/queue';
+import desktopService from '../../shared/desktop-service.json';
 export type Access={capabilities?:string[];openid?:string;phone?:string;nickname?:string;account_status?:string;maintainer_id?:string;banks:{bank_id:string;name:string}[];grants:Record<string,string[]>;uploads_enabled:boolean};
 type Session={token:string;origin:string;expires:number;access:Access};
 const ORIGIN_KEY='qbank-cloud-origin-v1';
@@ -10,7 +11,7 @@ let onLogout=()=>{};
 export function setLogoutHandler(handler:()=>void){onLogout=handler}
 export function sessionGeneration(){return generation}
 export async function refreshAccess(){const current=session;if(!current)return;const access=await cloudCall<Access>('/v1/me',undefined,true);if(current===session)session.access=access;return access;}
-export function cloudOrigin(){return localStorage.getItem(ORIGIN_KEY)||import.meta.env.VITE_QBANK_API_ORIGIN||'';}
+export function cloudOrigin(){return localStorage.getItem(ORIGIN_KEY)||import.meta.env.VITE_QBANK_API_ORIGIN||desktopService.origin;}
 export function setCloudOrigin(value:string){const u=new URL(value);if(u.protocol!=='https:'||u.username||u.password||u.pathname!=='/'||u.search||u.hash)throw Error('请填写不带路径的 HTTPS 地址');
  localStorage.setItem(ORIGIN_KEY,u.origin);session=undefined;generation++;}
 export function cloudAccess(){if(session&&(session.expires<Date.now()+15000||session.origin!==cloudOrigin()))session=undefined;return session?.access;}

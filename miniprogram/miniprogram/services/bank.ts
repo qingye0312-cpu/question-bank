@@ -128,6 +128,8 @@ export function loadBank(id=activeBankId()):Promise<BankBundle>{
         bank:new LocalBank([],{schema_version:'qbank-index-1',release_id:'local',question_count:0,postings:Object.create(null)})};
     }
     const cached=await cachedSnapshot(id);
+    if(!cached&&id!==bundledManifest.bank_id&&cloudCatalog().some(b=>b.bank_id===id)&&!local.banks.some(b=>b.id===id))
+      throw new Error('此云端题库尚未下载，联网后点击上方同步提示重试');
     if(cached?.snapshot.formal){
       const lines=cached.snapshot.formal.map(q=>JSON.stringify({...q,cloud_layer:'formal'}));
       bundle={manifest:{schema_version:'1.0',bank_id:id,name:cached.manifest.name,merged_at:cached.manifest.merged_at,release_name:cached.manifest.release_name,release_id:cached.manifest.sha256,release_version:cached.manifest.release_version,question_count:lines.length},

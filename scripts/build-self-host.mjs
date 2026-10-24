@@ -8,13 +8,13 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const source = path.join(root, 'cloud/qbank-auth');
 const output = path.join(root, 'artifacts/self-host/qbank-auth');
 const files = ['service.cjs', 'workflow.cjs', 'codec.cjs', 'catalog.cjs', 'common.cjs', 'access.cjs',
-  'config.cjs', 'auth.cjs', 'submission.cjs', 'projection.cjs', 'wechat-phone.cjs', 'fs-store.cjs', 'local-server.cjs', 'intake.cjs', 'seed-bank.cjs'];
+  'config.cjs', 'auth.cjs', 'submission.cjs', 'projection.cjs', 'wechat-login.cjs', 'fs-store.cjs', 'local-server.cjs', 'intake.cjs', 'seed-bank.cjs','repair-bank-status.cjs'];
 
 await fs.rm(output, { recursive: true, force: true });
 await fs.mkdir(output, { recursive: true });
 for (const name of files) {
   const from = name === 'intake.cjs' ? null
-    : name === 'seed-bank.cjs' ? path.join(root, 'tools/self-host', name) : path.join(source, name);
+    : ['seed-bank.cjs','repair-bank-status.cjs'].includes(name) ? path.join(root, 'tools/self-host', name) : path.join(source, name);
   if (name === 'intake.cjs') {
     const sourceText = await fs.readFile(path.join(root, 'shared/intake.ts'), 'utf8');
     await fs.writeFile(path.join(output, name), ts.transpileModule(sourceText, {
@@ -31,6 +31,6 @@ await fs.writeFile(path.join(output, 'package.json'), JSON.stringify({
 }, null, 2) + '\n');
 const archive = path.join(root, 'artifacts/self-host/qbank-auth-0.2.7.tar.gz');
 await fs.rm(archive, { force: true });
-const result = spawnSync('tar', ['-czf', archive, '-C', output, ...files, 'package.json'], { encoding: 'utf8' });
+const result = spawnSync('tar', ['-czf', archive, '-C', output, ...files, 'package.json'], { encoding: 'utf8', env:{...process.env,COPYFILE_DISABLE:'1'} });
 if (result.status !== 0) throw new Error(result.stderr || '请安装 tar 命令后重新构建');
 console.log(`自托管服务已打包：${archive}`);

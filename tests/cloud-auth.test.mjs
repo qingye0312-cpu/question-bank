@@ -8,7 +8,7 @@ import { encodeUpload } from '../tools/encode-upload.mjs';
 
 const require = createRequire(import.meta.url);
 const { createHandler, LIMITS } = require('../cloud/qbank-auth/service.cjs');
-const { createWechatPhoneExchange } = require('../cloud/qbank-auth/wechat-phone.cjs');
+const { createWechatLoginExchange } = require('../cloud/qbank-auth/wechat-login.cjs');
 const fixture = fs.readFileSync(new URL('./fixtures/intake/mobile-delta.json', import.meta.url), 'utf8');
 const packet = JSON.parse(fixture);
 const bankId = packet.bank_id;
@@ -76,20 +76,18 @@ test('bad packages and stale sessions fail closed without creating records', asy
   assert.equal(s.records.size, 0);
 });
 
-test('phone adapter talks only to the WeChat APIs and returns no session secret', async () => {
-  const requests = [];
-  const exchange = createWechatPhoneExchange(async (url, options) => {
-    const parsed = new URL(url); requests.push({ url: parsed, options });
-    if (parsed.pathname === '/sns/jscode2session') return new Response(JSON.stringify({ openid: 'ok1993Y5Uw6nd3pd9nAJXk6ccciM', session_key: 'private' }));
-    if (parsed.pathname === '/cgi-bin/token') return new Response(JSON.stringify({ access_token: 'token' }));
-    return new Response(JSON.stringify({ phone_info: { phoneNumber: '+8613812345678' } }));
+test('WeChat login exchanges only the login code and never requests a phone or exposes session secrets', async () => {
+  const requests=[];
+  const exchange=createWechatLoginExchange(async(url,options)=>{
+    requests.push({url:new URL(url),options});
+    return new Response(JSON.stringify({openid:'ok1993Y5Uw6nd3pd9nAJXk6ccciM',session_key:'private'}));
   });
-  const identity = await exchange({ appId: 'wx-test', appSecret: 'secret', loginCode: 'login-code', phoneCode: 'phone-code' });
-  assert.equal(identity.phone, '+8613812345678');
-  assert.equal(requests.length, 3);
-  assert.equal(requests[2].url.pathname, '/wxa/business/getuserphonenumber');
-  assert.equal(JSON.parse(requests[2].options.body).code, 'phone-code');
-  assert.equal(identity.session_key, undefined);
+  const identity=await exchange({appId:'wx-test',appSecret:'secret',loginCode:'login-code'});
+  assert.equal(requests.length,1);assert.equal(requests[0].url.pathname,'/sns/jscode2session');
+  assert.equal(requests[0].url.searchParams.get('js_code'),'login-code');
+  assert.deepEqual(identity,{openid:'ok1993Y5Uw6nd3pd9nAJXk6ccciM'});
+  const failing=createWechatLoginExchange(async()=>new Response(JSON.stringify({errcode:40029,errmsg:'private-message'})));
+  await assert.rejects(()=>failing({appId:'wx-test',appSecret:'secret',loginCode:'bad'}),error=>error.code==='WECHAT_LOGIN_FAILED'&&!error.message.includes('private-message'));
 });
 
 test('disabled version sync cannot accept a submission into a pending queue',async()=>{
