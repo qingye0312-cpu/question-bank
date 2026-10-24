@@ -3,6 +3,6 @@
 # Public :8013 -> FRP -> sslh :8444 -> this Caddy listener :8443.
 https://qbank.creart.top:8443 {
 	bind 127.0.0.1
-	tls /etc/caddy/certs/qbank.creart.top/fullchain.pem /etc/caddy/certs/qbank.creart.top/key.pem
+	tls /etc/caddy/certs/qbank.creart.top/current/fullchain.pem /etc/caddy/certs/qbank.creart.top/current/key.pem
 	reverse_proxy 127.0.0.1:8080
 }

@@ -45,9 +45,9 @@ for(const envVersion of ['develop','trial','release'])test(`Mini Program ${envVe
   const requests=[];let loginCalls=0;
   const config=load('config/cloud.ts',{wx:{getAccountInfoSync:()=>({miniProgram:{appId:'wx22c8135ae81d3acc',envVersion}})}});
   const origin=config.authOrigin();
-  assert.equal(origin,`${envVersion==='release'?'https':'http'}://qbank.creart.top:8013`);
+  assert.equal(origin,'https://qbank.creart.top:8013');
   const bank={bank_id:bankId,name:'跨端测试题库'};
-  const client=createCloudClient({origin:()=>origin,allowTestHttp:config.isTestHttpOrigin,login:async()=>{loginCalls++;return 'login-code-123';},request:async(_origin,path,method,body,token)=>{
+  const client=createCloudClient({origin:()=>origin,login:async()=>{loginCalls++;return 'login-code-123';},request:async(_origin,path,method,body,token)=>{
     assert.equal(_origin,origin);
     requests.push({path,method,body,token});
     if(path==='/v1/auth/wechat-login')return {status:200,body:{access_token:'v1.token.signature',expires_in:900,openid:'ok-phone',phone:'+8613812345678',status:'approved',banks:[bank]}};
@@ -101,23 +101,29 @@ test('Mini Program cloud client accepts a configured HTTPS port such as 8013',as
  await client.health();assert.equal(target,'https://qbank.example.test:8013');
 });
 
-test('HTTP is restricted to the exact test origin and app, and release builds never downgrade',async()=>{
+test('every build rejects HTTP before login or transport and keeps AppID isolation',async()=>{
  const app={appId:'wx22c8135ae81d3acc',envVersion:'develop'};
  const config=load('config/cloud.ts',{wx:{getAccountInfoSync:()=>({miniProgram:app})}});
- let calls=0,logins=0,target=config.TEST_HTTP_ORIGIN;
+ let calls=0,logins=0,target='http://qbank.creart.top:8013';
  const deps={origin:()=>target,login:async()=>{logins++;return 'test-login-code'},request:async()=>{calls++;return {status:200,body:{service:'qbank-auth'}}}};
- await assert.rejects(createCloudClient(deps).health(),/HTTPS/);
- const client=createCloudClient({...deps,allowTestHttp:config.isTestHttpOrigin});
- await client.health();assert.equal(calls,1);
- for(const invalid of ['http://other.example.test:8013','http://qbank.creart.top:80','http://qbank.creart.top:8013@other.example.test']){
+ const client=createCloudClient(deps);
+ await assert.rejects(client.health(),/HTTPS/);
+ for(const invalid of ['http://qbank.creart.top:8013','http://other.example.test:8013','http://qbank.creart.top:80','http://qbank.creart.top:8013@other.example.test']){
   target=invalid;await assert.rejects(client.loginWechat(),/HTTPS/);
  }
- target=config.TEST_HTTP_ORIGIN;
- for(const env of ['release','unknown']){
+ target='http://qbank.creart.top:8013';
+ for(const env of ['develop','trial','release','unknown']){
   app.envVersion=env;assert.equal(config.authOrigin(),config.PRODUCTION_AUTH_ORIGIN);
   await assert.rejects(client.loginWechat(),/HTTPS/);
  }
  app.envVersion='develop';app.appId='different-app';assert.equal(config.authOrigin(),'');
  await assert.rejects(client.loginWechat(),/HTTPS/);
- assert.equal(logins,0);assert.equal(calls,1);
+ assert.equal(logins,0);assert.equal(calls,0);
+});
+
+test('HTTPS failure does not retry login or transport over HTTP',async()=>{
+ const origins=[];let logins=0;
+ const client=createCloudClient({origin:()=> 'https://qbank.creart.top:8013',login:async()=>{logins++;return 'login-code-123';},request:async origin=>{origins.push(origin);throw new Error('TLS connection reset');}});
+ await assert.rejects(client.loginWechat(),/TLS connection reset/);
+ assert.equal(logins,1);assert.deepEqual(origins,['https://qbank.creart.top:8013']);assert.equal(client.state().loggedIn,false);
 });

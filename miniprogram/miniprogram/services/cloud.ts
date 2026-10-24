@@ -1,5 +1,5 @@
 import {UploadError} from '../core/queue';
-import {authOrigin,isTestHttpOrigin} from '../config/cloud';
+import {authOrigin} from '../config/cloud';
 import {prepareUpload,verifyReceipt} from '../core/upload';
 import {applicationFields,type MaintainerForm} from './maintainer-application';
 type Bank={bank_id:string;name:string};
@@ -48,11 +48,10 @@ const messages:Record<string,string>={
 };
 
 // Tokens stay in the service closure, never in Page.data, storage, exports or logs.
-export function createCloudClient(deps:{origin:()=>string;login:()=>Promise<string>;request:Transport;now?:()=>number;allowTestHttp?:(origin:string)=>boolean}){
+export function createCloudClient(deps:{origin:()=>string;login:()=>Promise<string>;request:Transport;now?:()=>number}){
   let session:Session|undefined, pending:Promise<CloudAccess>|undefined, generation=0;
   const now=deps.now||Date.now;
   function origin(){const value=deps.origin();
-    if(deps.allowTestHttp?.(value))return value;
     const match=/^https:\/\/[a-z0-9.-]+(?::([0-9]{1,5}))?$/i.exec(value);
     if(!match||(match[1]&&(Number(match[1])<1||Number(match[1])>65535)))throw new Error('云端 HTTPS 地址尚未配置，请联系管理员；本地录题仍可使用');
     return value;}
@@ -137,5 +136,5 @@ const request:Transport=(origin,path,method,body,token)=>new Promise((resolve,re
       resolve({status:r.statusCode,body:JSON.parse(text)});}catch{reject(new Error('云端响应无法识别，请保留本地批次后重试'));}},
     fail:e=>reject(new UploadError(/url not in domain|不在.*合法域名|domain list/i.test(e.errMsg)?'上传域名尚未加入小程序合法域名，请联系维护者配置':'网络请求未完成，稍后自动重试',0,/url not in domain|不在.*合法域名|domain list/i.test(e.errMsg)?'DOMAIN_CONFIGURATION':'NETWORK'))});
 });
-export const cloud=createCloudClient({origin:authOrigin,allowTestHttp:isTestHttpOrigin,request,login:()=>new Promise((resolve,reject)=>wx.login({timeout:10000,
+export const cloud=createCloudClient({origin:authOrigin,request,login:()=>new Promise((resolve,reject)=>wx.login({timeout:10000,
   success:r=>r.code?resolve(r.code):reject(new Error('微信登录失败，请重试')),fail:()=>reject(new Error('微信登录失败，请确认网络后重试'))}))});

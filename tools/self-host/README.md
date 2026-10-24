@@ -1,11 +1,11 @@
 # Alpine 自托管 qbank-auth
 
-这是题库唯一的服务端部署方式。服务运行在 SSH 管理的 Alpine 容器中，桌面端和小程序通过同一套 API 访问；桌面及正式版小程序使用 HTTPS，小程序开发版／体验版暂用 HTTP。业务数据只写入本机 `/var/lib/qbank-auth`，运行时仅依赖 Node.js 内置模块。
+这是题库唯一的服务端部署方式。服务运行在 SSH 管理的 Alpine 容器中，桌面端和小程序所有版本通过 HTTPS 访问同一套 API。业务数据只写入本机 `/var/lib/qbank-auth`，运行时仅依赖 Node.js 内置模块。
 
 ## 运行边界
 
-- 公网 `8.141.124.97:8013` 同时分流 SSH、HTTPS 和临时 HTTP。FRP 转到容器 `127.0.0.1:8444`，sslh 按协议分到 SSH `22`、Caddy HTTPS `8443` 或 HTTP `8081`；两个 Caddy 入口反向代理到题库服务 `127.0.0.1:8080`。
-- 桌面默认通过 `https://8.141.124.97:8013` 自动获取所有云端题库，使用内置 CA 公钥定向验证该服务。小程序开发版／体验版暂用 `http://qbank.creart.top:8013`，正式版为相同域名端口的 HTTPS；正式版仍需可信域名证书和微信 `request` 合法域名，不能使用桌面的私有 CA。
+- 公网 `8.141.124.97:8013` 只分流 SSH 和 HTTPS。FRP 转到容器 `127.0.0.1:8444`，sslh 按协议分到 SSH `22` 或 Caddy HTTPS `8443`；Caddy 反向代理到题库服务 `127.0.0.1:8080`。
+- 桌面默认通过 `https://8.141.124.97:8013` 自动获取所有云端题库，使用内置 CA 公钥定向验证该服务。小程序开发版、体验版、正式版统一使用 `https://qbank.creart.top:8013`，通过公开证书验证服务，微信后台需配置相同的 `request` 合法域名。
 - `/var/lib/qbank-auth` 是唯一业务数据目录，部署前应完整备份。
 - `QBANK_UPLOAD_ENABLED` 和 `QBANK_SYNC_ENABLED` 控制上传与合并；没有状态文件时目录可读但 revision 为 0。
 
@@ -44,19 +44,25 @@ curl --cacert src-tauri/resources/qbank-pve-root-ca.pem https://8.141.124.97:801
 sh mac/scripts/env.sh cargo test --manifest-path src-tauri/Cargo.toml --test cloud_live -- --ignored --nocapture
 ```
 
-第二条命令只读访问真实服务，将目录内所有题库应用到隔离临时数据库，核对题数和幂等，不写入日常数据库或远端题库。普通浏览器尚未信任这份私有 CA，小程序的域名及公开证书接入需要另行完成。[Caddy 内部证书说明](https://caddyserver.com/docs/automatic-https#local-https)、[sslh 协议分流说明](https://github.com/yrutschle/sslh)。
+第二条命令只读访问真实服务，将目录内所有题库应用到隔离临时数据库，核对题数和幂等，不写入日常数据库或远端题库。普通浏览器尚未信任这份私有 CA，小程序使用下述域名公开证书。[Caddy 内部证书说明](https://caddyserver.com/docs/automatic-https#local-https)、[sslh 协议分流说明](https://github.com/yrutschle/sslh)。
 
 ## 小程序域名共用 8013
 
-正式版客户端配置 `https://qbank.creart.top:8013`，微信 `request` 合法域名需填写相同地址。**当前状态：域名地址已配置，仍需部署 HTTPS 证书；测试版 HTTP 公网被接入服务商拦截。** 证书申请与部署按用户要求暂缓，微信后台保存结果和真机连接尚未确认。现有 FRP／sslh 不增加公网端口：SSH 继续进入 `22`，TLS 继续进入 `8443`，域名接入后由 Caddy 根据 SNI 区分域名与桌面的 IP 入口。
+客户端统一配置 `https://qbank.creart.top:8013`，微信 `request` 合法域名需填写相同地址。目录、版本检查、快照下载、微信登录、维护者申请和压缩上传均使用该入口。两端按完整云目录缓存所有题库，相同修订与摘要不重复下载，离线保留本地缓存。
 
-临时 HTTP 使用 [Caddyfile.test-http](Caddyfile.test-http)：安装为 `/etc/caddy/qbank-test-http.caddy`，主配置导入它，sslh 的 `http` 路由指向回环 `8081`。2026-10-24 已部署并验证回环 HTTP、桌面公网 HTTPS 及新 SSH 登录；备份位于 `/var/backups/qbank-auth/20261024T113720Z-http-entry`。公网域名 HTTP 返回阿里云的 `Non-compliance ICP Filing` 页面及 403，内部连通不代表公网可用。
+**2026-10-24 部署状态：域名公开证书已安装，容器内 HTTPS 与 sslh 分流验证通过；公网域名连接仍被重置，接入服务商的域名放行／备案问题待处理。** 原 IP HTTPS、SSH 和初级／高级题库下载通过实测。微信后台合法域名保存结果及真机登录、上传、同步尚未验收。本机开发者工具已恢复域名校验。
 
-开发版／体验版的登录、申请、上传和下载均使用临时 HTTP；这会明文传输相关资料和凭证。本机开发者工具关闭域名校验，手机开发调试还需开启调试模式，但无法解除服务商拦截，体验版和真机仍需分别验证。结束临时测试时，修改客户端测试地址为 HTTPS、移除 Caddy 临时导入及 sslh 的 HTTP 路由，并恢复本机域名校验；正式版始终不自动回退 HTTP。两端按完整云目录缓存所有题库，相同修订与摘要不重复下载，离线保留本地缓存。
+[Caddyfile.domain](Caddyfile.domain) 已安装为 `/etc/caddy/qbank-domain.caddy` 并由主配置导入，Caddy 根据 SNI 区分域名公开证书与桌面 IP 的内部 CA 证书。证书位于 `/etc/caddy/certs/qbank.creart.top/versions/`，`current` 原子链接选择当前完整链与私钥；目录权限 `0750`、文件权限 `0640`、所有者 `root:caddy`。证书及私钥不进入仓库。
 
-[Caddyfile.domain](Caddyfile.domain) 是待证书就绪后接入的域名站点模板，不能当作已生效配置。通过 DNS 验证获得覆盖 `qbank.creart.top` 的可信证书，将完整链和私钥安装到 `/etc/caddy/certs/qbank.creart.top/fullchain.pem` 与 `key.pem`，目录权限 `0750`、文件权限 `0640`、所有者 `root:caddy`；确认 Caddy 可读。备份主配置后，将模板安装为 `/etc/caddy/qbank-domain.caddy`，在主配置末尾添加 `import /etc/caddy/qbank-domain.caddy`，验证配置并热重载，最后同时验证域名 HTTPS、原 IP HTTPS 和 SSH。
+本次证书由 Let's Encrypt YR1 签发，覆盖 `qbank.creart.top`，有效期至 **2027-01-22 21:06:02（北京时间）**。按用户最新安排，**续期由供应商负责，本机未配置 DNS API 密钥或域名续期定时任务**。供应商签发新证书后，仍需将新证书安装到本容器并重载 Caddy；只在供应商处续期不会自动更新服务器文件。
 
-证书私钥及 DNS API 密钥只能保存在受限服务器文件中，不提交 Git。推荐 DNS API 自动续期，并在续期成功后安装证书、校验配置和热重载；手动添加 TXT 的方案需每次续期重新配合。HTTP-01 验证固定使用 80、TLS-ALPN-01 固定使用 443，不能把验证端口改成 8013；DNS-01 不要求开放这些端口。[证书验证方式](https://letsencrypt.org/docs/challenge-types/)
+服务器已安装 [install-domain-certificate.sh](install-domain-certificate.sh) 为 `/usr/local/sbin/qbank-install-domain-certificate`。用受限目录接收供应商交付文件后，在服务器执行：
+
+```sh
+qbank-install-domain-certificate /root/certificate-delivery/fullchain.pem /root/certificate-delivery/privkey.pem
+```
+
+该工具先验证主机名、完整信任链、剩余有效期和密钥匹配，再以独立目录保存证书对、原子切换链接、检查 Caddy 配置、热重载并检查域名 HTTPS。更新失败恢复上一证书版本；无效输入不会替换现有证书。部署后仍需从公网验证 `https://qbank.creart.top:8013/health`，内部健康检查不能代替公网验收。初次部署配置备份位于 `/var/backups/qbank-auth/20261024T1512-domain-tls`，仅 SSH／HTTPS 分流备份位于 `/var/backups/qbank-auth/20261024T1520-https-only`。
 
 ## 初次种入题库
 

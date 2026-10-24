@@ -1,7 +1,0 @@
-# Temporary develop/trial API while the public domain certificate is pending.
-# Public :8013 -> FRP -> sslh :8444 -> this loopback-only HTTP listener.
-# Remove this import and the sslh http entry once test builds return to HTTPS.
-http://qbank.creart.top:8081 {
-	bind 127.0.0.1
-	reverse_proxy 127.0.0.1:8080
-}
