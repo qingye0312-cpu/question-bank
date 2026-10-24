@@ -3,6 +3,10 @@
 	auto_https disable_redirects
 	skip_install_trust
 	default_sni 8.141.124.97
+	# FRP and sslh expose TCP only; never advertise the private UDP :8443 listener.
+	servers {
+		protocols h1 h2
+	}
 }
 
 # The desktop trusts this service's public root CA for this IP endpoint only.
