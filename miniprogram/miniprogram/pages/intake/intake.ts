@@ -4,13 +4,13 @@ import {activeBankId,listBanks,selectBank,createBank,type BankSummary} from '../
 import {IntakeController} from '../../services/intake-controller';
 import {changeQuestionType,toggleAnswer,reorderOptions,type ModelReply} from '../../core/intake';
 import {cloud} from '../../services/cloud';
-import {registrationFields} from '../../services/maintainer-application';
+import {passwordMeetsPolicy,registrationFields} from '../../services/maintainer-application';
 import {refreshCatalog} from '../../services/sync';
 import {copyPrompt} from '../../services/prompt';
 import {importDelta} from '../../services/intake';
 let controller:IntakeController|undefined,alive=false,poll:ReturnType<typeof setInterval>|undefined,previousType:ModelReply|null=null;
 Page({
-  data:{...themePageData(),currentId:'',banks:[] as BankSummary[],bankIndex:0,tab:'edit',busy:false,ready:false,reply:null as ModelReply|null,locked:false,raw:'',records:[] as any[],visibleRecords:[] as any[],jobs:[] as any[],pendingCount:0,issues:[] as any[],sourceIssues:[] as any[],saved:'',error:'',notice:'',more:false,tools:false,canUndoType:false,recordedAt:'',metadata:{} as any,editOptions:[] as any[],boolSelected:false,typeIndex:0,sourceIndex:2,warningsText:'',tagsText:'',difficultyIndex:0,filePath:'',fileName:'',query:'',loggedIn:false,authMode:'register',maintainerUsername:'',maintainerPassword:'',maintainerPasswordConfirm:'',maintainerResetToken:'',maintainerAuthType:'',maintainerAccountStatus:'',maintainerPhone:'',maintainerRealName:'',maintainerNickname:'',maintainerIdentity:'',maintainerApplication:'',applying:false,applicationMessage:'',applicationError:false,
+  data:{...themePageData(),currentId:'',banks:[] as BankSummary[],bankIndex:0,tab:'edit',busy:false,ready:false,reply:null as ModelReply|null,locked:false,raw:'',records:[] as any[],visibleRecords:[] as any[],jobs:[] as any[],pendingCount:0,issues:[] as any[],sourceIssues:[] as any[],saved:'',error:'',notice:'',more:false,tools:false,canUndoType:false,recordedAt:'',metadata:{} as any,editOptions:[] as any[],boolSelected:false,typeIndex:0,sourceIndex:2,warningsText:'',tagsText:'',difficultyIndex:0,filePath:'',fileName:'',query:'',loggedIn:false,authMode:'register',maintainerUsername:'',maintainerPassword:'',maintainerPasswordConfirm:'',maintainerPasswordValid:false,maintainerPasswordsMatch:false,maintainerResetToken:'',maintainerAuthType:'',maintainerAccountStatus:'',maintainerPhone:'',maintainerRealName:'',maintainerNickname:'',maintainerIdentity:'',maintainerApplication:'',applying:false,applicationMessage:'',applicationError:false,
   types:['单选','多选','判断'],versionSources:['平台提供','用户提供','未知'],difficulties:['未设置','简单','中等','困难']},
  onLoad(){alive=true;previousType=null;controller=new IntakeController(view=>{if(!alive)return;const changed=view.currentId!==this.data.currentId||view.raw!==this.data.raw;if(changed)previousType=null;this.setData({...view,...(changed?{canUndoType:false}:{}),visibleRecords:view.records.filter(r=>!this.data.query||r.stem.includes(this.data.query))})});void this.run(async()=>{const banks=await listBanks(),bank=activeBankId();this.setData({banks,bankIndex:Math.max(0,banks.findIndex(b=>b.id===bank))});await controller!.open(bank);this.setData({ready:true});});},
  onShow(){showPageTheme(this);alive=true;const access=cloud.state();this.setData({loggedIn:access.loggedIn,maintainerUsername:access.username||this.data.maintainerUsername,maintainerAuthType:access.authType||'',maintainerAccountStatus:access.status||''});poll=setInterval(()=>void controller?.refreshJobs().catch(()=>{}),3000)},
@@ -54,13 +54,13 @@ Page({
  onMaintainerNickname(e:WechatMiniprogram.Input){this.setData({maintainerNickname:e.detail.value})},
  onMaintainerIdentity(e:WechatMiniprogram.Input){this.setData({maintainerIdentity:e.detail.value})},
  onMaintainerUsername(e:WechatMiniprogram.Input){this.setData({maintainerUsername:e.detail.value})},
- onMaintainerPassword(e:WechatMiniprogram.Input){this.setData({maintainerPassword:e.detail.value})},
- onMaintainerPasswordConfirm(e:WechatMiniprogram.Input){this.setData({maintainerPasswordConfirm:e.detail.value})},
+ onMaintainerPassword(e:WechatMiniprogram.Input){const password=e.detail.value;this.setData({maintainerPassword:password,maintainerPasswordValid:passwordMeetsPolicy(password),maintainerPasswordsMatch:password===this.data.maintainerPasswordConfirm})},
+ onMaintainerPasswordConfirm(e:WechatMiniprogram.Input){const confirm=e.detail.value;this.setData({maintainerPasswordConfirm:confirm,maintainerPasswordsMatch:confirm===this.data.maintainerPassword})},
  onMaintainerResetToken(e:WechatMiniprogram.Input){this.setData({maintainerResetToken:e.detail.value})},
- onAuthMode(e:WechatMiniprogram.TouchEvent){this.setData({authMode:e.currentTarget.dataset.mode,maintainerPassword:'',maintainerPasswordConfirm:'',maintainerResetToken:'',applicationMessage:'',applicationError:false})},
+ onAuthMode(e:WechatMiniprogram.TouchEvent){this.setData({authMode:e.currentTarget.dataset.mode,maintainerPassword:'',maintainerPasswordConfirm:'',maintainerPasswordValid:false,maintainerPasswordsMatch:false,maintainerResetToken:'',applicationMessage:'',applicationError:false})},
  onForgotMaintainerPassword(){
   wx.showModal({title:'忘记密码',content:'需联系管理员重新设置维护者状态并获取一次性重置码。管理员重置后会清除现有维护权限；设置新密码后还需管理员重新授权。确认后进入密码重置页面。',confirmText:'确认重置状态',cancelText:'取消',success:result=>{
-    if(result.confirm)this.setData({authMode:'reset',maintainerPassword:'',maintainerPasswordConfirm:'',maintainerResetToken:'',applicationError:false,applicationMessage:'请联系管理员获取一次性重置码。'});
+    if(result.confirm)this.setData({authMode:'reset',maintainerPassword:'',maintainerPasswordConfirm:'',maintainerPasswordValid:false,maintainerPasswordsMatch:false,maintainerResetToken:'',applicationError:false,applicationMessage:'请联系管理员获取一次性重置码。'});
   }});
  },
  async onRegisterMaintainer(){
@@ -75,12 +75,12 @@ Page({
     const catalog=await refreshCatalog();
     if(!catalog.some(b=>b.bank_id===bank.id))throw Error('当前是私人本地题库，请先选择要申请维护的云端题库');
     if(!alive)return;
-    this.setData({applicationMessage:'正在创建账号并提交申请…',maintainerPassword:'',maintainerPasswordConfirm:''});
+    this.setData({applicationMessage:'正在创建账号并提交申请…',maintainerPassword:'',maintainerPasswordConfirm:'',maintainerPasswordValid:false,maintainerPasswordsMatch:false});
     const application=await cloud.registerMaintainer(bank.id,form);
     if(alive)this.setData({authMode:'login',maintainerApplication:application.status,applicationMessage:'账号已创建，维护申请已提交，等待桌面管理员核实。请使用账号密码登录查看状态。'});
   }catch(error){
     if(alive){const message=error instanceof Error?error.message:'申请未完成，请重试';this.setData({applicationError:true,applicationMessage:message});wx.showToast({title:message,icon:'none',duration:3000});}
-  }finally{if(alive)this.setData({applying:false,loggedIn:cloud.state().loggedIn,maintainerPassword:'',maintainerPasswordConfirm:''});}
+  }finally{if(alive)this.setData({applying:false,loggedIn:cloud.state().loggedIn,maintainerPassword:'',maintainerPasswordConfirm:'',maintainerPasswordValid:false,maintainerPasswordsMatch:false});}
  },
  async onLoginMaintainer(){
   if(this.data.busy||this.data.applying)return;
@@ -98,14 +98,14 @@ Page({
  async onResetMaintainerPassword(){
   if(this.data.busy||this.data.applying)return;
   const username=this.data.maintainerUsername,resetToken=this.data.maintainerResetToken,password=this.data.maintainerPassword,passwordConfirm=this.data.maintainerPasswordConfirm;
-  this.setData({applying:true,applicationError:false,applicationMessage:'正在重置密码…',maintainerPassword:''});
+  this.setData({applying:true,applicationError:false,applicationMessage:'正在重置密码…',maintainerPassword:'',maintainerPasswordValid:false,maintainerPasswordsMatch:false});
   try{
     if(!cloud.state().configured)throw Error('尚未配置云端 HTTPS 地址，请联系管理员');
     await cloud.resetMaintainerPassword(username,resetToken,password,passwordConfirm);
     if(alive)this.setData({authMode:'login',maintainerPasswordConfirm:'',maintainerResetToken:'',maintainerAccountStatus:'pending',applicationMessage:'密码已重置。维护权限已清除，请使用新密码登录并等待管理员重新授权。'});
   }catch(error){
     if(alive){const message=error instanceof Error?error.message:'密码重置失败，请联系管理员';this.setData({applicationError:true,applicationMessage:message});wx.showToast({title:message,icon:'none',duration:3000});}
-  }finally{if(alive)this.setData({applying:false,loggedIn:cloud.state().loggedIn,maintainerPassword:'',maintainerPasswordConfirm:''});}
+  }finally{if(alive)this.setData({applying:false,loggedIn:cloud.state().loggedIn,maintainerPassword:'',maintainerPasswordConfirm:'',maintainerPasswordValid:false,maintainerPasswordsMatch:false});}
  },
  async onRequestCurrentBank(){
   if(this.data.busy||this.data.applying)return;
@@ -123,7 +123,7 @@ Page({
   void this.run(()=>controller!.retry())
  },
  onSync(){void this.run(()=>controller!.sync())},
- onLogout(){cloud.logout();void pauseUploads().catch(e=>{controller!.error=String(e);controller!.render()});this.setData({loggedIn:false,maintainerPassword:'',maintainerPasswordConfirm:'',maintainerResetToken:'',maintainerAccountStatus:'',maintainerAuthType:'',applicationMessage:'已退出账号'})},
+ onLogout(){cloud.logout();void pauseUploads().catch(e=>{controller!.error=String(e);controller!.render()});this.setData({loggedIn:false,maintainerPassword:'',maintainerPasswordConfirm:'',maintainerPasswordValid:false,maintainerPasswordsMatch:false,maintainerResetToken:'',maintainerAccountStatus:'',maintainerAuthType:'',applicationMessage:'已退出账号'})},
  onExport(){void this.run(async()=>{const file=await controller!.export();this.setData({...file,notice:'已导出，题目仍可修改；未触发上传'})})},
  onShare(){if(!this.data.filePath)return;(wx as WechatMiniprogram.Wx & {shareFileMessage:(options:{filePath:string;fileName:string;fail:(e:{errMsg:string})=>void})=>void}).shareFileMessage({filePath:this.data.filePath,fileName:this.data.fileName,fail:e=>this.setData({error:e.errMsg})})},
  onCreateBank(){wx.showModal({title:'新建私人本地题库',editable:true,placeholderText:'题库名称',success:r=>{if(r.confirm)void this.run(async()=>{const id=await createBank(r.content||''),banks=await listBanks();await controller!.open(id);this.setData({banks,bankIndex:banks.findIndex(b=>b.id===id),tab:'edit'})})}})},

@@ -1,7 +1,7 @@
 import {UploadError} from '../core/queue';
 import {authOrigin} from '../config/cloud';
 import {prepareUpload,verifyReceipt} from '../core/upload';
-import {applicationFields,registrationFields,type MaintainerForm,type MaintainerRegistrationForm} from './maintainer-application';
+import {applicationFields,passwordMeetsPolicy,registrationFields,type MaintainerForm,type MaintainerRegistrationForm} from './maintainer-application';
 type Bank={bank_id:string;name:string};
 type Session={openid:string;token:string;origin:string;expiresAt:number;banks:Bank[];uploadsEnabled:boolean;status?:string;phone?:string;nickname?:string;username?:string;authType?:'wechat'|'password'};
 type Response={status:number;body:unknown};
@@ -34,7 +34,7 @@ const messages:Record<string,string>={
   IDENTITY_REQUIRED:'请填写 1 至 500 字的身份说明，方便管理员核实',
   USERNAME_INVALID:'账号需为 4 至 32 位字母、数字、点、下划线或连字符',
   USERNAME_TAKEN:'此账号已注册，请直接登录',
-  PASSWORD_INVALID:'密码需为 12 至 128 个字符',
+  PASSWORD_INVALID:'密码至少 8 位，且需包含大写字母、小写字母和数字',
   CREDENTIALS_INVALID:'账号或密码不正确',
   PASSWORD_RESET_INVALID:'重置码无效或已过期，请联系管理员重新发放',
   PASSWORD_RESET_REQUIRED:'请先完成密码重置，再重新申请维护权限',
@@ -123,10 +123,10 @@ export function createCloudClient(deps:{origin:()=>string;login:()=>Promise<stri
     return result.application as {id:string;status:string;phone:string;real_name:string;nickname:string;identity_description:string;bank_ids:string[]};
   }
   async function resetMaintainerPassword(username:string,resetToken:string,password:string,passwordConfirm:string){
-    const normalized=username.trim().toLowerCase(),length=Array.from(password).length;
+    const normalized=username.trim().toLowerCase();
     if(!/^[a-z0-9][a-z0-9._-]{2,30}[a-z0-9]$/.test(normalized))throw new Error('账号需为 4 至 32 位字母、数字、点、下划线或连字符');
     if(typeof resetToken!=='string'||resetToken.trim().length<32||resetToken.trim().length>128)throw new Error('请填写管理员提供的一次性重置码');
-    if(length<12||length>128)throw new Error('密码需为 12 至 128 个字符');
+    if(!passwordMeetsPolicy(password))throw new Error('密码至少 8 位，且需包含大写字母、小写字母和数字');
     if(password!==passwordConfirm)throw new Error('两次输入的新密码不一致');
     const result=object((await call('/v1/auth/password-reset','POST',{username:normalized,reset_token:resetToken.trim(),password})).body);
     if(result.status!=='pending'||result.username!==normalized)throw new Error('密码重置响应无效，请联系管理员');

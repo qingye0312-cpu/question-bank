@@ -15,6 +15,7 @@
 .cloud-registration{display:grid;gap:.15rem;margin-top:.8rem}
 .cloud-registration>label{display:block;color:var(--secondary);font-size:.9rem;margin:.55rem 0}
 .cloud-registration>label input,.cloud-registration>label textarea{display:block;margin-top:.4rem}
+.cloud-registration>label small{display:block;margin-top:.35rem;color:var(--muted);font-size:.78rem}
 .cloud-bank-picker{min-width:0;border:1px solid var(--border);border-radius:.6rem;padding:.8rem .95rem;margin:.5rem 0}
 .cloud-bank-picker legend{padding:0 .3rem;color:var(--secondary);font-weight:600}
 .cloud-bank-picker label{display:flex;align-items:center;gap:.55rem;padding:.35rem 0;color:var(--ink)}

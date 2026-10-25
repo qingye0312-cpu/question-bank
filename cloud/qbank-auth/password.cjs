@@ -9,8 +9,9 @@ const DUMMY_HASH=`scrypt$${COST.N}$${COST.r}$${COST.p}$${Buffer.alloc(16).toStri
 
 function passwordLength(value){return typeof value==='string'?Array.from(value).length:0;}
 function validatePassword(value){
-  if(typeof value!=='string'||passwordLength(value)<12||passwordLength(value)>128||Buffer.byteLength(value,'utf8')>512)
-    fail(422,'PASSWORD_INVALID','密码需为 12 至 128 个字符');
+  if(typeof value!=='string'||passwordLength(value)<8||passwordLength(value)>128||Buffer.byteLength(value,'utf8')>512
+    ||!/[A-Z]/.test(value)||!/[a-z]/.test(value)||!/[0-9]/.test(value))
+    fail(422,'PASSWORD_INVALID','密码至少 8 位，且需包含大写字母、小写字母和数字');
 }
 function validUsername(value){return typeof value==='string'&&/^[a-z0-9][a-z0-9._-]{2,30}[a-z0-9]$/.test(value);}
 function normalizeUsername(value){return typeof value==='string'?value.trim().toLowerCase():'';}
