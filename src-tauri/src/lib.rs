@@ -58,6 +58,9 @@ pub fn run() {
             store.seed().map_err(std::io::Error::other)?;
             tray_style::init(app.handle(), &dir);
             let features = desktop::install(app);
+            if features.tray {
+                tray_style::watch_system_style(app.handle());
+            }
             app.manage(features);
             app.manage(AppState {
                 store,

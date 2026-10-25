@@ -173,6 +173,62 @@ pub fn refresh_system_style(app: &tauri::AppHandle) {
     let _ = app;
 }
 
+pub fn watch_system_style(app: &tauri::AppHandle) {
+    // A taskbar-only change does not emit Tauri's WindowEvent::ThemeChanged.
+    // Wait on registry notifications so it also updates while the window is hidden.
+    #[cfg(target_os = "windows")]
+    {
+        let app = app.clone();
+        let result = std::thread::Builder::new()
+            .name("tray-theme".into())
+            .spawn(move || {
+                use windows::{
+                    core::w,
+                    Win32::System::Registry::{
+                        RegCloseKey, RegNotifyChangeKeyValue, RegOpenKeyExW, HKEY,
+                        HKEY_CURRENT_USER, KEY_NOTIFY, REG_NOTIFY_CHANGE_LAST_SET,
+                    },
+                };
+                let mut key = HKEY::default();
+                let opened = unsafe {
+                    RegOpenKeyExW(
+                        HKEY_CURRENT_USER,
+                        w!("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize"),
+                        None,
+                        KEY_NOTIFY,
+                        &mut key,
+                    )
+                };
+                if opened.is_err() {
+                    return;
+                }
+                loop {
+                    let changed = unsafe {
+                        RegNotifyChangeKeyValue(key, false, REG_NOTIFY_CHANGE_LAST_SET, None, false)
+                    };
+                    if changed.is_err() {
+                        break;
+                    }
+                    let handle = app.clone();
+                    if app
+                        .run_on_main_thread(move || refresh_system_style(&handle))
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+                unsafe {
+                    let _ = RegCloseKey(key);
+                }
+            });
+        if let Err(error) = result {
+            eprintln!("Could not watch taskbar theme: {error}");
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    let _ = app;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
