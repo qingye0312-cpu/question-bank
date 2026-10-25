@@ -42,7 +42,7 @@ export function CloudPanel({banks,onChanged,onClose,onBusy,embedded=false}:{bank
     {catalog.map(b=><div className="cloud-bank cloud-catalog-item" key={b.bank_id}><button type="button" className="cloud-bank-name" disabled={busy} onClick={()=>{setMessage('');setSelected(b.bank_id)}}><b>{b.name}</b>{b.release_name&&<small>{b.release_name}</small>}</button><span className="cloud-catalog-release">正式 v{b.release_version} · 修订 {b.revision}</span>{!banks.some(k=>k.id===b.bank_id)&&<button className="cloud-catalog-download" disabled={busy} onClick={()=>void task(async()=>{await syncDesktop(b.bank_id,b);await onChanged();setMessage('题库已下载')})}>下载题库</button>}</div>)}
     {!catalog.length&&<p className="callout">{busy?'正在读取云端题库目录…':'云端目录暂无题库。'}</p>}
    </div>
-   <div className="cloud-catalog-footer"><button className="cloud-refresh-button" disabled={busy} onClick={()=>void task(checkUpdates)}>{busy?'正在检查…':'检查更新'}</button></div>
+   <div className="cloud-catalog-footer"><button className="cloud-refresh-button" disabled={busy} onClick={()=>void task(checkUpdates)}>{busy?'正在检查…':'检查更新'}</button>{message&&<p className="callout cloud-catalog-status" role="status">{message}</p>}</div>
   </>:<>
    <button type="button" disabled={busy} onClick={()=>{setSelected('');setHistory(null);setMessage('')}}>返回云端题库目录</button>
    <h3>{selectedBank?.name||'题库历史版本'}</h3>
@@ -56,7 +56,7 @@ export function CloudPanel({banks,onChanged,onClose,onBusy,embedded=false}:{bank
    })}>从本机正式题初始化首版</button>}
    {!!history.versions.length?<section className="cloud-history"><h3>版本历史与回退</h3>{history.versions.map(v=><div className="cloud-bank" key={v.revision}><span><b>修订 {v.revision} · 正式 v{v.release_version}</b><small>{v.release_name||'未发布名称'} · {new Date(v.updated_at).toLocaleString()}{v.rollback_of?' · 回退自修订 '+v.rollback_of:''}</small></span><button disabled={busy||v.revision>=history.current_revision} onClick={()=>void task(async()=>{if(!window.confirm('确认将正式题库回退到修订 '+v.revision+'？当前版本会保留为历史记录。'))return;await cloudMutation('/v1/banks/'+selected+'/rollback',{base_revision:history.current_revision,target_revision:v.revision});await refreshHistory();await syncDesktop(selected);await onChanged();setMessage('已创建回退修订')})}>回退到此版本</button></div>)}</section>:<p className="callout">当前暂无可回退的历史版本。</p>}
   </>}
-  {message&&<p className="callout" role="status">{message}</p>}{busy&&<p>正在处理…</p>}
+  {selected&&message&&<p className="callout" role="status">{message}</p>}{busy&&<p>正在处理…</p>}
  </section>;
  return embedded?panel:<div className="modal-backdrop">{panel}</div>;
 }
