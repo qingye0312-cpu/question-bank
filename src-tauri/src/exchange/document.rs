@@ -1,5 +1,6 @@
 use super::*;
 use serde_json::{json, Value};
+use std::io::Cursor;
 
 fn fields(q: &Question) -> Vec<(String, String)> {
     let mut vals = vec![
