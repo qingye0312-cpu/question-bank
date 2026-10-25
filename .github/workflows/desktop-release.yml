@@ -1,0 +1,230 @@
+name: Desktop release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  # Only one publication may replace the shared latest.json at a time.
+  group: desktop-release
+  cancel-in-progress: false
+
+jobs:
+  build-macos:
+    name: Build macOS ARM64
+    runs-on: macos-15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.25.0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.18.0
+          package-manager-cache: false
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build signed macOS app and updater archive
+        env:
+          QBANK_UPDATER_ENDPOINT: https://qbank.creart.top:8013/v1/desktop/latest.json
+          QBANK_UPDATER_PUBLIC_KEY: ${{ vars.QBANK_UPDATER_PUBLIC_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          node tools/desktop-release/validate-version.mjs "$GITHUB_REF_NAME"
+          version="${GITHUB_REF_NAME#v}"
+          node tools/desktop-release/write-updater-config.mjs "$RUNNER_TEMP/qbank-updater-config.json"
+          pnpm tauri build --config "$RUNNER_TEMP/qbank-updater-config.json" -- --locked
+
+          output="$RUNNER_TEMP/qbank-release/macos"
+          mkdir -p "$output"
+          built="src-tauri/target/release/bundle/macos/题库.app.tar.gz"
+          if [ ! -s "$built" ]; then
+            built="$(find src-tauri/target/release/bundle/macos -maxdepth 1 -type f -name '*.app.tar.gz' -print -quit)"
+          fi
+          [ -n "$built" ] && [ -s "$built" ] || { echo 'macOS updater archive missing' >&2; exit 1; }
+          [ -s "$built.sig" ] || { echo 'macOS updater signature missing' >&2; exit 1; }
+          name="qbank-macos-arm64-${version}.app.tar.gz"
+          cp "$built" "$output/$name"
+          cp "$built.sig" "$output/$name.sig"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: qbank-macos
+          path: ${{ runner.temp }}/qbank-release/macos/*
+          if-no-files-found: error
+          retention-days: 14
+
+  build-windows:
+    name: Build Windows x64
+    runs-on: windows-2025
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.25.0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.18.0
+          package-manager-cache: false
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build fixed-name portable edition
+        env:
+          QBANK_UPDATER_ENDPOINT: ''
+          QBANK_UPDATER_PUBLIC_KEY: ''
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          node tools/desktop-release/validate-version.mjs $env:GITHUB_REF_NAME
+          if ($LASTEXITCODE -ne 0) { throw 'Tag and package version must match.' }
+          $version = (Get-Content package.json -Raw -Encoding UTF8 | ConvertFrom-Json).version
+          pnpm tauri build --target x86_64-pc-windows-msvc --no-bundle -- --locked
+          if ($LASTEXITCODE -ne 0) { throw "Portable build failed ($LASTEXITCODE)." }
+
+          $source = 'src-tauri/target/x86_64-pc-windows-msvc/release/question-bank.exe'
+          if (-not (Test-Path -LiteralPath $source)) { throw "Portable executable missing: $source" }
+          $output = Join-Path $env:RUNNER_TEMP 'qbank-release/windows'
+          New-Item -ItemType Directory -Force -Path $output | Out-Null
+          Copy-Item -LiteralPath $source -Destination (Join-Path $output '题库_windows_x64_portable.exe')
+
+      - name: Build signed NSIS installer and updater archive
+        env:
+          QBANK_UPDATER_ENDPOINT: https://qbank.creart.top:8013/v1/desktop/latest.json
+          QBANK_UPDATER_PUBLIC_KEY: ${{ vars.QBANK_UPDATER_PUBLIC_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = (Get-Content package.json -Raw -Encoding UTF8 | ConvertFrom-Json).version
+          $configPath = Join-Path $env:RUNNER_TEMP 'qbank-updater-config.json'
+          node tools/desktop-release/write-updater-config.mjs $configPath
+          if ($LASTEXITCODE -ne 0) { throw 'Could not write the updater configuration.' }
+          if (-not (Get-Command makensis.exe -ErrorAction SilentlyContinue)) {
+            choco install nsis --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { throw 'Could not install NSIS.' }
+            $nsisPath = Join-Path ${env:ProgramFiles(x86)} 'NSIS'
+            if (Test-Path (Join-Path $nsisPath 'makensis.exe')) { $env:PATH = "$nsisPath;$env:PATH" }
+          }
+          if (-not (Get-Command makensis.exe -ErrorAction SilentlyContinue)) { throw 'NSIS makensis.exe is unavailable.' }
+          pnpm tauri build --target x86_64-pc-windows-msvc --config $configPath -- --locked
+          if ($LASTEXITCODE -ne 0) { throw "NSIS build failed ($LASTEXITCODE)." }
+
+          $bundle = 'src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis'
+          $archives = @(Get-ChildItem -LiteralPath $bundle -Filter '*.nsis.zip' -File)
+          if ($archives.Count -ne 1) { throw "Expected one NSIS updater archive, found $($archives.Count)." }
+          $archive = $archives[0]
+          $signature = "$($archive.FullName).sig"
+          if (-not (Test-Path -LiteralPath $signature)) { throw 'NSIS updater signature missing.' }
+          $setups = @(Get-ChildItem -LiteralPath $bundle -Filter '*.exe' -File)
+          if ($setups.Count -ne 1) { throw "Expected one NSIS setup executable, found $($setups.Count)." }
+
+          $output = Join-Path $env:RUNNER_TEMP 'qbank-release/windows'
+          $archiveName = "qbank-windows-x64-$version.nsis.zip"
+          Copy-Item -LiteralPath $archive.FullName -Destination (Join-Path $output $archiveName)
+          Copy-Item -LiteralPath $signature -Destination (Join-Path $output "$archiveName.sig")
+          Copy-Item -LiteralPath $setups[0].FullName -Destination (Join-Path $output '题库_windows_x64_setup.exe')
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: qbank-windows
+          path: ${{ runner.temp }}/qbank-release/windows/*
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish GitHub Release and optional self-hosted feed
+    needs: [build-macos, build-windows]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: qbank-macos
+          path: ${{ runner.temp }}/qbank-release/macos
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: qbank-windows
+          path: ${{ runner.temp }}/qbank-release/windows
+
+      - name: Assemble manifest and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          node tools/desktop-release/validate-version.mjs "$GITHUB_REF_NAME"
+          mkdir -p release-assets
+          cp "$RUNNER_TEMP"/qbank-release/macos/* release-assets/
+          cp "$RUNNER_TEMP"/qbank-release/windows/* release-assets/
+          node tools/desktop-release/create-manifest.mjs "$version" release-assets release-assets/latest.json
+          (cd release-assets && sha256sum * > SHA256SUMS)
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" release-assets/* \
+            --title "题库 $GITHUB_REF_NAME" \
+            --generate-notes
+
+      - name: Prepare SSH credentials for self-hosted publication
+        if: ${{ vars.QBANK_SELF_HOST_DEPLOY == 'enabled' }}
+        env:
+          QBANK_RELEASE_SSH_KEY: ${{ secrets.QBANK_RELEASE_SSH_KEY }}
+          QBANK_RELEASE_KNOWN_HOSTS: ${{ secrets.QBANK_RELEASE_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$QBANK_RELEASE_SSH_KEY" || { echo 'Missing QBANK_RELEASE_SSH_KEY secret' >&2; exit 1; }
+          test -n "$QBANK_RELEASE_KNOWN_HOSTS" || { echo 'Missing QBANK_RELEASE_KNOWN_HOSTS secret' >&2; exit 1; }
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$QBANK_RELEASE_SSH_KEY" > "$HOME/.ssh/qbank-release"
+          printf '%s\n' "$QBANK_RELEASE_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/qbank-release" "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -P '' -f "$HOME/.ssh/qbank-release" >/dev/null
+
+      - name: Publish version to the self-hosted update service
+        if: ${{ vars.QBANK_SELF_HOST_DEPLOY == 'enabled' }}
+        env:
+          QBANK_RELEASE_SSH_HOST: ${{ vars.QBANK_RELEASE_SSH_HOST }}
+          QBANK_RELEASE_SSH_PORT: ${{ vars.QBANK_RELEASE_SSH_PORT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          host="${QBANK_RELEASE_SSH_HOST:-8.141.124.97}"
+          port="${QBANK_RELEASE_SSH_PORT:-8013}"
+          version="${GITHUB_REF_NAME#v}"
+          [[ "$host" =~ ^[A-Za-z0-9.-]+$ ]] || { echo 'Invalid SSH host.' >&2; exit 1; }
+          [[ "$port" =~ ^[0-9]+$ ]] || { echo 'Invalid SSH port.' >&2; exit 1; }
+          scp -P "$port" -i "$HOME/.ssh/qbank-release" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            release-assets/* "root@${host}:/tmp/"
+          ssh -p "$port" -i "$HOME/.ssh/qbank-release" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "root@${host}" "QBANK_RELEASE_VERSION='$version' sh -s" < tools/self-host/install-desktop-update-release.sh
