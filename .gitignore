@@ -6,6 +6,7 @@ node_modules/
 # Build output and generated Tauri/OCR resources
 dist/
 target/
+/build/
 /src-tauri/gen/
 /public/ocr/core/
 /public/ocr/worker.min.js

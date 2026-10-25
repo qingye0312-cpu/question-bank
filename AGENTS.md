@@ -9,3 +9,10 @@
 - 遵守 `.gitignore`，不强行纳入本机数据库、生成的交付包、依赖、构建产物或凭据。
 - 此授权仅涉及本地提交，不包含自动推送、改写历史、重置或清理用户文件。
 - 遇到未解决冲突或提交失败时，保留现场并说明原因，不通过丢弃改动来完成提交。
+
+## Mac App 构建输出
+
+- 普通 Mac App 构建的唯一 `.app` 输出位置是仓库根目录 `build/题库.app`。
+- 统一使用 `sh mac/scripts/env.sh pnpm tauri build --bundles app`；不要在 `src-tauri/target`、`交付/`、`artifacts/` 或 `.local/` 留存副本或旧包。
+- 普通构建的临时前端与 Rust 构建缓存放在 `build/`，打包后清除；仅保留 `build/题库.app`。`build/` 不放置说明文件。
+- `pnpm release:mac` 是单独的更新发布流程，不作为普通 App 构建出口。

@@ -1,7 +1,9 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "build": {
-    "additionalWatchFolders": ["../mac"]
+    "additionalWatchFolders": ["../mac"],
+    "beforeBuildCommand": "node scripts/sync-client-assets.mjs && node scripts/prepare-ocr.mjs && node node_modules/typescript/bin/tsc --noEmit && node node_modules/vite/bin/vite.js build --outDir build/.frontend-dist",
+    "frontendDist": "../build/.frontend-dist"
   },
   "bundle": {
     "targets": ["app"],
