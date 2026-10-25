@@ -37,7 +37,7 @@ test('health uses self-hosted phone/password auth and the old WeChat route is go
 
 test('registration creates a phone account and password login survives refresh until logout',async()=>{
  const s=setup(),created=await s.register();
- assert.equal(created.status,201);assert.equal(created.data.account.phone,'138****5678');
+ assert.equal(created.status,201);assert.equal(created.data.account.phone,'+861****5678');
  assert.equal(created.data.application.real_name,'张三');assert.equal('username' in created.data.application,false);
  const logged=await s.login();assert.equal(logged.status,200);assert.equal(logged.data.status,'pending');
  const me=await s.call('GET','/v1/me',undefined,logged.data.access_token);assert.equal(me.data.account_status,'pending');

@@ -11,7 +11,7 @@ function passwordLength(value){return typeof value==='string'?Array.from(value).
 function validatePassword(value){
   if(typeof value!=='string'||passwordLength(value)<8||passwordLength(value)>128||Buffer.byteLength(value,'utf8')>512
     ||!/[A-Z]/.test(value)||!/[a-z]/.test(value)||!/[0-9]/.test(value))
-    fail(422,'PASSWORD_INVALID','密码至少 8 位，且需包含大写字母、小写字母和数字');
+    fail(422,'PASSWORD_INVALID','密码需为 8–128 个字符，包含大写字母、小写字母和数字，且 UTF-8 不超过 512 字节');
 }
 async function derive(value,salt){return scrypt(value,salt,COST.keyLength,{N:COST.N,r:COST.r,p:COST.p,maxmem:COST.maxmem});}
 async function hashPassword(value){

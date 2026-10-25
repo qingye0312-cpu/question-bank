@@ -38,7 +38,7 @@ pub fn run() {
                     .is_some_and(|f| f.tray)
                 {
                     api.prevent_close();
-                    if let Err(error) = desktop::hide(w.app_handle()) {
+                    if let Err(error) = desktop::hide_after_close(w.app_handle(), w) {
                         eprintln!("Could not hide main window: {error}");
                     }
                 }

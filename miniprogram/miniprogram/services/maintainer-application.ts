@@ -12,7 +12,7 @@ export function applicationFields(form:MaintainerForm){
 }
 
 export function registrationFields(form:MaintainerRegistrationForm){
- if(!passwordMeetsPolicy(form.password))throw Error('密码至少 8 位，且需包含大写字母、小写字母和数字');
+ if(!passwordMeetsPolicy(form.password))throw Error('密码需为 8–128 个字符，包含大写字母、小写字母和数字，且 UTF-8 不超过 512 字节');
  if(form.password!==form.passwordConfirm)throw Error('两次输入的密码不一致');
  return {...applicationFields(form),password:form.password};
 }

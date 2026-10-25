@@ -81,7 +81,7 @@ export function CloudLogin({onChange=()=>{},disabled=false}:{onChange?:()=>void;
  }
  async function resetAccountPassword(event:FormEvent<HTMLFormElement>){
   event.preventDefault();if(busy)return;
-  if(!passwordMeetsPolicy(newPassword)){setMessage('密码至少 8 位，且需包含大写字母、小写字母和数字。');return;}
+  if(!passwordMeetsPolicy(newPassword)){setMessage('密码需为 8–128 个字符，包含大写字母、小写字母和数字，且 UTF-8 不超过 512 字节。');return;}
   setBusy(true);setMessage('');
   try{
    if(origin!==cloudOrigin())setCloudOrigin(origin);
@@ -117,15 +117,15 @@ export function CloudLogin({onChange=()=>{},disabled=false}:{onChange?:()=>void;
      <legend>申请维护的题库</legend>
      {banksLoading?<p>正在读取云端题库…</p>:banks.length?banks.map(bank=><label key={bank.bank_id}><input type="checkbox" checked={selectedBanks.includes(bank.bank_id)} onChange={event=>setSelectedBanks(current=>event.target.checked?[...current,bank.bank_id]:current.filter(id=>id!==bank.bank_id))}/>{bank.name}</label>):<p>暂无可申请题库。<button type="button" disabled={busy} onClick={()=>void loadBanks()}>重新获取</button></p>}
     </fieldset>
-    <label>设置密码<input required type="password" autoComplete="new-password" minLength={8} maxLength={128} value={password} disabled={disabled||busy} onChange={e=>setPassword(e.target.value)} placeholder="至少 8 位，含大小写字母和数字"/>
+    <label>设置密码<input required type="password" autoComplete="new-password" minLength={8} value={password} disabled={disabled||busy} onChange={e=>setPassword(e.target.value)} placeholder="8–128 个字符，含大小写字母和数字"/>
      <span className="password-rules">{registrationPasswordChecks.map(rule=><small className={rule.valid?'valid':'invalid'} key={rule.key}>{rule.valid?'✓':'○'} {rule.label}</small>)}</span></label>
-    <label>确认密码<input required type="password" autoComplete="new-password" minLength={8} maxLength={128} value={confirmPassword} disabled={disabled||busy} onChange={e=>setConfirmPassword(e.target.value)}/>{confirmPassword&&<small className={confirmPassword===password?'valid':'invalid'}>{confirmPassword===password?'✓ 密码一致':'○ 两次密码不一致'}</small>}</label>
+    <label>确认密码<input required type="password" autoComplete="new-password" minLength={8} value={confirmPassword} disabled={disabled||busy} onChange={e=>setConfirmPassword(e.target.value)}/>{confirmPassword&&<small className={confirmPassword===password?'valid':'invalid'}>{confirmPassword===password?'✓ 密码一致':'○ 两次密码不一致'}</small>}</label>
     <div className="cloud-login-actions"><button className="primary" type="submit" disabled={disabled||busy||banksLoading||!banks.length||!selectedBanks.length||!registrationPasswordReady}>{busy?'正在提交…':'提交注册申请'}</button><button type="button" disabled={disabled||busy||banksLoading} onClick={()=>void loadBanks()}>刷新题库</button></div>
    </form>:<form className="cloud-registration" onSubmit={event=>void resetAccountPassword(event)}>
     <p className="callout">一次性重置码由桌面最高权限管理员生成并转交。密码重置后，题库上传权限需要重新审批。</p>
     <label>手机号<input required type="tel" inputMode="tel" autoComplete="tel" value={phone} disabled={disabled||busy} onChange={e=>setPhone(e.target.value)} placeholder="注册时使用的手机号"/></label>
     <label>一次性重置码<input required autoComplete="one-time-code" value={resetToken} disabled={disabled||busy} onChange={e=>setResetToken(e.target.value)}/></label>
-    <label>新密码<input required type="password" autoComplete="new-password" minLength={8} maxLength={128} value={newPassword} disabled={disabled||busy} onChange={e=>setNewPassword(e.target.value)} placeholder="至少 8 位，含大小写字母和数字"/>
+    <label>新密码<input required type="password" autoComplete="new-password" minLength={8} value={newPassword} disabled={disabled||busy} onChange={e=>setNewPassword(e.target.value)} placeholder="8–128 个字符，含大小写字母和数字"/>
      <span className="password-rules">{resetPasswordChecks.map(rule=><small className={rule.valid?'valid':'invalid'} key={rule.key}>{rule.valid?'✓':'○'} {rule.label}</small>)}</span></label>
     <div className="cloud-login-actions"><button className="primary" type="submit" disabled={disabled||busy||!phone||!resetToken||!passwordMeetsPolicy(newPassword)}>{busy?'正在重置…':'重置密码'}</button><button type="button" disabled={disabled||busy} onClick={()=>setMode('account')}>返回登录</button></div>
    </form>}</div>

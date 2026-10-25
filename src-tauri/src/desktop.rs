@@ -14,7 +14,7 @@ pub fn focus(app: &tauri::AppHandle) {
         let _ = w.emit("focus-search", ());
     }
 }
-pub fn hide(app: &tauri::AppHandle) -> tauri::Result<()> {
+pub fn hide<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
     // orderOut on a fullscreen NSWindow leaves its Space empty. AppKit's
     // application hide/unhide handles the Space and preserves fullscreen state.
     #[cfg(target_os = "macos")]
@@ -27,6 +27,57 @@ pub fn hide(app: &tauri::AppHandle) -> tauri::Result<()> {
         Ok(())
     }
 }
+
+pub fn hide_after_close<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    window: &tauri::Window<R>,
+) -> tauri::Result<()> {
+    #[cfg(target_os = "macos")]
+    if window.is_fullscreen().unwrap_or(false) {
+        // AppKit's fullscreen animation takes about a second. Tao clears its
+        // fullscreen flag as soon as the exit is requested, before that
+        // animation ends, so wait for the flag and then allow the transition
+        // to finish before hiding the application.
+        window.set_fullscreen(false)?;
+        let app = app.clone();
+        let window = window.clone();
+        std::thread::spawn(move || {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            loop {
+                match window.is_fullscreen() {
+                    Ok(false) => {
+                        std::thread::sleep(std::time::Duration::from_millis(1100));
+                        break;
+                    }
+                    Ok(true) if std::time::Instant::now() < deadline => {
+                        std::thread::sleep(std::time::Duration::from_millis(50));
+                    }
+                    Ok(true) => {
+                        eprintln!("Fullscreen exit did not complete before hiding the app");
+                        break;
+                    }
+                    Err(error) => {
+                        eprintln!("Could not check fullscreen state before hiding: {error}");
+                        break;
+                    }
+                }
+            }
+
+            let app_to_hide = app.clone();
+            if let Err(error) = app.run_on_main_thread(move || {
+                if let Err(error) = app_to_hide.hide() {
+                    eprintln!("Could not hide main window: {error}");
+                }
+            }) {
+                eprintln!("Could not schedule app hide on the main thread: {error}");
+            }
+        });
+        return Ok(());
+    }
+
+    hide(app)
+}
+
 pub fn install(app: &mut tauri::App) -> Features {
     let shortcut = match app.handle().plugin(
         tauri_plugin_global_shortcut::Builder::new()

@@ -20,7 +20,7 @@ pnpm self-host:deploy
 
 ## 环境变量
 
-将受限的环境文件放在 `/etc/qbank-auth/qbank-auth.env`，权限 `0600`，可从 [cloud/qbank-auth/.env.example](../../cloud/qbank-auth/.env.example) 复制模板。至少配置微信 AppID、AppSecret、会话密钥、题库目录、桌面维护者和最高权限账号，并增加：
+将受限的环境文件放在 `/etc/qbank-auth/qbank-auth.env`，权限 `0600`，可从 [cloud/qbank-auth/.env.example](../../cloud/qbank-auth/.env.example) 复制模板。至少配置会话密钥、题库目录、桌面维护者和最高权限账号，并增加：
 
 ```dotenv
 QBANK_ENV_FILE=/etc/qbank-auth/qbank-auth.env
@@ -50,7 +50,7 @@ sh mac/scripts/env.sh cargo test --manifest-path src-tauri/Cargo.toml --test clo
 
 ## 小程序域名共用 8013
 
-客户端统一配置 `https://qbank.creart.top:8013`，微信 `request` 合法域名需填写相同地址。目录、版本检查、快照下载、维护者账号注册／登录、申请和压缩上传均使用该入口；旧版微信登录接口保留兼容。两端按完整云目录缓存所有题库，相同修订与摘要不重复下载，离线保留本地缓存。
+客户端统一配置 `https://qbank.creart.top:8013`，微信 `request` 合法域名需填写相同地址。目录、版本检查、快照下载、手机号密码注册／登录、维护者申请和压缩上传均使用该入口。认证不依赖微信 AppID、AppSecret 或旧微信登录接口；旧身份仅保留为不可登录的归档数据。两端按完整云目录缓存所有题库，相同修订与摘要不重复下载，离线保留本地缓存。
 
 **当前状态：证书和微信合法域名已配置；真机仍受公网 TLS 1.2 连接重置影响。** 开发者工具刷新“详情 → 项目配置 → 域名信息”后，在启用域名校验时成功读取目录及两库快照，并显示高级库 858 题；该结果不代表真机链路通过。真机原始错误为 `errno:600001 / net::ERR_CONNECTION_RESET`，详细对照见下方。原 IP HTTPS、SSH 和两库数据仍正常，未清理设备缓存或草稿。
 
