@@ -176,9 +176,11 @@ export function createCloudClient(deps:{origin:()=>string;request:Transport;now?
     })();
     pending=run;void run.finally(()=>{if(pending===run)pending=undefined}).catch(()=>{});return run;
   }
-  async function registerMaintainer(bankId:string,form:MaintainerRegistrationForm){
+  async function registerMaintainer(bankIds:string|string[],form:MaintainerRegistrationForm){
     const fields=registrationFields(form);
-    const result=object((await call('/v1/auth/register','POST',{...fields,bank_ids:[bankId]})).body);
+    const selectedBankIds=[...new Set(Array.isArray(bankIds)?bankIds:[bankIds])];
+    if(!selectedBankIds.length)throw new Error('至少选择一个要申请维护的云端题库');
+    const result=object((await call('/v1/auth/register','POST',{...fields,bank_ids:selectedBankIds})).body);
     if(!result.account||!result.application)throw new Error('注册响应无效，请稍后重试');
     return result.application as {id:string;status:string;phone:string;real_name:string;nickname:string;identity_description:string;bank_ids:string[]};
   }

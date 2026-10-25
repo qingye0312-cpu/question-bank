@@ -72,6 +72,7 @@ textarea{min-height:100rpx}
 .selected .dot,.judgment .selected{color:var(--correct)}
 
 .maintainer-apply .identity-label{margin-top:24rpx}.maintainer-apply .identity-input{box-sizing:border-box;width:100%;min-height:128rpx;margin-top:12rpx}.identity-count{text-align:right;margin-top:8rpx}
+.maintainer-bank-list{margin-top:10rpx}.maintainer-bank-option{display:flex;align-items:center;gap:12rpx;padding:16rpx 18rpx;margin-top:12rpx;border:2rpx solid var(--border);border-radius:14rpx;background:var(--surface);font-size:27rpx}.maintainer-bank-option.checked{border-color:var(--accent);background:var(--tint)}.maintainer-bank-option checkbox{flex:0 0 auto;margin:0}
 .password-check{font-size:24rpx;line-height:1.45;margin-top:6rpx}
 .password-check.valid{color:var(--accent,#23745b)}
 .password-check.invalid{color:var(--muted,#7b8791)}

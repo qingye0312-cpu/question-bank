@@ -8,9 +8,10 @@ import {maintainerPasswordRules,passwordMeetsPolicy,registrationFields,type Pass
 import {refreshCatalog} from '../../services/sync';
 import {copyPrompt} from '../../services/prompt';
 import {importDelta} from '../../services/intake';
+type MaintainerBankChoice={bank_id:string;name:string;checked:boolean};
 let controller:IntakeController|undefined,alive=false,poll:ReturnType<typeof setInterval>|undefined,previousType:ModelReply|null=null;
 Page({
-  data:{...themePageData(),currentId:'',banks:[] as BankSummary[],bankIndex:0,tab:'edit',busy:false,ready:false,reply:null as ModelReply|null,locked:false,raw:'',records:[] as any[],visibleRecords:[] as any[],jobs:[] as any[],pendingCount:0,issues:[] as any[],sourceIssues:[] as any[],saved:'',error:'',notice:'',more:false,tools:false,canUndoType:false,recordedAt:'',metadata:{} as any,editOptions:[] as any[],boolSelected:false,typeIndex:0,sourceIndex:2,warningsText:'',tagsText:'',difficultyIndex:0,filePath:'',fileName:'',query:'',loggedIn:false,authMode:'login',maintainerPassword:'',maintainerPasswordRules:[] as PasswordRule[],maintainerPasswordConfirm:'',maintainerPasswordValid:false,maintainerPasswordsMatch:false,maintainerResetToken:'',maintainerAuthType:'',maintainerAccountStatus:'',maintainerPhone:'',maintainerPhoneDisplay:'',maintainerRealName:'',maintainerNickname:'',maintainerIdentity:'',maintainerApplication:'',applying:false,applicationMessage:'',applicationError:false,
+  data:{...themePageData(),currentId:'',banks:[] as BankSummary[],bankIndex:0,tab:'edit',busy:false,ready:false,reply:null as ModelReply|null,locked:false,raw:'',records:[] as any[],visibleRecords:[] as any[],jobs:[] as any[],pendingCount:0,issues:[] as any[],sourceIssues:[] as any[],saved:'',error:'',notice:'',more:false,tools:false,canUndoType:false,recordedAt:'',metadata:{} as any,editOptions:[] as any[],boolSelected:false,typeIndex:0,sourceIndex:2,warningsText:'',tagsText:'',difficultyIndex:0,filePath:'',fileName:'',query:'',loggedIn:false,authMode:'login',maintainerPassword:'',maintainerPasswordRules:[] as PasswordRule[],maintainerPasswordConfirm:'',maintainerPasswordValid:false,maintainerPasswordsMatch:false,maintainerResetToken:'',maintainerAuthType:'',maintainerAccountStatus:'',maintainerPhone:'',maintainerPhoneDisplay:'',maintainerRealName:'',maintainerNickname:'',maintainerIdentity:'',maintainerBanks:[] as MaintainerBankChoice[],maintainerBankIds:[] as string[],maintainerBanksLoading:false,maintainerBanksError:'',maintainerApplication:'',applying:false,applicationMessage:'',applicationError:false,
   types:['单选','多选','判断'],versionSources:['平台提供','用户提供','未知'],difficulties:['未设置','简单','中等','困难']},
  onLoad(){alive=true;previousType=null;controller=new IntakeController(view=>{if(!alive)return;const changed=view.currentId!==this.data.currentId||view.raw!==this.data.raw;if(changed)previousType=null;this.setData({...view,...(changed?{canUndoType:false}:{}),visibleRecords:view.records.filter(r=>!this.data.query||r.stem.includes(this.data.query))})});void this.run(async()=>{const banks=await listBanks(),bank=activeBankId();this.setData({banks,bankIndex:Math.max(0,banks.findIndex(b=>b.id===bank))});await controller!.open(bank);this.setData({ready:true});});},
  onShow(){showPageTheme(this);alive=true;void cloud.restoreSession().catch(()=>{}).finally(()=>{if(alive){const access=cloud.state();this.setData({loggedIn:access.loggedIn,maintainerPhoneDisplay:access.phone||'',maintainerAuthType:access.authType||'',maintainerAccountStatus:access.status||''})}});poll=setInterval(()=>void controller?.refreshJobs().catch(()=>{}),3000)},
@@ -56,7 +57,24 @@ Page({
  onMaintainerPassword(e:WechatMiniprogram.Input){const password=e.detail.value;this.setData({maintainerPassword:password,maintainerPasswordRules:maintainerPasswordRules(password),maintainerPasswordValid:passwordMeetsPolicy(password),maintainerPasswordsMatch:password===this.data.maintainerPasswordConfirm})},
  onMaintainerPasswordConfirm(e:WechatMiniprogram.Input){const confirm=e.detail.value;this.setData({maintainerPasswordConfirm:confirm,maintainerPasswordsMatch:confirm===this.data.maintainerPassword})},
  onMaintainerResetToken(e:WechatMiniprogram.Input){this.setData({maintainerResetToken:e.detail.value})},
- onAuthMode(e:WechatMiniprogram.TouchEvent){this.setData({authMode:e.currentTarget.dataset.mode,maintainerPassword:'',maintainerPasswordRules:[],maintainerPasswordConfirm:'',maintainerPasswordValid:false,maintainerPasswordsMatch:false,maintainerResetToken:'',applicationMessage:'',applicationError:false})},
+ onAuthMode(e:WechatMiniprogram.TouchEvent){const mode=e.currentTarget.dataset.mode;this.setData({authMode:mode,maintainerPassword:'',maintainerPasswordRules:[],maintainerPasswordConfirm:'',maintainerPasswordValid:false,maintainerPasswordsMatch:false,maintainerResetToken:'',applicationMessage:'',applicationError:false});if(mode==='register')void this.loadMaintainerBanks()},
+ async loadMaintainerBanks(){
+  if(this.data.maintainerBanksLoading)return;
+  this.setData({maintainerBanksLoading:true,maintainerBanksError:''});
+  try{
+   if(!cloud.state().configured)throw Error('尚未配置云端 HTTPS 地址，请联系管理员');
+   const catalog=await refreshCatalog(true);
+   if(!alive||this.data.authMode!=='register')return;
+   const available=new Set(catalog.map(bank=>bank.bank_id));
+   const selected=this.data.maintainerBankIds.filter(id=>available.has(id));
+   const choices:MaintainerBankChoice[]=catalog.map(bank=>({bank_id:bank.bank_id,name:bank.name,checked:selected.includes(bank.bank_id)}));
+   this.setData({maintainerBanks:choices,maintainerBankIds:selected,...(!choices.length?{maintainerBanksError:'暂无可申请维护的云端题库。'}:{})});
+  }catch(error){
+   if(alive&&this.data.authMode==='register')this.setData({maintainerBanks:[],maintainerBankIds:[],maintainerBanksError:error instanceof Error?`读取云端题库失败：${error.message}`:'读取云端题库失败，请重试'});
+  }finally{if(alive)this.setData({maintainerBanksLoading:false})}
+ },
+ onRefreshMaintainerBanks(){void this.loadMaintainerBanks()},
+ onMaintainerBanksChange(e:WechatMiniprogram.CheckboxGroupChange){const selected=e.detail.value;this.setData({maintainerBankIds:selected,maintainerBanks:this.data.maintainerBanks.map(bank=>({...bank,checked:selected.includes(bank.bank_id)}))})},
  onForgotMaintainerPassword(){
   wx.showModal({title:'忘记密码',content:'需联系管理员重新设置维护者状态并获取一次性重置码。管理员重置后会清除现有维护权限；设置新密码后还需管理员重新授权。确认后进入密码重置页面。',confirmText:'确认重置状态',cancelText:'取消',success:result=>{
     if(result.confirm)this.setData({authMode:'reset',maintainerPassword:'',maintainerPasswordConfirm:'',maintainerPasswordValid:false,maintainerPasswordsMatch:false,maintainerResetToken:'',applicationError:false,applicationMessage:'请联系管理员获取一次性重置码。'});
@@ -70,13 +88,16 @@ Page({
       phone:this.data.maintainerPhone,realName:this.data.maintainerRealName,nickname:this.data.maintainerNickname,identity:this.data.maintainerIdentity};
     registrationFields(form);
     if(!cloud.state().configured)throw Error('尚未配置云端 HTTPS 域名，暂时无法提交申请，请联系管理员');
-    const bank=this.data.banks[this.data.bankIndex];if(!bank)throw Error('请先选择题库');
     const catalog=await refreshCatalog();
-    if(!catalog.some(b=>b.bank_id===bank.id))throw Error('当前是私人本地题库，请先选择要申请维护的云端题库');
+    let bankIds=this.data.maintainerBankIds;
+    if(!bankIds.length){const currentBank=this.data.banks[this.data.bankIndex];if(currentBank&&catalog.some(b=>b.bank_id===currentBank.id))bankIds=[currentBank.id];}
+    if(!bankIds.length)throw Error('至少选择一个要申请维护的云端题库');
+    if(bankIds.some(id=>!catalog.some(bank=>bank.bank_id===id)))throw Error('云端题库目录已更新，请重新获取并选择题库');
     if(!alive)return;
     this.setData({applicationMessage:'正在创建账号并提交申请…',maintainerPassword:'',maintainerPasswordConfirm:'',maintainerPasswordValid:false,maintainerPasswordsMatch:false});
-    const application=await cloud.registerMaintainer(bank.id,form);
-    if(alive)this.setData({authMode:'login',maintainerApplication:application.status,applicationMessage:'手机号已登记，维护申请已提交，等待桌面管理员核实。请使用手机号和密码登录查看状态。'});
+    const application=await cloud.registerMaintainer(bankIds,form);
+    const requestedBanks=bankIds.map(id=>catalog.find(bank=>bank.bank_id===id)?.name).filter((name):name is string=>Boolean(name));
+    if(alive)this.setData({authMode:'login',maintainerApplication:application.status,applicationMessage:`手机号已登记，已申请维护：${requestedBanks.join('、')||`${bankIds.length} 个题库`}。等待桌面管理员核实，请使用手机号和密码登录查看状态。`});
   }catch(error){
     if(alive){const message=error instanceof Error?error.message:'申请未完成，请重试';this.setData({applicationError:true,applicationMessage:message});wx.showToast({title:message,icon:'none',duration:3000});}
   }finally{if(alive)this.setData({applying:false,loggedIn:cloud.state().loggedIn,maintainerPassword:'',maintainerPasswordConfirm:'',maintainerPasswordValid:false,maintainerPasswordsMatch:false});}
