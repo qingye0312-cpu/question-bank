@@ -5,7 +5,7 @@ const {loadConfig,authChecks,authConfigured,requireAuthConfig,requireSessionConf
 const {sign,verify}=require('./auth.cjs');
 const {decodeUpload,jsonBody,receipt}=require('./submission.cjs');
 const {createAccessRegistry,validateWechatIdentity}=require('./access.cjs');
-const {DUMMY_HASH,hashPassword,normalizeUsername,validUsername,validatePassword,verifyPassword}=require('./password.cjs');
+const {DUMMY_HASH,hashPassword,validatePassword,verifyPassword}=require('./password.cjs');
 
 function createHandler({ env = () => process.env, store, exchangeWechat, parseDelta, parseModelReply, validateStandardQuestion, clock = Date.now }) {
   const workflow = require('./workflow.cjs').createWorkflow({store,validateStandardQuestion,clock});
@@ -47,7 +47,7 @@ function createHandler({ env = () => process.env, store, exchangeWechat, parseDe
       const workflowRoute = /^\/v1\/banks\/[0-9a-f-]{36}\/(seed|history|rollback)$/.test(path||'');
       const maintainerRoute = method==='GET' && ['/v1/maintainer-applications','/v1/maintainer-accounts'].includes(path)
         || method==='POST' && (path==='/v1/maintainer-applications' || /^\/v1\/maintainer-applications\/[0-9a-f-]{36}\/decision$/.test(path) || /^\/v1\/maintainer-accounts\/[0-9a-f-]{36}\/(?:revoke|password-reset)$/.test(path));
-      if (!workflowRoute && !maintainerRoute && !['POST /v1/auth/desktop', 'POST /v1/auth/wechat-login', 'POST /v1/auth/register', 'POST /v1/auth/password-login', 'POST /v1/auth/password-reset', 'GET /v1/me', 'POST /v1/uploads', 'POST /v1/banks/promote'].includes(`${method} ${path}`))
+      if (!workflowRoute && !maintainerRoute && !['POST /v1/auth/desktop', 'POST /v1/auth/wechat-login', 'POST /v1/auth/register', 'POST /v1/auth/password-login', 'POST /v1/auth/password-reset', 'POST /v1/auth/refresh', 'POST /v1/auth/logout', 'GET /v1/me', 'POST /v1/uploads', 'POST /v1/banks/promote'].includes(`${method} ${path}`))
         fail(404, 'NOT_FOUND', '接口不存在');
       if(path==='/v1/auth/wechat-login')requireAuthConfig(config);else requireSessionConfig(config);
       const now = Math.floor(clock() / 1000);
@@ -69,9 +69,7 @@ function createHandler({ env = () => process.env, store, exchangeWechat, parseDe
         const client=String(headers['x-forwarded-for']||headers['x-client-address']||'unknown').slice(0,100);
         throttle(`register:${client}`,10);
         const body=jsonBody(event,8192);
-        if(!exact(body,['username','password','phone','real_name','nickname','identity_description','bank_ids']))fail(422,'REGISTRATION_INVALID','注册信息不完整');
-        const username=normalizeUsername(body.username);
-        if(!validUsername(username))fail(422,'USERNAME_INVALID','账号需为 4 至 32 位字母、数字、点、下划线或连字符');
+        if(!exact(body,['password','phone','real_name','nickname','identity_description','bank_ids']))fail(422,'REGISTRATION_INVALID','注册信息不完整');
         validatePassword(body.password);
         const phone=access.normalizePhone(body.phone),phoneHash=access.phoneHash(phone);
         const realName=typeof body.real_name==='string'?body.real_name.trim():'';
@@ -86,47 +84,80 @@ function createHandler({ env = () => process.env, store, exchangeWechat, parseDe
         const passwordHash=await hashPassword(body.password);
         let accountId,applicationId;
         const result=await access.update(registry=>{
-          if(registry.password_accounts.some(account=>account.username===username))fail(409,'USERNAME_TAKEN','此账号已注册，请直接登录');
+          if([...registry.password_accounts,...registry.wechat_accounts].some(account=>account.phone_hash===phoneHash&&account.status!=='revoked'))fail(409,'PHONE_TAKEN','此手机号已注册或绑定，请直接登录或联系管理员');
           const at=new Date(clock()).toISOString();accountId=randomUUID();applicationId=randomUUID();
-          const account={id:accountId,username,password_hash:passwordHash,phone,phone_hash:phoneHash,phone_masked:access.maskPhone(phone),phone_source:'self_reported',real_name:realName,nickname,identity_description:identityDescription,grants:{},status:'pending',created_at:at};
-          const application={id:applicationId,auth_type:'password',account_id:accountId,username,...{phone,phone_hash:phoneHash,phone_masked:access.maskPhone(phone),phone_source:'self_reported',real_name:realName,nickname,identity_description:identityDescription},bank_ids:bankIds,status:'pending',created_at:at};
+          const account={id:accountId,password_hash:passwordHash,sessions:[],phone,phone_hash:phoneHash,phone_masked:access.maskPhone(phone),phone_source:'self_reported',real_name:realName,nickname,identity_description:identityDescription,grants:{},status:'pending',created_at:at};
+          const application={id:applicationId,auth_type:'password',account_id:accountId,phone,phone_hash:phoneHash,phone_masked:access.maskPhone(phone),phone_source:'self_reported',real_name:realName,nickname,identity_description:identityDescription,bank_ids:bankIds,status:'pending',created_at:at};
           registry.password_accounts.push(account);registry.maintainer_applications.push(application);
         });
         const application=result.maintainer_applications.find(item=>item.id===applicationId);
-        return respond(201,{account:{id:accountId,username,status:'pending'},application:{id:application.id,status:application.status,phone:application.phone_masked,real_name:application.real_name,nickname:application.nickname,identity_description:application.identity_description,bank_ids:application.bank_ids}});
+        return respond(201,{account:{id:accountId,phone:access.maskPhone(phone),status:'pending'},application:{id:application.id,status:application.status,phone:application.phone_masked,real_name:application.real_name,nickname:application.nickname,identity_description:application.identity_description,bank_ids:application.bank_ids}});
       }
       if(path==='/v1/auth/password-login'){
         throttle('login:all',100);
         const client=String(headers['x-forwarded-for']||headers['x-client-address']||'unknown').slice(0,100);
         throttle(`password-login:${client}`,10);
-        const body=jsonBody(event,2048),username=normalizeUsername(body?.username);
-        throttle(`password-user:${username||'invalid'}`,10);
-        if(!exact(body,['username','password'])||typeof body.password!=='string'){
+        const body=jsonBody(event,2048);
+        let phone='';try{if(typeof body?.phone==='string')phone=access.normalizePhone(body.phone);}catch{}
+        const phoneHash=phone?access.phoneHash(phone):sha256(String(body?.phone||'invalid'));
+        throttle(`password-user:${phoneHash}`,10);
+        if(!exact(body,['phone','password'])||typeof body.password!=='string'){
           await verifyPassword(typeof body?.password==='string'?body.password:'',DUMMY_HASH);
-          fail(401,'CREDENTIALS_INVALID','账号或密码不正确');
+          fail(401,'CREDENTIALS_INVALID','手机号或密码不正确');
         }
-        const registry=await access.read(),account=validUsername(username)?registry.password_accounts.find(item=>item.username===username):undefined;
+        const registry=await access.read(),account=phone?registry.password_accounts.find(item=>item.phone_hash===phoneHash||item.phone===phone):undefined;
         const usable=account&&account.status!=='revoked'&&account.status!=='password_reset_required';
         const matches=await verifyPassword(body.password,usable?account.password_hash:DUMMY_HASH);
-        if(!usable||!matches)fail(401,'CREDENTIALS_INVALID','账号或密码不正确');
+        if(!usable||!matches)fail(401,'CREDENTIALS_INVALID','手机号或密码不正确');
+        const refreshToken=`r1.${randomBytes(32).toString('base64url')}`,refreshHash=sha256(refreshToken);
+        const updated=await access.update(next=>{
+          const current=next.password_accounts.find(item=>item.id===account.id);
+          if(!current||current.password_hash!==account.password_hash||current.status==='revoked'||current.status==='password_reset_required')fail(401,'CREDENTIALS_INVALID','手机号或密码不正确');
+          if(!Array.isArray(current.sessions))current.sessions=[];
+          current.sessions.push({token_sha256:refreshHash,created_at:new Date(clock()).toISOString(),last_used_at:new Date(clock()).toISOString()});
+        });
+        const currentAccount=updated.password_accounts.find(item=>item.id===account.id);
+        const now=Math.floor(clock()/1000),subject=`p_${account.id}`;
+        const token=sign({sub:subject,aud:'qbank-maintainer-account-v1',app_id:config.appId,auth_version:config.authVersion,
+          password_version:sha256(currentAccount.password_hash),iat:now,exp:now+LIMITS.sessionSeconds},config);
+        const grants=currentAccount.status==='approved'&&object(currentAccount.grants)?currentAccount.grants:{};
+        return respond(200,{access_token:token,refresh_token:refreshToken,expires_in:LIMITS.sessionSeconds,openid:subject,
+          phone:currentAccount.phone_masked||access.maskPhone(phone),status:currentAccount.status||'pending',banks:config.banks.filter(bank=>Object.hasOwn(grants,bank.bank_id)),
+          permissions:[...new Set(Object.values(grants).flat())]});
+      }
+      if(path==='/v1/auth/refresh'){
+        const body=jsonBody(event,2048),refreshToken=body?.refresh_token;
+        if(!exact(body,['refresh_token'])||typeof refreshToken!=='string'||!/^r1\.[A-Za-z0-9_-]{43}$/.test(refreshToken))fail(401,'SESSION_INVALID','本机登录凭证无效，请重新登录');
+        const digest=sha256(refreshToken),registry=await access.read();
+        const account=registry.password_accounts.find(item=>Array.isArray(item.sessions)&&item.sessions.some(s=>s.token_sha256===digest));
+        if(!account||account.status==='revoked'||account.status==='password_reset_required')fail(401,'SESSION_INVALID','登录凭证已失效，请使用手机号和密码重新登录');
         const now=Math.floor(clock()/1000),subject=`p_${account.id}`;
         const token=sign({sub:subject,aud:'qbank-maintainer-account-v1',app_id:config.appId,auth_version:config.authVersion,
           password_version:sha256(account.password_hash),iat:now,exp:now+LIMITS.sessionSeconds},config);
         const grants=account.status==='approved'&&object(account.grants)?account.grants:{};
-        return respond(200,{access_token:token,expires_in:LIMITS.sessionSeconds,openid:subject,username:account.username,
+        return respond(200,{access_token:token,refresh_token:refreshToken,expires_in:LIMITS.sessionSeconds,openid:subject,
           phone:account.phone_masked||'',status:account.status||'pending',banks:config.banks.filter(bank=>Object.hasOwn(grants,bank.bank_id)),
           permissions:[...new Set(Object.values(grants).flat())]});
+      }
+      if(path==='/v1/auth/logout'){
+        const body=jsonBody(event,2048),refreshToken=body?.refresh_token;
+        if(exact(body,['refresh_token'])&&typeof refreshToken==='string'&&/^r1\.[A-Za-z0-9_-]{43}$/.test(refreshToken)){
+          const digest=sha256(refreshToken);
+          await access.update(registry=>{for(const account of registry.password_accounts){if(Array.isArray(account.sessions))account.sessions=account.sessions.filter(s=>s.token_sha256!==digest);}});
+        }
+        return respond(200,{ok:true});
       }
       if(path==='/v1/auth/password-reset'){
         throttle('login:all',100);
         const client=String(headers['x-forwarded-for']||headers['x-client-address']||'unknown').slice(0,100);
         throttle(`password-reset:${client}`,5);
-        const body=jsonBody(event,2048),username=normalizeUsername(body?.username);
-        throttle(`password-reset-user:${username||'invalid'}`,5);
-        if(!exact(body,['username','reset_token','password'])||!validUsername(username)||typeof body.reset_token!=='string'||body.reset_token.length<32||body.reset_token.length>128)
+        const body=jsonBody(event,2048);let phone='';try{if(typeof body?.phone==='string')phone=access.normalizePhone(body.phone);}catch{}
+        const phoneHash=phone?access.phoneHash(phone):sha256(String(body?.phone||'invalid'));
+        throttle(`password-reset-user:${phoneHash}`,5);
+        if(!exact(body,['phone','reset_token','password'])||!phone||typeof body.reset_token!=='string'||body.reset_token.length<32||body.reset_token.length>128)
           fail(401,'PASSWORD_RESET_INVALID','重置码无效或已过期，请联系管理员重新发放');
         const registry=await access.read(),candidate=sha256(body.reset_token);
-        const account=registry.password_accounts.find(item=>item.username===username&&item.status==='password_reset_required');
+        const account=registry.password_accounts.find(item=>item.phone_hash===phoneHash&&item.status==='password_reset_required');
         const stored=account&&HASH.test(account.password_reset_sha256||'')?account.password_reset_sha256:'0'.repeat(64);
         const matches=timingSafeEqual(Buffer.from(candidate,'hex'),Buffer.from(stored,'hex'));
         if(!account||!matches||!Number.isSafeInteger(account.password_reset_expires_at)||account.password_reset_expires_at<=clock())
@@ -138,10 +169,10 @@ function createHandler({ env = () => process.env, store, exchangeWechat, parseDe
           const valid=target?.status==='password_reset_required'&&timingSafeEqual(Buffer.from(candidate,'hex'),Buffer.from(expected,'hex'))
             &&Number.isSafeInteger(target.password_reset_expires_at)&&target.password_reset_expires_at>clock();
           if(!valid)fail(401,'PASSWORD_RESET_INVALID','重置码无效或已过期，请联系管理员重新发放');
-          target.password_hash=passwordHash;target.status='pending';target.grants={};
+          target.password_hash=passwordHash;target.status='pending';target.grants={};target.sessions=[];
           delete target.password_reset_sha256;delete target.password_reset_expires_at;delete target.password_reset_issued_at;
         });
-        return respond(200,{username,status:'pending'});
+        return respond(200,{phone:access.maskPhone(phone),status:'pending'});
       }
       if(path==='/v1/auth/wechat-login'){
         throttle('login:all',100);throttle(`login:${String(headers['x-forwarded-for']||headers['x-client-address']||'unknown').slice(0,100)}`,10);

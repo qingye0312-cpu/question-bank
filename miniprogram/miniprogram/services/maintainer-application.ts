@@ -1,5 +1,5 @@
 export type MaintainerForm={phone:string;realName:string;nickname:string;identity:string};
-export type MaintainerRegistrationForm=MaintainerForm&{username:string;password:string;passwordConfirm:string};
+export type MaintainerRegistrationForm=MaintainerForm&{password:string;passwordConfirm:string};
 
 export function applicationFields(form:MaintainerForm){
  const phone=form.phone.trim().replace(/[\s()-]/g,'').replace(/^(?:\+86|0086)/,'');
@@ -17,9 +17,7 @@ export function passwordMeetsPolicy(value:string){
 }
 
 export function registrationFields(form:MaintainerRegistrationForm){
- const username=form.username.trim().toLowerCase();
- if(!/^[a-z0-9][a-z0-9._-]{2,30}[a-z0-9]$/.test(username))throw Error('账号需为 4 至 32 位字母、数字、点、下划线或连字符');
  if(!passwordMeetsPolicy(form.password))throw Error('密码至少 8 位，且需包含大写字母、小写字母和数字');
  if(form.password!==form.passwordConfirm)throw Error('两次输入的密码不一致');
- return {...applicationFields(form),username,password:form.password};
+ return {...applicationFields(form),password:form.password};
 }

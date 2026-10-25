@@ -24,12 +24,57 @@ pub fn save(origin: &str, key: Option<String>) -> Result<()> {
             return Err("维护者密钥格式无效".into());
         }
     }
+    if key.is_some() {
+        platform::save(&format!("{id}:password-refresh"), None)?;
+    }
     platform::save(&id, key.as_deref())
+}
+pub fn save_refresh(origin: &str, refresh_token: Option<String>) -> Result<()> {
+    let id = account(origin)?;
+    if let Some(ref token) = refresh_token {
+        if !token.starts_with("r1.") || token.len() > 128 || token.contains('\0') {
+            return Err("登录续期凭据格式无效".into());
+        }
+        platform::save(&id, None)?;
+    }
+    platform::save(&format!("{id}:password-refresh"), refresh_token.as_deref())
 }
 pub fn login(origin: &str) -> Result<Value> {
     let key =
         platform::read(&account(origin)?)?.ok_or("本机没有保存此服务的维护者凭据，请重新登录")?;
     cloud::request(origin, "/v1/auth/desktop", Some(json!({"key":key})), None)
+}
+pub fn resume(origin: &str) -> Result<Value> {
+    let id = account(origin)?;
+    if let Some(refresh) = platform::read(&format!("{id}:password-refresh"))? {
+        let mut response = cloud::request(origin, "/v1/auth/refresh", Some(json!({"refresh_token":refresh})), None)?;
+        let status = response["status"].as_u64().unwrap_or(0);
+        if (200..300).contains(&status) {
+            response["auth_type"] = json!("password");
+            if let Some(body) = response.get_mut("body").and_then(Value::as_object_mut) {
+                body.remove("refresh_token");
+            }
+            return Ok(response);
+        }
+        if status != 401 && status != 403 {
+            return Ok(response);
+        }
+        platform::save(&format!("{id}:password-refresh"), None)?;
+    }
+    if let Some(key) = platform::read(&id)? {
+        let mut response = cloud::request(origin, "/v1/auth/desktop", Some(json!({"key":key})), None)?;
+        response["auth_type"] = json!("key");
+        return Ok(response);
+    }
+    Ok(json!({"status":401,"auth_type":"","body":{"error":{"message":"本机没有保存登录凭据，请使用手机号和密码登录"}}}))
+}
+pub fn logout(origin: &str) -> Result<()> {
+    let id = account(origin)?;
+    if let Some(refresh) = platform::read(&format!("{id}:password-refresh"))? {
+        let _ = cloud::request(origin, "/v1/auth/logout", Some(json!({"refresh_token":refresh})), None);
+    }
+    platform::save(&id, None)?;
+    platform::save(&format!("{id}:password-refresh"), None)
 }
 #[cfg(target_os = "macos")]
 mod platform {

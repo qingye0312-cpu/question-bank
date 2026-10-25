@@ -9,7 +9,7 @@ import {createRoot} from 'react-dom/client';
 import {invoke, isTauri} from '@tauri-apps/api/core';
 import {getCurrentWebview} from '@tauri-apps/api/webview';
 import {SoftwareUpdate} from './software-update';
-import {startCloudWorker} from './cloud-client';
+import {cloudInitializePersistentSession,startCloudWorker} from './cloud-client';
 import {IntakePanel} from './intake-panel';
 import {IntakeHub} from './intake-hub';
 import {APP_VERSION} from './generated/client-assets';
@@ -68,6 +68,7 @@ function App(){
  },[preferences,mode,bankId,fontScale]);
  useEffect(()=>{if(banks.length&&((bankId&&!banks.some(b=>b.id===bankId))||(mode==='speed'&&!bankId)))setBankId(banks[0].id)},[banks,bankId,mode]);
  useEffect(()=>startCloudWorker(()=>{void refresh()},setNotice),[]);
+ useEffect(()=>{void cloudInitializePersistentSession().catch(()=>{});},[]);
  useEffect(()=>{work('正在打开本地题库',async()=>{await refresh();setInfo(await invoke('app_info'));});},[]);
  useEffect(()=>{if(!info.version||busy||startupUpdate.current)return;startupUpdate.current=true;void invoke<{configured:boolean;version?:string}>('software_update_check').then(result=>{if(result.version)setNotice(`软件有新版本 ${result.version}，可在设置中查看并安装。`);}).catch(()=>{});},[info.version,busy]);
  useEffect(()=>{const handle=(e:KeyboardEvent)=>{if((e.metaKey||e.ctrlKey)&&e.shiftKey&&e.key.toLowerCase()==='o'&&!modal){e.preventDefault();openOcr();return}if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'&&!modal){e.preventDefault();input.current?.focus();input.current?.select();}if(e.key==='Escape'){if(modal&&!busy){setModal('');setDraft(null)}else{input.current?.focus();}}};window.addEventListener('keydown',handle);return()=>window.removeEventListener('keydown',handle);},[results,active,modal,busy]);
@@ -177,7 +178,7 @@ function App(){
    {modal==='history'&&<><h2>修订历史</h2><p>恢复历史内容会新增修订，不会抹去后续记录。</p>{history.length?history.map((h,i)=><div className="history-item" key={i}><b>{h.reason} · 修订 {h.question.base_revision}</b><small>{new Date(h.at).toLocaleString()}</small><p>{h.question.stem.slice(0,160)}</p>{!detailBank?.read_only&&<button onClick={()=>{setDraft({...h.question,base_revision:q!.base_revision});setEditBank(active!.bank_id);setModal('edit')}}>载入编辑器</button>}</div>):<div className="callout">这道题还没有历史修订。</div>}</>}
    {modal==='settings'&&<><div className="settings-modal-heading"><div className="modal-icon"><Settings/></div><div><h2>设置与维护</h2><p>题库 v{info.version||APP_VERSION} · {info.platform} / {info.arch}</p></div></div>
     <AppearanceSettings preferences={preferences} setPreferences={setPreferences} systemTheme={systemTheme} setPreview={setAppearancePreview}/>
-    <TraySettings available={info.tray==='true'} platform={info.platform}/>
+    <TraySettings available={info.tray==='true'}/>
     <section className="settings-maintenance" aria-labelledby="settings-maintenance-title">
      <h3 id="settings-maintenance-title">备份与维护</h3>
      <div className="settings-backup-actions">

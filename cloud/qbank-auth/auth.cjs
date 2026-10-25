@@ -40,11 +40,11 @@ function verify(token, config, now, registry) {
   }
   if(payload.aud==='qbank-maintainer-account-v1'){
     const accountId=payload.sub.slice(2),account=(registry?.password_accounts||[]).find(a=>a.id===accountId);
-    if(!account||account.status==='revoked')fail(403,'MAINTAINER_REVOKED','维护者账号已撤销，请联系管理员');
+    if(!account||account.status==='revoked'||account.status==='password_reset_required')fail(403,'MAINTAINER_REVOKED','维护者账号已撤销或需要重置，请重新登录');
     if(payload.password_version!==sha256(account.password_hash))fail(401,'SESSION_INVALID','登录已失效，请重新登录');
     const approved=account.status==='approved',grants=approved&&object(account.grants)?account.grants:{};
     return {openid:payload.sub,banks:Object.keys(grants),grants,desktop:false,password_account:true,
-      account_id:account.id,username:account.username,phone_masked:account.phone_masked||'',
+      account_id:account.id,phone_masked:account.phone_masked||'',
       nickname:account.nickname||'',real_name:account.real_name||'',account_status:account.status||'pending'};
   }
 }
