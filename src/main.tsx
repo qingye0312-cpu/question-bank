@@ -1,5 +1,6 @@
 import {AppearanceSettings} from './settings/appearance';
 import {CloudLibrary} from './cloud/library';
+import {CloudLogin} from './cloud/login';
 import {displayTime,recordedTime} from '../shared/intake';
 import {listen} from '@tauri-apps/api/event';
 import React, {useEffect, useLayoutEffect, useRef, useState} from 'react';
@@ -13,7 +14,7 @@ import {IntakeHub} from './intake-hub';
 import {APP_VERSION} from './generated/client-assets';
 import {copyText} from './clipboard';
 import {open, save} from '@tauri-apps/plugin-dialog';
-import {Search,Library,Package,Upload,Plus,ChevronRight,Settings,Check,Copy,Edit3,Trash2,X,Lock,RefreshCw,BookOpen,History,CheckCircle2,Download,HardDrive,Layers,Keyboard,ScanText,PanelLeftClose,PanelLeftOpen,ChevronsUp,Eye} from 'lucide-react';
+import {Search,Library,Package,Upload,Plus,ChevronRight,Settings,LogIn,Check,Copy,Edit3,Trash2,X,Lock,RefreshCw,BookOpen,History,CheckCircle2,Download,HardDrive,Layers,Keyboard,ScanText,PanelLeftClose,PanelLeftOpen,ChevronsUp,Eye} from 'lucide-react';
 import './styles.css';
 import {benchmarkCases,percentiles} from './benchmark';
 import type {Question, Bank, Hit, Results} from './types';
@@ -43,7 +44,8 @@ function App(){
  const fontScale=fontSizes.find(f=>f.id===preferences.fontSize)!.scale;
  const [banks,setBanks]=useState<Bank[]>([]),[bankId,setBankId]=useState(preferences.bankId),[text,setText]=useState(''),[committed,setCommitted]=useState(''),[kind,setKind]=useState(''),[results,setResults]=useState<Results>({items:[],has_more:false,elapsed_ms:0}),[active,setActive]=useState<Hit|null>(null),[answerOpen,setAnswerOpen]=useState(true),[revision,setRevision]=useState(0);
  const [busy,setBusy]=useState(''),[notice,setNotice]=useState(''),[error,setError]=useState(''),[modal,setModal]=useState(''),[draft,setDraft]=useState<Question|null>(null),[editBank,setEditBank]=useState(''),[exportBank,setExportBank]=useState(''),[exportFormat,setExportFormat]=useState('package'),[history,setHistory]=useState<{question:Question;at:string;reason:string}[]>([]),[info,setInfo]=useState<Record<string,string>>({});
- const startupUpdate=useRef(false);
+ const startupUpdateStarted=useRef(false),startupUpdateInstallStarted=useRef(false);
+ const [startupUpdate,setStartupUpdate]=useState<{version:string;notes?:string}|null>(null),[autoUpdating,setAutoUpdating]=useState(false),[startupUpdateStatus,setStartupUpdateStatus]=useState('');
  const [intakeRecord,setIntakeRecord]=useState(''),[intakeInitial,setIntakeInitial]=useState(''),[intakeManual,setIntakeManual]=useState(false);
  const [dropping,setDropping]=useState(false);
  function openIntake(value='',record='',manual=false){setIntakeRecord(record);setIntakeInitial(value);setIntakeManual(manual);setModal('intake')}
@@ -68,29 +70,36 @@ function App(){
  useEffect(()=>startCloudWorker(()=>{void refresh()},setNotice),[]);
  useEffect(()=>{work('正在打开本地题库',async()=>{await refresh();setInfo(await invoke('app_info'));});},[]);
  useEffect(()=>{
-  if(!info.version||busy||startupUpdate.current)return;
-  startupUpdate.current=true;
-  let disposed=false,stop:(()=>void)|undefined;
+  if(!info.version||startupUpdateStarted.current)return;
+  startupUpdateStarted.current=true;
+  void invoke<{configured:boolean;version?:string;notes?:string}>('software_update_check').then(update=>{
+   if(!update.version)return;
+   setStartupUpdate(update);
+   setStartupUpdateStatus(`已发现题库 ${update.version}，当前页面关闭后将自动安装。`);
+  }).catch(()=>setNotice('软件更新暂不可用，继续使用当前版本。'));
+ },[info.version]);
+ useEffect(()=>{
+  if(!startupUpdate||busy||modal||draft||startupUpdateInstallStarted.current)return;
+  startupUpdateInstallStarted.current=true;
+  setAutoUpdating(true);
+  setStartupUpdateStatus(`正在下载并校验题库 ${startupUpdate.version}…`);
+  setBusy(`正在安装软件更新 ${startupUpdate.version}`);
+  let stop:(()=>void)|undefined;
   void (async()=>{
    try{
-    const update=await invoke<{configured:boolean;version?:string;notes?:string}>('software_update_check');
-    if(disposed||!update.version)return;
-    setNotice(`检测到题库 ${update.version}，正在自动下载并安装。`);
-    setBusy(`正在安装软件更新 ${update.version}`);
     stop=await listen<{downloaded:number;total?:number}>('software-update-progress',event=>{
-     if(disposed)return;
      const downloaded=(event.payload.downloaded/1048576).toFixed(1);
      const total=event.payload.total?` / ${(event.payload.total/1048576).toFixed(1)} MB`:'';
-     setNotice(`正在自动更新 ${update.version}：${downloaded} MB${total}`);
+     setStartupUpdateStatus(`正在更新 ${startupUpdate.version}：${downloaded} MB${total}`);
     });
-    await invoke('software_update_install',{version:update.version});
+    await invoke('software_update_install',{version:startupUpdate.version});
    }catch{
-    if(!disposed){setBusy('');setNotice('软件更新暂不可用，继续使用当前版本。');}
-   }
+    setAutoUpdating(false);setBusy('');setStartupUpdate(null);setStartupUpdateStatus('');
+    setNotice('软件更新未完成，继续使用当前版本。');
+   }finally{stop?.()}
   })();
-  return()=>{disposed=true;stop?.()};
- },[info.version,busy]);
- useEffect(()=>{const handle=(e:KeyboardEvent)=>{if((e.metaKey||e.ctrlKey)&&e.shiftKey&&e.key.toLowerCase()==='o'&&!modal){e.preventDefault();openOcr();return}if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'&&!modal){e.preventDefault();input.current?.focus();input.current?.select();}if(e.key==='Escape'){if(modal&&!busy){setModal('');setDraft(null)}else{input.current?.focus();}}};window.addEventListener('keydown',handle);return()=>window.removeEventListener('keydown',handle);},[results,active,modal,busy]);
+ },[startupUpdate,busy,modal,draft]);
+ useEffect(()=>{const handle=(e:KeyboardEvent)=>{if(autoUpdating){e.preventDefault();return}if((e.metaKey||e.ctrlKey)&&e.shiftKey&&e.key.toLowerCase()==='o'&&!modal){e.preventDefault();openOcr();return}if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'&&!modal){e.preventDefault();input.current?.focus();input.current?.select();}if(e.key==='Escape'){if(modal&&!busy){setModal('');setDraft(null)}else{input.current?.focus();}}};window.addEventListener('keydown',handle);return()=>window.removeEventListener('keydown',handle);},[results,active,modal,busy,autoUpdating]);
  useEffect(()=>{const paste=(e:ClipboardEvent)=>{if(modal||busy||!e.clipboardData)return;const item=Array.from(e.clipboardData.items).find(i=>i.type.startsWith('image/'));if(item){const file=item.getAsFile();if(file){e.preventDefault();readImage(file).then(image=>openOcr({image})).catch(e=>setError(String(e)))}return}const value=e.clipboardData.getData('text/plain');if(value.includes('qbank-photo-question-1')){e.preventDefault();openIntake(value);return}if(looksLikeQuestion(value)){e.preventDefault();openOcr({text:value})}};window.addEventListener('paste',paste);return()=>window.removeEventListener('paste',paste)},[modal,busy]);
  useEffect(()=>{if(benchPending.current){requestAnimationFrame(()=>requestAnimationFrame(()=>{const done=benchPending.current;benchPending.current=null;done?.(results)}));}},[results]);
  useEffect(()=>{if(notice){const t=setTimeout(()=>setNotice(''),8000);return()=>clearTimeout(t)}},[notice]);
@@ -150,8 +159,8 @@ function App(){
  })}
  const q=active?.question;
  const modeSwitch=<div className="mode-switch" role="group" aria-label="页面模式">{([['detail','详细模式'],['speed','极速模式']] as const).map(([value,label])=><button key={value} aria-pressed={mode===value} className={mode===value?'active':''} onClick={()=>switchMode(value)}>{label}</button>)}</div>;
- const searchBox=<div className="search-box"><Search size={22}/><input ref={input} autoFocus aria-label={mode==='speed'?`搜索当前题库：${bank?.name||'正在载入'}`:'搜索题目'} placeholder={mode==='speed'?`搜索「${bank?.name||'当前题库'}」中的全部题目…`:'搜索题目、选项、标签、章节或编号…'} value={text} onChange={e=>{setText(e.target.value);if(!composing.current){setCommitted(e.target.value)}}} onCompositionStart={()=>{composing.current=true}} onCompositionEnd={e=>{composing.current=false;setCommitted(e.currentTarget.value)}}/>{text?<button aria-label="清空搜索" onClick={()=>{setText('');setCommitted('');input.current?.focus()}}><X size={17}/></button>:mode==='detail'?<kbd>⌘ / Ctrl K</kbd>:null}<button className="ocr-search-entry" title="截图 / 粘贴识题（⌘ / Ctrl Shift O）" aria-label="截图或粘贴识题" onClick={()=>openOcr()}><ScanText size={19}/></button></div>;
- return <div className={`app ${mode==='speed'?'speed-mode':''}`}>
+ const searchBox=<div className="search-box"><Search size={22}/><input ref={input} autoFocus disabled={autoUpdating} aria-label={mode==='speed'?`搜索当前题库：${bank?.name||'正在载入'}`:'搜索题目'} placeholder={mode==='speed'?`搜索「${bank?.name||'当前题库'}」中的全部题目…`:'搜索题目、选项、标签、章节或编号…'} value={text} onChange={e=>{setText(e.target.value);if(!composing.current){setCommitted(e.target.value)}}} onCompositionStart={()=>{composing.current=true}} onCompositionEnd={e=>{composing.current=false;setCommitted(e.currentTarget.value)}}/>{text?<button aria-label="清空搜索" onClick={()=>{setText('');setCommitted('');input.current?.focus()}}><X size={17}/></button>:mode==='detail'?<kbd>⌘ / Ctrl K</kbd>:null}<button className="ocr-search-entry" title="截图 / 粘贴识题（⌘ / Ctrl Shift O）" aria-label="截图或粘贴识题" onClick={()=>openOcr()}><ScanText size={19}/></button></div>;
+ return <div className={`app ${mode==='speed'?'speed-mode':''}`} aria-busy={autoUpdating}>
   {mode==='detail'&&<div id="workspace-sidebar" className={`sidebar-shell ${preferences.sidebarCollapsed?'is-collapsed':''}`} aria-hidden={preferences.sidebarCollapsed} inert={preferences.sidebarCollapsed}><aside className="sidebar">
    <div className="brand"><div className="brand-mark"><Layers size={24}/></div><div className="brand-name"><b>题库</b><small>离线知识工作台</small></div></div>
    <button className={`nav-item ${!bankId?'selected':''}`} onClick={()=>switchBank('')}><Library size={18}/>全部题目 <span>{total.toLocaleString()}</span></button>
@@ -162,13 +171,14 @@ function App(){
    </section>
    <div className="nav-divider"/>
    <nav className="sidebar-tools" aria-label="工具与设置">
+    <button className="nav-item cloud-login-entry" onClick={()=>setModal('cloud-login')}><LogIn size={17}/>云端登录</button>
     <button className="nav-item settings" onClick={()=>setModal('settings')}><Settings size={17}/>设置与维护 <span>v{APP_VERSION}</span></button>
    </nav>
    <div className="local-status"><i/> 数据保存在本机</div>
   </aside></div>}
   <main>
    {mode==='speed'?<>
-    <header className="speed-header"><div className="speed-tools"><button className="speed-settings" title="设置与维护" aria-label="设置与维护" onClick={()=>setModal('settings')}><Settings size={19}/></button><button className="speed-preview-toggle" title={preferences.speedPreview?'关闭题目预览':'开启题目预览：鼠标移入题目立即显示'} aria-label="题目预览" aria-pressed={preferences.speedPreview} onClick={()=>setPreferences(p=>({...p,speedPreview:!p.speedPreview}))}><Eye size={18}/><span>预览</span></button></div>{searchBox}{modeSwitch}</header>
+    <header className="speed-header"><div className="speed-tools"><button className="speed-settings" title="设置与维护" aria-label="设置与维护" onClick={()=>setModal('settings')}><Settings size={19}/></button><button className="speed-cloud-login" title="云端登录" aria-label="云端登录" onClick={()=>setModal('cloud-login')}><LogIn size={18}/></button><button className="speed-preview-toggle" title={preferences.speedPreview?'关闭题目预览':'开启题目预览：鼠标移入题目立即显示'} aria-label="题目预览" aria-pressed={preferences.speedPreview} onClick={()=>setPreferences(p=>({...p,speedPreview:!p.speedPreview}))}><Eye size={18}/><span>预览</span></button></div>{searchBox}{modeSwitch}</header>
     <SpeedResults bankId={bankId||'__no_selected_bank__'} query={committed} revision={revision} fontScale={fontScale} previewEnabled={preferences.speedPreview&&!modal&&!busy} onResults={setResults}/>
    </>:<>
 
@@ -184,12 +194,14 @@ function App(){
   </main>
   {(notice||error)&&<div className={`toast ${error?'error':''}`} role={error?'alert':'status'}><span>{error||notice}</span><button aria-label="关闭提示" onClick={()=>{setError('');setNotice('')}}><X size={16}/></button></div>}
   {busy&&<div className="busy" role="status"><RefreshCw size={16} className="spin"/>{busy}</div>}
+  {autoUpdating&&<div className="startup-update-backdrop" role="dialog" aria-modal="true" aria-labelledby="startup-update-title"><section className="startup-update-card"><RefreshCw size={22} className="spin"/><div><b id="startup-update-title">正在更新题库</b><p role="status">{startupUpdateStatus}</p><small>更新完成后会自动重启；本地题库数据会保留。</small></div></section></div>}
   {dropping&&<div className="delta-drop-overlay">松开即可导入 JSON 增量题库<br/><small>按题库身份合并 · 自动跳过重复题</small></div>}
   {modal==='library'&&<CloudLibrary banks={banks} onClose={()=>setModal('')} onChanged={refresh} onDeleted={bankDeleted} onCreated={switchBank}/>}
   {modal==='intake-hub'&&<IntakeHub busy={!!busy} onAI={()=>openIntake()} onManual={()=>beginManualEntry()} onJSON={()=>void chooseJsonImport()} onClose={()=>setModal('')}/>}
   {modal==='intake'&&<IntakePanel banks={banks} bankId={bankId||active?.bank_id||''} initial={intakeInitial} initialRecordId={intakeRecord} startManual={intakeManual} onClose={()=>setModal('')} onBusy={value=>setBusy(value?'正在处理录入':'')} onSaved={async id=>{await refresh();switchBank(id)}}/>}
   {modal==='ocr'&&<OcrPanel banks={banks} bankId={bankId||active?.bank_id||''} initial={ocrInitial} onClose={()=>setModal('')} onSearch={(value,id)=>{setModal('');switchBank(id);setText(value);setCommitted(value);input.current?.focus()}}/>}
-  {modal&&modal!=='library'&&modal!=='ocr'&&modal!=='intake'&&modal!=='intake-hub'&&<div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget&&!busy){setModal('');setDraft(null)}}}><section className={`modal ${modal==='edit'?'large':''} ${modal==='settings'?'settings-modal':''}`} role="dialog" aria-modal="true"><button className="close-modal" aria-label="关闭" disabled={!!busy} onClick={()=>{setModal('');setDraft(null)}}><X size={20}/></button>
+  {modal&&modal!=='library'&&modal!=='ocr'&&modal!=='intake'&&modal!=='intake-hub'&&<div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget&&!busy){setModal('');setDraft(null)}}}><section className={`modal ${modal==='edit'||modal==='cloud-login'?'large':''} ${modal==='settings'?'settings-modal':''} ${modal==='cloud-login'?'cloud-login-modal':''}`} role="dialog" aria-modal="true" aria-label={modal==='cloud-login'?'云端登录与权限':undefined}><button className="close-modal" aria-label="关闭" disabled={!!busy} onClick={()=>{setModal('');setDraft(null)}}><X size={20}/></button>
+   {modal==='cloud-login'&&<CloudLogin/>}
    {modal==='export'&&<><div className="modal-icon"><Package/></div><h2>{exportFormat==='package'?'制作离线题库包':'导出题库'}</h2><p>每台客户端均可导出。离线包包含整库题目、答案、来源和版本，适合备份或外部传递；当前客户端不提供离线包回导。</p><label>选择题库<select value={exportBank} onChange={e=>setExportBank(e.target.value)}>{banks.map(b=><option key={b.id} value={b.id}>{b.release_name||b.name} · {b.count} 题 · v{b.version}</option>)}</select></label><label>文件格式<select value={exportFormat} onChange={e=>setExportFormat(e.target.value)}><option value="package">离线题库包（.qbank.zip）</option><option value="xlsx">标准 Excel（.xlsx）</option><option value="docx">标准 Word（.docx）</option><option value="jsonl">标准 JSONL（.jsonl）</option><option value="docx-study">Word 学习版（含答案解析）</option><option value="docx-exam">Word 试卷版（无答案）</option><option value="docx-answers">Word 独立答案版</option></select></label><label><input type="checkbox" checked={exportFiltered&&exportFormat!=='package'} disabled={exportFormat==='package'} onChange={e=>setExportFiltered(e.target.checked)}/>仅导出当前搜索与筛选结果（所选题库）</label><div className="callout">打印用 Word 不用于回导。需要改动离线库时，在题库管理中建立可编辑副本，再用 JSON 增量合并新题。</div><button className="primary wide" disabled={!exportBank||!!busy} onClick={doExport}><Download size={17}/>选择位置并保存</button></>}
    {modal==='edit'&&draft&&<><h2>{draft.question_id?'编辑题目':'新增题目'}</h2><p>填写完整选项和明确答案，保存后立即可搜索。</p><div className="form-grid"><label>题库<select value={editBank} disabled={!!draft.question_id} onChange={e=>setEditBank(e.target.value)}>{banks.filter(b=>!b.read_only).map(b=><option key={b.id} value={b.id}>{b.release_name||b.name}</option>)}</select></label><label>题型<select value={draft.type} onChange={e=>setDraft({...draft,type:e.target.value,answer:e.target.value==='true_false'?true:e.target.value==='programming'?null:[],options:e.target.value==='true_false'||e.target.value==='programming'?[]:draft.options.length?draft.options:blank().options})}>{Object.entries(kinds).map(([v,l])=><option value={v} key={v}>{l}</option>)}</select></label><label>外部编号<input value={draft.external_id} onChange={e=>setDraft({...draft,external_id:e.target.value})} placeholder="可选"/></label><label>章节<input value={draft.chapter} onChange={e=>setDraft({...draft,chapter:e.target.value})} placeholder="开发基础/组件"/></label></div><label>题干<textarea rows={4} value={draft.stem} onChange={e=>setDraft({...draft,stem:e.target.value})}/></label>{draft.type==='programming'?<p className="programming-editor-note">编程题正文直接填写在题干中，暂无标准答案。</p>:draft.type!=='true_false'?<><div className="options-editor">{draft.options.map((o,i)=><div key={o.key}><span>{o.key}</span><textarea rows={2} value={o.content} onChange={e=>setDraft({...draft,options:draft.options.map((v,j)=>i===j?{...v,content:e.target.value}:v)})}/><input type={draft.type==='single'?'radio':'checkbox'} name="correct" aria-label={`${o.key} 为正确答案`} checked={Array.isArray(draft.answer)&&draft.answer.includes(o.key)} onChange={e=>setDraft({...draft,answer:draft.type==='single'?[o.key]:e.target.checked?[...(Array.isArray(draft.answer)?draft.answer:[]),o.key].sort():(Array.isArray(draft.answer)?draft.answer:[]).filter(k=>k!==o.key)})}/></div>)}</div><div className="option-tools"><button disabled={draft.options.length>=8} onClick={()=>setDraft({...draft,options:[...draft.options,{key:'ABCDEFGH'[draft.options.length],content:''}]})}><Plus size={14}/>添加选项</button><button disabled={draft.options.length<=2} onClick={()=>{const last=draft.options.at(-1)?.key;setDraft({...draft,options:draft.options.slice(0,-1),answer:(Array.isArray(draft.answer)?draft.answer:[]).filter(a=>a!==last)})}}>移除末项</button><span>右侧勾选正确答案</span></div></>:<label>答案<select value={draft.answer===null?"":String(draft.answer)} onChange={e=>setDraft({...draft,answer:e.target.value==='true'})}><option value="" disabled>请选择答案</option><option value="true">正确</option><option value="false">错误</option></select></label>}<label>解析<textarea rows={3} value={draft.explanation} onChange={e=>setDraft({...draft,explanation:e.target.value})}/></label><div className="form-grid"><label>标签（用 | 分隔）<input value={draft.tags.join('|')} onChange={e=>setDraft({...draft,tags:e.target.value.split('|')})}/></label><label>答案状态<select value={draft.status} onChange={e=>setDraft({...draft,status:e.target.value,issues:e.target.value==='verified'?[]:draft.issues})}><option value="unreviewed">按来源录入</option><option value="verified">已核对正确</option><option value="needs_review">留待核对</option></select></label></div><button className="primary wide" disabled={!!busy||!banks.some(b=>b.id===editBank&&!b.read_only)} onClick={saveDraft}>保存题目</button></>}
    {modal==='history'&&<><h2>修订历史</h2><p>恢复历史内容会新增修订，不会抹去后续记录。</p>{history.length?history.map((h,i)=><div className="history-item" key={i}><b>{h.reason} · 修订 {h.question.base_revision}</b><small>{new Date(h.at).toLocaleString()}</small><p>{h.question.stem.slice(0,160)}</p>{!detailBank?.read_only&&<button onClick={()=>{setDraft({...h.question,base_revision:q!.base_revision});setEditBank(active!.bank_id);setModal('edit')}}>载入编辑器</button>}</div>):<div className="callout">这道题还没有历史修订。</div>}</>}

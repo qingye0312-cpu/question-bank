@@ -42,6 +42,7 @@ async function deploy(bundlePath, signaturePath, manifestPath) {
   const installScript = await fs.readFile(path.join(root, 'tools/macos/install-update-release.sh'));
   const caddyPath = path.join(root, 'tools/self-host/Caddyfile.domain');
   run('scp', [bundlePath, signaturePath, manifestPath, caddyPath, 'qbank-pve:/tmp/']);
+  run('scp', [caddyPath, 'qbank-pve:/tmp/qbank-domain.caddy']);
   run('ssh', ['qbank-pve', `QBANK_RELEASE_VERSION=${version} sh -s`], { input: installScript });
 }
 

@@ -5,11 +5,11 @@ import {FileKey} from 'lucide-react';
 import {cloudAccess,cloudCall,cloudLogin,cloudLoginPassword,cloudLogout,cloudOrigin,setCloudOrigin,remembersMachine,resumeDesktop,cloudForget,fetchCatalog} from '../cloud-client';
 import {parseMaintainerCertificate} from './session-service';
 
-type LoginMode='key'|'account'|'register'|'reset';
+type LoginMode='account'|'register'|'key'|'reset';
 type BankChoice={bank_id:string;name:string};
 
 export function CloudLogin({onChange=()=>{},disabled=false}:{onChange?:()=>void;disabled?:boolean}){
- const [origin,setOrigin]=useState(cloudOrigin()),[mode,setMode]=useState<LoginMode>('key');
+ const [origin,setOrigin]=useState(cloudOrigin()),[mode,setMode]=useState<LoginMode>('account');
  const [key,setKey]=useState(''),[username,setUsername]=useState(''),[password,setPassword]=useState(''),[confirmPassword,setConfirmPassword]=useState('');
  const [phone,setPhone]=useState(''),[realName,setRealName]=useState(''),[nickname,setNickname]=useState(''),[identityDescription,setIdentityDescription]=useState('');
  const [resetToken,setResetToken]=useState(''),[newPassword,setNewPassword]=useState('');
@@ -88,13 +88,14 @@ export function CloudLogin({onChange=()=>{},disabled=false}:{onChange?:()=>void;
   }catch(e){setMessage(String(e));}finally{setBusy(false);}
  }
  const statusLabel=access?.account_status==='approved'?'已授权':access?.account_status==='pending'?'等待管理员审批':access?.account_status==='rejected'?'申请未通过':access?.account_status==='password_reset_required'?'等待重置密码':access?.account_status==='desktop'?'最高权限':'';
- return <div className="cloud-access"><div className="cloud-access-heading"><h3>云端登录与权限</h3><span>{access?'已登录':'登录入口'}</span></div><p>日常搜题与本地录题无需登录。维护者账号需由桌面最高权限审批后，才能上传获批题库；手机号用于唯一登记，当前不发送短信验证码。</p>
-  <label>云端 HTTPS 地址<input value={origin} disabled={disabled||busy} onChange={e=>setOrigin(e.target.value)}/></label>
-  <p className="cloud-address-hint">服务地址必须使用 HTTPS，且服务器证书需要受系统信任。</p>
-  <button type="button" disabled={disabled||busy||!origin} onClick={saveOrigin}>保存服务地址</button>
-  {access?<><p>当前身份：{access.auth_type==='password'?access.username||'维护者账号':access.auth_type==='key'?'最高权限（密钥／证书）':'维护者账号'}{statusLabel?` · ${statusLabel}`:''}</p><p>已授权题库：{access.banks.map(b=>b.name).join('、')||'暂无'}</p><div className="cloud-login-actions"><button type="button" disabled={disabled||busy} onClick={()=>{cloudLogout();setMode('key');setMessage('已退出，请选择最高权限密钥／证书或维护者账号登录。');render(n=>n+1);onChange();}}>重新登录 / 切换身份</button></div></>:<>
-   <div className="cloud-login-mode" role="group" aria-label="登录或注册"><button type="button" aria-pressed={mode==='key'} disabled={disabled||busy} onClick={()=>{setMode('key');setMessage('');}}>最高权限</button><button type="button" aria-pressed={mode==='account'} disabled={disabled||busy} onClick={()=>{setMode('account');setMessage('');}}>账号登录</button><button type="button" aria-pressed={mode==='register'} disabled={disabled||busy} onClick={openRegistration}>注册申请</button></div>
-   {mode==='key'?<>
+ return <div className="cloud-access"><div className="cloud-access-heading"><h3>云端登录与权限</h3><span>{access?'已登录':'选择登录方式'}</span></div><p>日常搜题与本地录题无需登录。维护者账号需由桌面最高权限审批后，才能上传获批题库；手机号用于唯一登记，当前不发送短信验证码。</p>
+  {access?<div className="cloud-session-info"><p>当前身份：{access.auth_type==='password'?access.username||'维护者账号':access.auth_type==='key'?'最高权限（密钥／证书）':'维护者账号'}{statusLabel?` · ${statusLabel}`:''}</p><p>已授权题库：{access.banks.map(b=>b.name).join('、')||'暂无'}</p><div className="cloud-login-actions"><button type="button" disabled={disabled||busy} onClick={()=>{cloudLogout();setMode('account');setMessage('已退出，请选择登录、注册或最高权限。');render(n=>n+1);onChange();}}>退出并切换登录方式</button></div></div>:<>
+   <div className="cloud-login-mode" role="group" aria-label="登录方式">
+    <button type="button" aria-pressed={mode==='account'||mode==='reset'} disabled={disabled||busy} onClick={()=>{setMode('account');setMessage('');}}>登录</button>
+    <button type="button" aria-pressed={mode==='register'} disabled={disabled||busy} onClick={openRegistration}>注册</button>
+    <button type="button" aria-pressed={mode==='key'} disabled={disabled||busy} onClick={()=>{setMode('key');setMessage('');}}>最高权限</button>
+   </div>
+   <div className="cloud-login-panel">{mode==='key'?<>
     <p className="cloud-login-hint">最高权限密钥和分发证书等效，任选一种即可登录。两种方式使用同一最高权限身份。</p>
     <label><input type="checkbox" checked={remember} onChange={e=>setRemember(e.target.checked)} disabled={disabled||busy}/>记住本机（系统钥匙串／凭据管理器）</label>
     <label>最高权限密钥<input type="password" autoComplete="off" spellCheck={false} value={key} disabled={disabled||busy} onChange={e=>setKey(e.target.value)}/></label>
@@ -123,9 +124,14 @@ export function CloudLogin({onChange=()=>{},disabled=false}:{onChange?:()=>void;
     <label>一次性重置码<input required autoComplete="one-time-code" value={resetToken} disabled={disabled||busy} onChange={e=>setResetToken(e.target.value)}/></label>
     <label>新密码<input required type="password" autoComplete="new-password" minLength={12} maxLength={128} value={newPassword} disabled={disabled||busy} onChange={e=>setNewPassword(e.target.value)} placeholder="12–128 个字符"/></label>
     <div className="cloud-login-actions"><button className="primary" type="submit" disabled={disabled||busy||!username||!resetToken||!newPassword}>{busy?'正在重置…':'重置密码'}</button><button type="button" disabled={disabled||busy} onClick={()=>setMode('account')}>返回登录</button></div>
-   </form>}
+   </form>}</div>
   </>}
   {remembersMachine()&&<><button type="button" disabled={disabled||busy} onClick={()=>{void resumeDesktop().then(()=>{render(n=>n+1);onChange()}).catch(e=>setMessage(String(e)))}}>使用本机凭据登录</button><button type="button" disabled={disabled||busy} onClick={()=>{void cloudForget().then(()=>{setRemember(false);render(n=>n+1)}).catch(e=>setMessage(String(e)))}}>移除本机凭据</button></>}
   {message&&<p role="status">{message}</p>}
+  <details className="cloud-server-settings"><summary>云端服务器地址</summary><div className="cloud-server-fields">
+   <label>云端 HTTPS 地址<input value={origin} disabled={disabled||busy} onChange={e=>setOrigin(e.target.value)}/></label>
+   <p className="cloud-address-hint">服务地址必须使用 HTTPS，且服务器证书需要受系统信任。</p>
+   <button type="button" disabled={disabled||busy||!origin} onClick={saveOrigin}>保存服务地址</button>
+  </div></details>
  </div>;
 }

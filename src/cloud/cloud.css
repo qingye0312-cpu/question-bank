@@ -4,8 +4,13 @@
 .cloud-access-heading span{color:var(--accent);font-size:.85rem;font-weight:650}
 .cloud-address-hint{margin:.2rem 0 .7rem;color:var(--muted);font-size:.82rem}
 .cloud-login-hint{color:var(--muted);background:var(--surface-soft);border-radius:.5rem;padding:.7rem .85rem}
-.cloud-login-mode{display:flex;gap:.6rem;margin:1rem 0}
-.cloud-login-mode button[aria-pressed="true"]{border-color:var(--accent);color:var(--accent);font-weight:600}
+.cloud-login-mode{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.6rem;margin:1rem 0}
+.cloud-login-mode button{justify-content:center;min-width:0;white-space:nowrap}
+.cloud-login-mode button[aria-pressed="true"]{border-color:var(--accent);color:var(--accent);font-weight:650;background:var(--accent-soft)}
+.cloud-login-panel{min-width:0}
+.cloud-session-info{padding:.7rem .85rem;border:1px solid var(--line);border-radius:.6rem;background:var(--surface-soft)}
+.cloud-session-info p{margin:.2rem 0 .7rem;overflow-wrap:anywhere}
+.cloud-access input[type="checkbox"]{display:inline-block;width:auto;margin:0 .6rem 0 0;vertical-align:middle}
 .cloud-login-actions{display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;margin-top:.7rem}
 .cloud-registration{display:grid;gap:.15rem;margin-top:.8rem}
 .cloud-registration>label{display:block;color:var(--secondary);font-size:.9rem;margin:.55rem 0}
@@ -32,11 +37,16 @@
 .library-delete-confirm p{color:var(--secondary);line-height:1.7}
 .library-delete-confirm .library-bank-actions{justify-content:flex-end}
 .library-message{overflow-wrap:anywhere}
-.library-access-section{margin:1rem 0 .2rem;padding-top:.7rem;border-top:1px solid var(--border)}
-.library-access-section>summary{cursor:pointer;color:var(--secondary);font-weight:650;padding:.45rem .2rem}
-.library-access-section[open]>summary{margin-bottom:.5rem}
-.library-access-section .cloud-access{margin:.6rem 0}
-.library-access-section input[type=checkbox]{width:auto;margin-right:.6rem}
+.cloud-server-settings{margin-top:1.2rem;padding-top:.75rem;border-top:1px solid var(--border)}
+.cloud-server-settings>summary{cursor:pointer;color:var(--secondary);font-weight:650;padding:.45rem .2rem}
+.cloud-server-settings[open]>summary{margin-bottom:.55rem}
+.cloud-server-fields{display:grid;gap:.35rem}
+.cloud-server-fields label{margin:.5rem 0;color:var(--secondary);font-size:.9rem}
+.cloud-server-fields label input{display:block;margin-top:.4rem}
+.cloud-login-modal .cloud-access{margin:0;padding:0;border:0;border-radius:0}
+.cloud-login-modal .cloud-access-heading{margin-right:2rem}
+.cloud-login-modal .cloud-login-panel{max-height:55vh;overflow:auto;padding-right:.25rem}
+.cloud-login-modal .cloud-registration{padding-right:.25rem}
 .library-tabs{display:flex;gap:.45rem;flex-wrap:wrap;margin:.8rem 0;border-bottom:1px solid var(--border);padding-bottom:.55rem}
 .library-tabs button{display:inline-flex;align-items:center;padding:.55rem .8rem;border:1px solid transparent;border-radius:.55rem;color:var(--secondary)}
 .library-tabs button.active{background:var(--accent-soft);border-color:var(--accent);color:var(--accent);font-weight:650}

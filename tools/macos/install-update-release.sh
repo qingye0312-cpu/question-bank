@@ -21,6 +21,7 @@ INCOMING_MANIFEST=/tmp/latest.json
 INCOMING_CADDY=/tmp/qbank-domain.caddy
 DOMAIN_CONFIG=/etc/caddy/qbank-domain.caddy
 EXPECTED_BASELINE_SHA=82056eb456b171adb652edc2625b148c5db4fb224d651a6239b806d2abe32438
+EXPECTED_PREVIOUS_UPDATE_SHA=81267eab882d5cb3af10e772e883ac3bf205487f76843db355ecf65ef67a4d8d
 
 for file in "$INCOMING" "$INCOMING_SIG" "$INCOMING_MANIFEST" "$INCOMING_CADDY"; do
   [ -s "$file" ] || { echo "missing staged release file: $file" >&2; exit 1; }
@@ -55,11 +56,21 @@ fi
 sha256sum "$RELEASE/$ARCHIVE" "$RELEASE/$ARCHIVE.sig" > "$RELEASE/SHA256SUMS"
 chown root:caddy "$RELEASE/SHA256SUMS"
 chmod 0640 "$RELEASE/SHA256SUMS"
+if [ -e "$RELEASES/$ARCHIVE" ]; then
+  cmp -s "$INCOMING" "$RELEASES/$ARCHIVE" || { echo "flat release archive already exists with different bytes" >&2; exit 1; }
+else
+  ln "$RELEASE/$ARCHIVE" "$RELEASES/$ARCHIVE"
+fi
+if [ -e "$RELEASES/$ARCHIVE.sig" ]; then
+  cmp -s "$INCOMING_SIG" "$RELEASES/$ARCHIVE.sig" || { echo "flat release signature already differs" >&2; exit 1; }
+else
+  ln "$RELEASE/$ARCHIVE.sig" "$RELEASES/$ARCHIVE.sig"
+fi
 
 changed=0
 if ! cmp -s "$INCOMING_CADDY" "$DOMAIN_CONFIG"; then
   current_sha=$(sha256sum "$DOMAIN_CONFIG" | awk '{print $1}')
-  if [ "$current_sha" != "$EXPECTED_BASELINE_SHA" ]; then
+  if [ "$current_sha" != "$EXPECTED_BASELINE_SHA" ] && [ "$current_sha" != "$EXPECTED_PREVIOUS_UPDATE_SHA" ]; then
     echo "Caddy domain config changed since release setup; saved files are untouched, inspect $DOMAIN_CONFIG before deploying." >&2
     exit 1
   fi
@@ -89,10 +100,20 @@ install -o root -g caddy -m 0640 "$INCOMING_MANIFEST" "$ROOT/.latest-$VERSION.js
 mv -f "$ROOT/.latest-$VERSION.json" "$ROOT/latest.json"
 
 if command -v curl >/dev/null 2>&1; then
-  curl --fail --silent --show-error --resolve qbank.creart.top:8443:127.0.0.1 \
-    https://qbank.creart.top:8443/v1/desktop/latest.json -o /tmp/qbank-desktop-update-check.json
-  curl --fail --silent --show-error --head --resolve qbank.creart.top:8443:127.0.0.1 \
-    "https://qbank.creart.top:8443/v1/desktop/releases/$ARCHIVE" >/dev/null
+  verified=0
+  attempt=0
+  while [ "$attempt" -lt 6 ]; do
+    attempt=$((attempt + 1))
+    if curl --fail --silent --show-error --resolve qbank.creart.top:8443:127.0.0.1 \
+      https://qbank.creart.top:8443/v1/desktop/latest.json -o /tmp/qbank-desktop-update-check.json \
+      && curl --fail --silent --show-error --head --resolve qbank.creart.top:8443:127.0.0.1 \
+        "https://qbank.creart.top:8443/v1/desktop/releases/$ARCHIVE" >/dev/null; then
+      verified=1
+      break
+    fi
+    sleep 1
+  done
+  [ "$verified" -eq 1 ] || { echo 'updated Caddy route did not serve the feed and archive over HTTPS.' >&2; exit 1; }
   node -e 'const fs=require("node:fs");const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));if(m.version!==process.argv[2])process.exit(1)' \
     /tmp/qbank-desktop-update-check.json "$VERSION"
 else

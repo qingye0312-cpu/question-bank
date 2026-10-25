@@ -1,7 +1,6 @@
 import './cloud.css';
 import {useEffect,useState} from 'react';
 import {invoke} from '@tauri-apps/api/core';
-import {CloudLogin} from './login';
 import {cloudAccess} from '../cloud-client';
 import {promoteBank,promotionTasks,type PromotionTask} from './promotion';
 import {CloudPanel} from '../cloud-panel';
@@ -48,9 +47,5 @@ export function CloudLibrary({banks,onClose,onChanged,onDeleted,onCreated}:{bank
   </>}
   {tab==='cloud'&&<CloudPanel embedded banks={banks} onBusy={value=>setBusy(value?'正在处理云端题库':'')} onChanged={onChanged} onClose={onClose}/>}
   {tab==='maintainers'&&<MaintainerAdmin banks={banks.map(b=>({bank_id:b.id,name:b.name}))} onChange={()=>{render(n=>n+1);void onChanged()}}/>}
-  <details className="library-access-section">
-   <summary>云端登录与服务地址{access?' · 已登录':' · 登录入口'}</summary>
-   <CloudLogin disabled={!!busy||!!deleting} onChange={()=>{render(n=>n+1);void refresh().catch(e=>setMessage(String(e)))}}/>
-  </details>
  </section></div>;
 }

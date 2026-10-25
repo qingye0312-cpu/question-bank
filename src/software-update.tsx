@@ -17,5 +17,5 @@ export function SoftwareUpdate({busy,onBusy}:{busy:boolean;onBusy:(busy:boolean)
   catch(e){if(active.current)setMessage(`更新未完成：${String(e)}`);}
   finally{stop?.();locked.current=false;onBusy(false);if(active.current)setWorking(false);}
  }
- return <section className="callout"><b>软件更新</b><p role="status">{working&&!message?'正在检查…':message}</p>{update?.notes&&<p className="pre-wrap">{update.notes}</p>}<button disabled={busy||working} onClick={()=>void check()}>检查软件更新</button>{update?.version&&<button disabled={busy||working} onClick={()=>void install()}>下载并安装 {update.version}</button>}</section>;
+ return <section className="callout settings-update"><div className="settings-update-info"><b>软件更新</b><p role="status">{working&&!message?'正在检查…':message}</p>{update?.notes&&<p className="pre-wrap">{update.notes}</p>}</div><div className="settings-update-actions"><button disabled={busy||working} onClick={()=>void check()}>检查软件更新</button>{update?.version&&<button disabled={busy||working} onClick={()=>void install()}>下载并安装 {update.version}</button>}</div></section>;
 }
