@@ -32,7 +32,9 @@
 .library-delete-confirm p{color:var(--secondary);line-height:1.7}
 .library-delete-confirm .library-bank-actions{justify-content:flex-end}
 .library-message{overflow-wrap:anywhere}
-.library-access-section{margin:.8rem 0 1rem;padding-bottom:.7rem;border-bottom:1px solid var(--border)}
+.library-access-section{margin:1rem 0 .2rem;padding-top:.7rem;border-top:1px solid var(--border)}
+.library-access-section>summary{cursor:pointer;color:var(--secondary);font-weight:650;padding:.45rem .2rem}
+.library-access-section[open]>summary{margin-bottom:.5rem}
 .library-access-section .cloud-access{margin:.6rem 0}
 .library-access-section input[type=checkbox]{width:auto;margin-right:.6rem}
 .library-tabs{display:flex;gap:.45rem;flex-wrap:wrap;margin:.8rem 0;border-bottom:1px solid var(--border);padding-bottom:.55rem}

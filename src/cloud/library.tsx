@@ -16,7 +16,7 @@ export function CloudLibrary({banks,onClose,onChanged,onDeleted,onCreated}:{bank
  const refresh=()=>promotionTasks().then(setTasks);
  useEffect(()=>{void refresh().catch(e=>setMessage(String(e)))},[]);
  useEffect(()=>{const escape=(e:KeyboardEvent)=>{if(e.key==='Escape'){e.preventDefault();e.stopImmediatePropagation();if(!busy)onClose()}};window.addEventListener('keydown',escape,true);return()=>window.removeEventListener('keydown',escape,true)},[busy,onClose]);
- const canCreate=cloudAccess()?.capabilities?.includes('cloud_bank:create');
+ const access=cloudAccess(),canCreate=access?.capabilities?.includes('cloud_bank:create');
  async function createLocalBank(){if(busy)return;const name=newBankName.trim();if(!name){setMessage('请输入题库名称。');return}setBusy('create');setMessage('正在创建本地题库…');try{const id=await invoke<string>('create_bank',{name});await onChanged();onCreated(id);setNewBankName('');setMessage(`已创建本地题库「${name}」。`)}catch(e){setMessage(String(e))}finally{setBusy('')}}
  async function run(bank:Bank,task?:PromotionTask){if(busy)return;
   if(!task&&!window.confirm(`将「${bank.name}」的 ${bank.count} 道题设为自动同步云端题库？首版将可供所有用户下载。会先保留本地备份，转换期间仅锁定这个题库。`))return;
@@ -26,7 +26,6 @@ export function CloudLibrary({banks,onClose,onChanged,onDeleted,onCreated}:{bank
   try{const path=await invoke<string>('delete_bank',{bankId:bank.id,version:bank.version});setDeleting(null);await onDeleted(bank.id);setMessage(`已删除「${bank.name}」。删除前的完整备份：${path}。如需恢复，可在设置中选择“校验并恢复完整备份”。`)}catch(e){setMessage(String(e))}finally{setBusy('')}
  }
  return <div className="modal-backdrop"><section className="modal large library-manager" role="dialog" aria-modal="true" aria-label="题库管理"><button className="close-modal" aria-label="关闭题库管理" disabled={!!busy||!!deleting} onClick={onClose}>×</button><h2>题库管理</h2><p>本地题库、副本、云端同步与维护者授权集中在这里。</p>
-  <section className="library-access-section" aria-label="云端登录与权限"><CloudLogin disabled={!!busy||!!deleting} onChange={()=>{render(n=>n+1);void refresh().catch(e=>setMessage(String(e)))}}/></section>
   <div className="library-tabs" role="tablist" aria-label="题库管理功能">
    <button role="tab" aria-selected={tab==='local'} className={tab==='local'?'active':''} onClick={()=>setTab('local')}>本地题库</button>
    <button role="tab" aria-selected={tab==='cloud'} className={tab==='cloud'?'active':''} onClick={()=>setTab('cloud')}>云端同步与版本</button>
@@ -49,5 +48,9 @@ export function CloudLibrary({banks,onClose,onChanged,onDeleted,onCreated}:{bank
   </>}
   {tab==='cloud'&&<CloudPanel embedded banks={banks} onBusy={value=>setBusy(value?'正在处理云端题库':'')} onChanged={onChanged} onClose={onClose}/>}
   {tab==='maintainers'&&<MaintainerAdmin banks={banks.map(b=>({bank_id:b.id,name:b.name}))} onChange={()=>{render(n=>n+1);void onChanged()}}/>}
+  <details className="library-access-section">
+   <summary>云端登录与服务地址{access?' · 已登录':' · 登录入口'}</summary>
+   <CloudLogin disabled={!!busy||!!deleting} onChange={()=>{render(n=>n+1);void refresh().catch(e=>setMessage(String(e)))}}/>
+  </details>
  </section></div>;
 }
