@@ -28,6 +28,13 @@
 .cloud-bank-name small{color:var(--muted);font-size:.78rem;line-height:1.35;overflow-wrap:anywhere}
 .cloud-bank-name:hover b{text-decoration:underline}
 .cloud-bank-name:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:.2rem}
+.cloud-catalog-list{display:grid;gap:.6rem;margin-top:.6rem}
+.cloud-catalog-item{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:.8rem;padding:.8rem .95rem;border:1px solid var(--line);border-radius:.75rem;background:var(--surface-soft)}
+.cloud-catalog-item .cloud-bank-name{align-items:flex-start;justify-self:stretch;min-height:2.7rem;text-align:left}
+.cloud-catalog-release{justify-self:end;padding:.35rem .55rem;border:1px solid var(--line);border-radius:.5rem;color:var(--muted);font-size:.82rem;white-space:nowrap}
+.cloud-catalog-download{justify-self:end;padding:.45rem .7rem;font-size:.84rem;white-space:nowrap}
+.cloud-catalog-footer{display:flex;justify-content:flex-start;margin-top:.75rem}
+.cloud-refresh-button{padding:.42rem .7rem;font-size:.82rem;min-height:2.2rem}
 .pending-label{display:block;font-size:0.769231rem;line-height:1.2;color:var(--warning)}
 .cloud-maintenance{max-height:92vh;overflow:auto}
 .cloud-maintenance input[type=checkbox]{width:auto;margin-right:.6rem}
@@ -63,6 +70,7 @@
 @media(max-width:42rem){.library-create{grid-template-columns:1fr}.library-create button{justify-self:start}}
 .library-manager .maintainer-admin{max-height:52vh;overflow:auto}
 .library-manager .cloud-maintenance-embedded{padding:0;border:0;box-shadow:none;max-height:55vh}
+.library-manager .cloud-catalog-list{margin-top:.25rem}
 .maintainer-admin{display:grid;gap:1rem;max-height:60vh;overflow:auto}
 .maintainer-toolbar{display:flex;gap:.7rem;flex-wrap:wrap}
 .maintainer-toolbar button,.maintainer-row button{display:inline-flex;align-items:center;gap:.35rem}
@@ -72,4 +80,4 @@
 .maintainer-identity{margin:.4rem 0;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.6}
 .maintainer-identity strong{display:block;font-size:.85rem;color:var(--muted)}
 .maintainer-reset-code{display:inline-block;margin:.6rem 0;padding:.6rem;border-radius:.4rem;background:var(--surface-soft);user-select:all;overflow-wrap:anywhere}
-@media(max-width:42rem){.maintainer-row{align-items:flex-start;flex-direction:column}}
+@media(max-width:42rem){.maintainer-row{align-items:flex-start;flex-direction:column}.cloud-catalog-item{grid-template-columns:minmax(0,1fr) auto}.cloud-catalog-item .cloud-bank-name{grid-column:1;grid-row:1}.cloud-catalog-release{grid-column:1;grid-row:2;justify-self:start}.cloud-catalog-download{grid-column:2;grid-row:1/3}}

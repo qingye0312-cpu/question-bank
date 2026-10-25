@@ -1,5 +1,5 @@
 import './cloud/cloud.css';
-import {useEffect,useState} from 'react';
+import {useEffect,useRef,useState} from 'react';
 import {invoke} from '@tauri-apps/api/core';
 import {cloudAccess,cloudCall,fetchCatalog,syncDesktop,cloudMutation} from './cloud-client';
 import type {CloudManifest} from '../shared/sync';
@@ -14,6 +14,7 @@ export function CloudPanel({banks,onChanged,onClose,onBusy,embedded=false}:{bank
  const [history,setHistory]=useState<History|null>(null),[historyLoading,setHistoryLoading]=useState(false);
  const [,render]=useState(0);
  const [busy,setBusy]=useState(false),[message,setMessage]=useState('');
+ const initialRefresh=useRef(false);
  const access=cloudAccess(),roles=access?.grants[selected]||[],canMerge=roles.includes('merge');
  const task=async(fn:()=>Promise<void>)=>{if(busy)return;setBusy(true);onBusy(true);setMessage('');try{await fn()}catch(e){setMessage(String(e))}finally{setBusy(false);onBusy(false)}};
  async function checkUpdates(){
@@ -26,6 +27,7 @@ export function CloudPanel({banks,onChanged,onClose,onBusy,embedded=false}:{bank
   if(!installed.length)setMessage('云端目录已更新；当前没有已下载的云端题库。');
   else setMessage(`检查完成：已检查 ${installed.length} 个云端题库，${updated} 个有更新${failed.length?`；${failed.length} 个失败：${String(failed[0].reason)}`:''}。`);
  }
+ useEffect(()=>{if(initialRefresh.current)return;initialRefresh.current=true;void task(checkUpdates)},[]);
  const refreshHistory=async()=>{setHistory(await cloudCall<History>('/v1/banks/'+selected+'/history',undefined,true));};
  useEffect(()=>{
   let active=true;setHistory(null);setHistoryLoading(false);
@@ -36,9 +38,11 @@ export function CloudPanel({banks,onChanged,onClose,onBusy,embedded=false}:{bank
  const panel=<section className={`modal large cloud-maintenance${embedded?' cloud-maintenance-embedded':''}`} role={embedded?'region':'dialog'} aria-label="云端题库维护">
   {!embedded&&<><button className="close-modal" disabled={busy} onClick={onClose}>×</button><h2>云端题库与维护</h2></>}
   {!selected?<>
-   <button disabled={busy} onClick={()=>void task(checkUpdates)}>检查更新</button>
-   {catalog.map(b=><div className="cloud-bank" key={b.bank_id}><button type="button" className="cloud-bank-name" disabled={busy} onClick={()=>{setMessage('');setSelected(b.bank_id)}}><b>{b.name}</b>{b.release_name&&<small>{b.release_name}</small>}</button><span>正式 v{b.release_version} · 修订 {b.revision}</span>{!banks.some(k=>k.id===b.bank_id)&&<button disabled={busy} onClick={()=>void task(async()=>{await syncDesktop(b.bank_id,b);await onChanged();setMessage('题库已下载')})}>下载题库</button>}</div>)}
-   {!catalog.length&&<p className="callout">点击“检查更新”读取云端题库目录。</p>}
+   <div className="cloud-catalog-list">
+    {catalog.map(b=><div className="cloud-bank cloud-catalog-item" key={b.bank_id}><button type="button" className="cloud-bank-name" disabled={busy} onClick={()=>{setMessage('');setSelected(b.bank_id)}}><b>{b.name}</b>{b.release_name&&<small>{b.release_name}</small>}</button><span className="cloud-catalog-release">正式 v{b.release_version} · 修订 {b.revision}</span>{!banks.some(k=>k.id===b.bank_id)&&<button className="cloud-catalog-download" disabled={busy} onClick={()=>void task(async()=>{await syncDesktop(b.bank_id,b);await onChanged();setMessage('题库已下载')})}>下载题库</button>}</div>)}
+    {!catalog.length&&<p className="callout">{busy?'正在读取云端题库目录…':'云端目录暂无题库。'}</p>}
+   </div>
+   <div className="cloud-catalog-footer"><button className="cloud-refresh-button" disabled={busy} onClick={()=>void task(checkUpdates)}>{busy?'正在检查…':'检查更新'}</button></div>
   </>:<>
    <button type="button" disabled={busy} onClick={()=>{setSelected('');setHistory(null);setMessage('')}}>返回云端题库目录</button>
    <h3>{selectedBank?.name||'题库历史版本'}</h3>
