@@ -44,7 +44,7 @@ Page({
     ...themePageData(),
     query: '', bankName: '正在打开题库', version: 1, total: 0, count: 0,
     syncNotice:'',syncing:false,ready: false, loading: true, error: '', rows: [] as Row[],
-    before: 0, after: 0, scrollTop: 0, headerCollapsed: false, advancedOpen: false,
+    before: 0, after: 0, scrollTop: 0, headerCollapsed: false,
     appVersion:APP_VERSION,bankId:'',banks:[] as BankSummary[],bankIndex:0,bankLabel:'内置题库',
   },
   bank: undefined as LocalBank | undefined,
@@ -160,9 +160,6 @@ Page({
     });
     try { wx.setStorageSync(HEADER_COLLAPSED_KEY, headerCollapsed); }
     catch { /* The in-memory preference remains usable if storage is full. */ }
-  },
-  onToggleAdvanced() {
-    this.setData({advancedOpen: !this.data.advancedOpen}, () => this.measureViewport());
   },
   onAppearance(){wx.navigateTo({url:"/pages/settings/settings"});},
   onSharePage(){const bank=this.data.bankId||activeBankId();wx.navigateTo({url:`/pages/share/share?bank=${encodeURIComponent(bank)}`});},

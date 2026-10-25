@@ -1,4 +1,5 @@
 import {AppearanceSettings} from './settings/appearance';
+import {TraySettings} from './settings/tray';
 import {CloudLibrary} from './cloud/library';
 import {CloudLogin} from './cloud/login';
 import {displayTime,recordedTime} from '../shared/intake';
@@ -176,6 +177,7 @@ function App(){
    {modal==='history'&&<><h2>修订历史</h2><p>恢复历史内容会新增修订，不会抹去后续记录。</p>{history.length?history.map((h,i)=><div className="history-item" key={i}><b>{h.reason} · 修订 {h.question.base_revision}</b><small>{new Date(h.at).toLocaleString()}</small><p>{h.question.stem.slice(0,160)}</p>{!detailBank?.read_only&&<button onClick={()=>{setDraft({...h.question,base_revision:q!.base_revision});setEditBank(active!.bank_id);setModal('edit')}}>载入编辑器</button>}</div>):<div className="callout">这道题还没有历史修订。</div>}</>}
    {modal==='settings'&&<><div className="settings-modal-heading"><div className="modal-icon"><Settings/></div><div><h2>设置与维护</h2><p>题库 v{info.version||APP_VERSION} · {info.platform} / {info.arch}</p></div></div>
     <AppearanceSettings preferences={preferences} setPreferences={setPreferences} systemTheme={systemTheme} setPreview={setAppearancePreview}/>
+    <TraySettings available={info.tray==='true'} platform={info.platform}/>
     <section className="settings-maintenance" aria-labelledby="settings-maintenance-title">
      <h3 id="settings-maintenance-title">备份与维护</h3>
      <div className="settings-backup-actions">
