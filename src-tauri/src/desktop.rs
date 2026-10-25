@@ -5,11 +5,26 @@ pub struct Features {
     pub tray: bool,
 }
 pub fn focus(app: &tauri::AppHandle) {
+    #[cfg(target_os = "macos")]
+    let _ = app.show();
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.unminimize();
         let _ = w.show();
         let _ = w.set_focus();
         let _ = w.emit("focus-search", ());
+    }
+}
+pub fn hide(app: &tauri::AppHandle) -> tauri::Result<()> {
+    // orderOut on a fullscreen NSWindow leaves its Space empty. AppKit's
+    // application hide/unhide handles the Space and preserves fullscreen state.
+    #[cfg(target_os = "macos")]
+    return app.hide();
+    #[cfg(not(target_os = "macos"))]
+    {
+        if let Some(w) = app.get_webview_window("main") {
+            w.hide()?;
+        }
+        Ok(())
     }
 }
 pub fn install(app: &mut tauri::App) -> Features {
@@ -32,18 +47,21 @@ pub fn install(app: &mut tauri::App) -> Features {
         use tauri::menu::{Menu, MenuItem};
         use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
         let show = MenuItem::with_id(app, "show", "打开题库", true, None::<&str>)?;
-        let hide = MenuItem::with_id(app, "hide", "收起窗口", true, None::<&str>)?;
+        let hide_item = MenuItem::with_id(app, "hide", "收起窗口", true, None::<&str>)?;
         let quit = MenuItem::with_id(app, "quit", "退出题库", true, None::<&str>)?;
-        let menu = Menu::with_items(app, &[&show, &hide, &quit])?;
-        let mut builder = TrayIconBuilder::new()
+        let menu = Menu::with_items(app, &[&show, &hide_item, &quit])?;
+        let (icon, template) = crate::tray_style::current_icon(app.handle())?;
+        let builder = TrayIconBuilder::with_id(crate::tray_style::TRAY_ID)
+            .icon(icon)
+            .icon_as_template(template)
             .tooltip("题库 · Ctrl + Alt + Q 搜索")
             .menu(&menu)
             .show_menu_on_left_click(false)
             .on_menu_event(|app, event| match event.id.as_ref() {
                 "show" => focus(app),
                 "hide" => {
-                    if let Some(w) = app.get_webview_window("main") {
-                        let _ = w.hide();
+                    if let Err(error) = hide(app) {
+                        eprintln!("Could not hide main window: {error}");
                     }
                 }
                 "quit" => app.exit(0),
@@ -59,9 +77,6 @@ pub fn install(app: &mut tauri::App) -> Features {
                     focus(tray.app_handle());
                 }
             });
-        if let Some(icon) = app.default_window_icon() {
-            builder = builder.icon(icon.clone());
-        }
         builder.build(app)?;
         Ok(())
     })()

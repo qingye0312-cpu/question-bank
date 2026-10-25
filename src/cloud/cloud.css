@@ -43,7 +43,7 @@
 .cloud-catalog-release{justify-self:end;max-width:100%;padding:.35rem .55rem;border:1px solid var(--line);border-radius:.5rem;color:var(--muted);font-size:.82rem;white-space:normal;overflow-wrap:anywhere;text-align:center}
 .cloud-catalog-download{justify-self:end;max-width:100%;padding:.45rem .7rem;font-size:.84rem;white-space:normal}
 .cloud-catalog-footer{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:.75rem;margin-top:.75rem;min-width:0}
-.cloud-catalog-status{min-width:0;margin:0;overflow-wrap:anywhere}
+.cloud-catalog-footer .cloud-catalog-status{display:flex;align-items:center;min-width:0;min-height:2.2rem;margin:0;padding:.42rem .7rem;line-height:1.2;overflow-wrap:anywhere}
 .cloud-refresh-button{padding:.42rem .7rem;font-size:.82rem;min-height:2.2rem;white-space:nowrap}
 .pending-label{display:block;font-size:0.769231rem;line-height:1.2;color:var(--warning)}
 .cloud-maintenance{max-height:92vh;overflow:auto;min-width:0;max-width:100%;box-sizing:border-box}

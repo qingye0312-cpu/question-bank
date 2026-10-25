@@ -4,6 +4,7 @@ mod commands;
 mod credentials;
 pub mod db;
 mod desktop;
+mod tray_style;
 pub mod drafts;
 pub mod exchange;
 pub mod intake;
@@ -32,26 +33,32 @@ pub fn run() {
         }))
         .on_window_event(|w, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                if w.app_handle()
+                if w.label() == "main" && w.app_handle()
                     .try_state::<desktop::Features>()
                     .is_some_and(|f| f.tray)
                 {
                     api.prevent_close();
-                    let _ = w.hide();
+                    if let Err(error) = desktop::hide(w.app_handle()) {
+                        eprintln!("Could not hide main window: {error}");
+                    }
                 }
+            }
+            if let tauri::WindowEvent::ThemeChanged(_) = event {
+                tray_style::refresh_system_style(w.app_handle());
             }
         })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
-            let features = desktop::install(app);
-            app.manage(features);
             let dir = std::env::var_os("QBANK_DATA_DIR")
                 .map(PathBuf::from)
                 .unwrap_or(app.path().app_data_dir()?);
             let store =
                 Store::open(dir.join("question-bank.sqlite")).map_err(std::io::Error::other)?;
             store.seed().map_err(std::io::Error::other)?;
+            tray_style::init(app.handle(), &dir);
+            let features = desktop::install(app);
+            app.manage(features);
             app.manage(AppState {
                 store,
                 writes: Arc::new(Mutex::new(())),
@@ -59,6 +66,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            tray_style::get_tray_style,
+            tray_style::set_tray_style,
             updater::software_update_check,
             updater::software_update_install,
             commands::exchange::backup_database,
