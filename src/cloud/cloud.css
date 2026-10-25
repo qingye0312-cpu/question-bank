@@ -1,6 +1,15 @@
 .cloud-access{border:0.076923rem solid var(--line,#dce4dd);padding:1.230769rem;margin:1.230769rem 0;border-radius:0.923077rem}
 .cloud-login-mode{display:flex;gap:.6rem;margin:1rem 0}
 .cloud-login-mode button[aria-pressed="true"]{border-color:var(--accent);color:var(--accent);font-weight:600}
+.cloud-login-actions{display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;margin-top:.7rem}
+.cloud-registration{display:grid;gap:.15rem;margin-top:.8rem}
+.cloud-registration>label{display:block;color:var(--secondary);font-size:.9rem;margin:.55rem 0}
+.cloud-registration>label input,.cloud-registration>label textarea{display:block;margin-top:.4rem}
+.cloud-bank-picker{min-width:0;border:1px solid var(--border);border-radius:.6rem;padding:.8rem .95rem;margin:.5rem 0}
+.cloud-bank-picker legend{padding:0 .3rem;color:var(--secondary);font-weight:600}
+.cloud-bank-picker label{display:flex;align-items:center;gap:.55rem;padding:.35rem 0;color:var(--ink)}
+.cloud-bank-picker label input{width:auto;margin:0;accent-color:var(--accent)}
+.cloud-bank-picker p{margin:.35rem 0;color:var(--muted)}
 .cloud-bank{display:flex;align-items:center;gap:0.923077rem;padding:0.923077rem 0;flex-wrap:wrap}
 .cloud-bank span{color:var(--muted)}
 .pending-label{display:block;font-size:0.769231rem;line-height:1.2;color:var(--warning)}
