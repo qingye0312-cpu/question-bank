@@ -3,7 +3,6 @@ import {LocalBank, VirtualList, Segment, queryTerms, snippet, answerText, typeNa
 import {loadBank,listBanks,activeBankId,selectBank,invalidateBank,type BankSummary} from '../../services/bank';
 import {cloudCatalog,refreshCatalog,syncBank} from '../../services/sync';
 import {foregroundGeneration} from '../../services/foreground';
-import {copyPrompt} from '../../services/prompt';
 import {APP_VERSION} from '../../generated/client-assets';
 
 const HEADER_COLLAPSED_KEY = 'qbank-search-header-collapsed-v1';
@@ -163,7 +162,6 @@ Page({
   },
   onAppearance(){wx.navigateTo({url:"/pages/settings/settings"});},
   onSharePage(){const bank=this.data.bankId||activeBankId();wx.navigateTo({url:`/pages/share/share?bank=${encodeURIComponent(bank)}`});},
-  onCopyPrompt(){copyPrompt()},
   onIntake(){wx.navigateTo({url:`/pages/intake/intake?bank=${this.data.bankId||activeBankId()}`})},
   onShareAppMessage(){const {title,path}=shareContent(this.data.bankId||activeBankId(),this.data.banks[0]?.id,this.data.bankName,this.data.query);return {title,path};},
   onShareTimeline(){const {title,query}=shareContent(this.data.bankId||activeBankId(),this.data.banks[0]?.id,this.data.bankName,this.data.query);return {title,query};},

@@ -21,7 +21,6 @@
     <view class="header-fold" aria-hidden="{{headerCollapsed}}">
       <view class="header-fold-inner">
         <view class="hint muted"><text>空格分隔多个词，双引号搜索连续短语</text><button class="intake-shortcut" bindtap="onIntake" aria-label="录题" hover-class="intake-shortcut-hover">录题</button></view>
-        <view class="model-tools"><button bindtap="onCopyPrompt">大模型输出规范模版 · 复制</button></view>
         <view class="result-heading">
           <text>{{loading ? '正在查找…' : query ? '找到 ' + count + ' 道题' : '全部题目 · ' + count}}</text>
           <text class="muted">点击查看完整答案</text>
