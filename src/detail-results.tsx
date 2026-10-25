@@ -7,15 +7,15 @@ import type {Hit, Results} from './types';
 
 const kinds: Record<string, string> = {single: '单选', multiple: '多选', true_false: '判断', programming: '编程'};
 type Props = {
-  bankId: string; query: string; kind: string; trash: boolean; revision: number;
+  bankId: string; query: string; kind: string; revision: number;
   fontScale: number; active: Hit | null; keyboardEnabled: boolean;
   onSelect: (hit: Hit) => void;
   onResults: (result: Results, initial: boolean) => void;
 };
 
-export function DetailResults({bankId, query, kind, trash, revision, fontScale, active, keyboardEnabled, onSelect, onResults}: Props) {
-  const {items, more, loading, error, loadMore} = useQuestionResults({text: query, bank_id: bankId, kind, trash}, revision, onResults);
-  const {viewport, start, end, offsets, totalHeight, scrollTop, height, onScroll, scrollToIndex, cancelTarget} = useMeasuredList(items, fontScale, JSON.stringify([bankId, query, kind, trash, revision]));
+export function DetailResults({bankId, query, kind, revision, fontScale, active, keyboardEnabled, onSelect, onResults}: Props) {
+  const {items, more, loading, error, loadMore} = useQuestionResults({text: query, bank_id: bankId, kind}, revision, onResults);
+  const {viewport, start, end, offsets, totalHeight, scrollTop, height, onScroll, scrollToIndex, cancelTarget} = useMeasuredList(items, fontScale, JSON.stringify([bankId, query, kind, revision]));
   useEffect(() => {
     if (more && !loading && !error && scrollTop + height >= offsets[Math.max(0, items.length - 5)]) void loadMore();
   }, [more, loading, error, scrollTop, height, items.length, offsets, loadMore]);

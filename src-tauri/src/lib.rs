@@ -6,7 +6,6 @@ pub mod db;
 mod desktop;
 pub mod drafts;
 pub mod exchange;
-pub mod import_jobs;
 pub mod intake;
 pub mod library;
 pub mod model;
@@ -15,17 +14,12 @@ pub mod promotion;
 pub mod updater;
 use db::{Query, Results, Store};
 use model::*;
-use std::{
-    collections::HashMap,
-    path::PathBuf,
-    sync::{Arc, Mutex},
-};
+use std::{path::PathBuf, sync::{Arc, Mutex}};
 use tauri::{Manager, State};
 
 struct AppState {
     store: Store,
     writes: Arc<Mutex<()>>,
-    controls: Mutex<HashMap<String, Arc<import_jobs::Control>>>,
 }
 async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T> + Send + 'static) -> Result<T> {
     tauri::async_runtime::spawn_blocking(f).await.map_err(err)?
@@ -60,7 +54,6 @@ pub fn run() {
             store.seed().map_err(std::io::Error::other)?;
             app.manage(AppState {
                 store,
-                controls: Mutex::new(HashMap::new()),
                 writes: Arc::new(Mutex::new(())),
             });
             Ok(())
@@ -106,19 +99,11 @@ pub fn run() {
             commands::library::delete_question,
             commands::library::fork_bank,
             commands::library::delete_bank,
-            commands::exchange::import_status,
-            commands::exchange::import_jobs_list,
-            commands::exchange::import_runs,
-            commands::exchange::import_undo,
-            commands::exchange::import_preview,
-            commands::exchange::import_commit,
             commands::exchange::export_name,
             commands::exchange::export_bank,
-            commands::library::rollback_bank,
             commands::library::history,
             commands::library::rebuild_index,
             commands::library::app_info,
-            commands::exchange::download_template,
             commands::exchange::read_text_file,
             commands::library::save_benchmark
         ])

@@ -1,11 +1,10 @@
 use question_bank::{
     backup, cloud,
     db::{self, Query, Store},
-    exchange, import_jobs, intake,
+    intake,
     model::*,
 };
 use serde_json::json;
-use std::io::Read;
 fn setup() -> (tempfile::TempDir, Store, String) {
     let d = tempfile::tempdir().unwrap();
     let s = Store::open(d.path().join("test.sqlite")).unwrap();
@@ -19,22 +18,6 @@ fn question(stem: &str) -> Question {
 }
 fn reply() -> String {
     json!({"format":"qbank-photo-question-1","type":"single","stem":"本地新增","options":[{"key":"A","content":"中文"},{"key":"B","content":"English"}],"answer":["B"],"answer_origin":"inferred","explanation":"测试","model":{"name":"Test","version":"1","version_source":"user"},"warnings":[]}).to_string()
-}
-fn import(s: &Store, b: &str, p: &std::path::Path, qs: &[Question]) {
-    std::fs::write(
-        p,
-        qs.iter()
-            .map(|q| serde_json::to_string(q).unwrap() + "\n")
-            .collect::<String>(),
-    )
-    .unwrap();
-    let pending = exchange::preview(s, p, b).unwrap();
-    assert!(
-        pending.preview.errors.is_empty(),
-        "{:?}",
-        pending.preview.errors
-    );
-    exchange::commit(s, &pending).unwrap();
 }
 #[test]
 fn consistent_backup_restores_wal_content_and_preserves_failed_restore() {
@@ -59,51 +42,6 @@ fn consistent_backup_restores_wal_content_and_preserves_failed_restore() {
         7
     );
     drop(live);
-}
-#[test]
-fn persisted_preview_cancel_and_selective_undo_keep_later_unrelated_edits() {
-    let (d, s, b) = setup();
-    let path = d.path().join("import.jsonl");
-    let q = question("导入题");
-    std::fs::write(&path, serde_json::to_string(&q).unwrap()).unwrap();
-    let p = exchange::preview(&s, &path, &b).unwrap();
-    import_jobs::save(&s, &p).unwrap();
-    let reopened = Store::open(&s.path).unwrap();
-    let p = import_jobs::load(&reopened, &p.preview.token).unwrap();
-    let control = import_jobs::Control::default();
-    control.cancel();
-    assert!(exchange::commit_controlled(&s, &p, &control).is_err());
-    assert!(s.questions(&b).unwrap().is_empty());
-    assert_eq!(import_jobs::list(&s).unwrap().len(), 1);
-    exchange::commit(&s, &p).unwrap();
-    assert!(import_jobs::list(&s).unwrap().is_empty());
-    let run = import_jobs::history(&s, &b).unwrap()[0]["id"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    s.save(&b, question("后来新增")).unwrap();
-    assert_eq!(import_jobs::undo(&s, &run).unwrap(), 1);
-    assert_eq!(s.questions(&b).unwrap()[0].stem, "后来新增");
-    import(&s, &b, &path, &[question("随后导入")]);
-    let run = import_jobs::history(&s, &b)
-        .unwrap()
-        .into_iter()
-        .find(|r| r["undone"] == false)
-        .unwrap();
-    let mut q = s
-        .questions(&b)
-        .unwrap()
-        .into_iter()
-        .find(|q| q.stem == "随后导入")
-        .unwrap();
-    q.stem = "后来人工修改".into();
-    s.save(&b, q).unwrap();
-    assert!(import_jobs::undo(&s, run["id"].as_str().unwrap()).is_err());
-    assert!(s
-        .questions(&b)
-        .unwrap()
-        .iter()
-        .any(|q| q.stem == "后来人工修改"));
 }
 #[test]
 fn keyword_type_cursor_and_print_modes_respect_the_selected_questions() {
@@ -231,38 +169,36 @@ fn compressed_exchange_freezes_identity_and_receipt_cannot_be_forged_by_mismatch
     assert!(cloud::decode(&serde_json::to_vec(&broken).unwrap()).is_err());
 }
 #[test]
-fn cloud_layers_swap_atomically_preserve_drafts_trash_and_reject_bad_updates() {
+fn cloud_layers_swap_atomically_preserve_drafts_and_reject_bad_updates() {
     let (_d, s, b) = setup();
     s.save(&b, question("正式题")).unwrap();
     let draft = intake::save(&s, &b, "", &reply()).unwrap();
-    s.save(&b, question("回收站题")).unwrap();
+    s.save(&b, question("已删除题")).unwrap();
     let h = s
         .search(&Query {
             bank_id: b.clone(),
-            text: "回收站题".into(),
+            text: "已删除题".into(),
             ..Default::default()
         })
         .unwrap()
         .items
         .remove(0);
-    s.delete(h.rowid, false).unwrap();
+    s.delete(h.rowid).unwrap();
     let mut added = question("云端新增");
     added.bank = "测试题库".into();
     let state = json!({"format":"qbank-snapshot-2","bank_id":b,"name":"测试题库","revision":1,"release_version":1,"updated_at":now(),"formal":[s.questions(&b).unwrap().into_iter().find(|q|q.stem=="正式题").unwrap(),added],"pending":[],"removed":[]});
     let raw = state.to_string();
     cloud::apply(&s, &raw, &hash(raw.as_bytes())).unwrap();
     assert_eq!(s.questions(&b).unwrap().len(), 3);
-    assert_eq!(
-        s.search(&Query {
+    assert!(s
+        .search(&Query {
             bank_id: b.clone(),
-            trash: true,
+            text: "已删除题".into(),
             ..Default::default()
         })
         .unwrap()
         .items
-        .len(),
-        1
-    );
+        .is_empty());
     assert_eq!(intake::entries(&s, &draft.batch_id).unwrap().len(), 1);
     assert_eq!(
         s.search(&Query {

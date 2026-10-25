@@ -3,7 +3,10 @@ page{background:var(--page);color:var(--ink);font-size:30rpx}
 .title{font-size:42rpx;font-weight:650}
 .muted{font-size:25rpx;color:var(--muted);line-height:1.65}
 .header .muted{margin-top:8rpx}
+.bank-select-row{display:flex;align-items:center;gap:18rpx}
+.bank-picker-control{flex:1;min-width:0}
 .bank-picker{padding:24rpx 0;display:flex;justify-content:space-between}
+.bank-create{flex:0 0 auto;margin:0;font-size:25rpx;padding:14rpx 18rpx}
 .tabs{display:flex;border-bottom:2rpx solid var(--border);margin-bottom:28rpx}
 .tabs button{flex:1;background:transparent;border-radius:0;color:var(--muted);font-size:29rpx;padding:14rpx 0;margin:0;border-bottom:5rpx solid transparent}
 .tabs button.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}

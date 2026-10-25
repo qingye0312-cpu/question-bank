@@ -4,7 +4,7 @@ use question_bank::{
     model::*,
 };
 use serde_json::json;
-use std::io::{Cursor, Read, Write};
+use std::io::{Cursor, Read};
 
 #[test]
 fn ordered_fts_matches_a_full_scan_with_mixed_terms_filters_and_cursors() {
@@ -50,12 +50,11 @@ fn ordered_fts_matches_a_full_scan_with_mixed_terms_filters_and_cursors() {
         "=不存在",
     ] {
         for bank in ["", banks[0].as_str(), banks[1].as_str()] {
-            for trash in [false, true] {
                 let terms = db::query_terms(&normalize(text));
                 let expected: Vec<_> = corpus
                     .iter()
                     .filter(|(_, b, d, t)| {
-                        *d == trash
+                        !*d
                             && (bank.is_empty() || b == bank)
                             && terms.iter().all(|s| t.contains(s))
                     })
@@ -71,7 +70,6 @@ fn ordered_fts_matches_a_full_scan_with_mixed_terms_filters_and_cursors() {
                         .search(&Query {
                             text: text.into(),
                             bank_id: bank.into(),
-                            trash,
                             after_rowid,
                             ..Default::default()
                         })
@@ -84,11 +82,10 @@ fn ordered_fts_matches_a_full_scan_with_mixed_terms_filters_and_cursors() {
                             .skip(loaded)
                             .take(50)
                             .collect::<Vec<_>>(),
-                        "{text} {bank} {trash} {after_rowid}"
+                        "{text} {bank} {after_rowid}"
                     );
                     assert_eq!(result.has_more, expected.len() > loaded + 50);
                 }
-            }
         }
     }
 }
@@ -164,17 +161,15 @@ fn search_cjk_short_substrings_symbols_and_atomic_edits() {
     assert_eq!(find(&s, "独特").len(), 1);
     assert!(s.save(&b, q).is_err());
     let row = s.search(&Query::default()).unwrap().items[0].rowid;
-    s.delete(row, false).unwrap();
+    s.delete(row).unwrap();
     assert!(find(&s, "独特").is_empty());
-    s.delete(row, true).unwrap();
-    assert_eq!(find(&s, "独特").len(), 1);
     s.reindex().unwrap();
-    assert_eq!(find(&s, "独特").len(), 1);
+    assert!(find(&s, "独特").is_empty());
     assert!(s.history(&b, &id).unwrap().len() >= 3);
 }
 
 #[test]
-fn explanation_is_preserved_but_not_searched_after_edits_reindex_or_package_import() {
+fn explanation_is_preserved_but_not_searched_after_edits_reindex_or_package_export() {
     let (dir, s) = setup();
     let b = s.create("搜索范围").unwrap();
     let mut q = sample();
@@ -198,14 +193,15 @@ fn explanation_is_preserved_but_not_searched_after_edits_reindex_or_package_impo
     assert!(find(&s, "修改后的解析").is_empty());
     let package = dir.path().join("search-scope.qbank.zip");
     exchange::export(&s, &b, &package, "package").unwrap();
-    let (_reader_dir, reader) = setup();
-    let pending = exchange::preview(&reader, &package, "").unwrap();
-    let imported = exchange::commit(&reader, &pending).unwrap();
-    assert_scope(&reader);
-    assert_eq!(
-        reader.questions(&imported).unwrap()[0].explanation,
-        s.questions(&b).unwrap()[0].explanation
-    );
+    let mut archive = zip::ZipArchive::new(Cursor::new(std::fs::read(package).unwrap())).unwrap();
+    let mut payload = String::new();
+    archive
+        .by_name("questions.jsonl")
+        .unwrap()
+        .read_to_string(&mut payload)
+        .unwrap();
+    let exported: Question = serde_json::from_str(payload.lines().next().unwrap()).unwrap();
+    assert_eq!(exported.explanation, s.questions(&b).unwrap()[0].explanation);
 }
 
 fn put_legacy_index(store: &Store) {
@@ -234,7 +230,7 @@ fn put_legacy_index(store: &Store) {
 }
 
 #[test]
-fn old_indexes_upgrade_once_including_recycle_bin_without_changing_questions() {
+fn old_indexes_upgrade_once_without_changing_questions() {
     let (_dir, s) = setup();
     let b = s.create("旧索引").unwrap();
     let mut q = sample();
@@ -252,7 +248,7 @@ fn old_indexes_upgrade_once_including_recycle_bin_without_changing_questions() {
         .unwrap()
         .items[0]
         .rowid;
-    s.delete(deleted, false).unwrap();
+    s.delete(deleted).unwrap();
     put_legacy_index(&s);
     assert_eq!(find(&s, "银河系").len(), 1);
     let stored_rows = |store: &Store| {
@@ -278,31 +274,27 @@ fn old_indexes_upgrade_once_including_recycle_bin_without_changing_questions() {
                 .unwrap(),
             4
         );
-        for trash in [false, true] {
-            for text in ["霜", "雾露", "银河系"] {
-                assert!(upgraded
-                    .search(&Query {
-                        text: text.into(),
-                        trash,
-                        ..Default::default()
-                    })
-                    .unwrap()
-                    .items
-                    .is_empty());
-            }
-            assert_eq!(
-                upgraded
-                    .search(&Query {
-                        text: "题干内容".into(),
-                        trash,
-                        ..Default::default()
-                    })
-                    .unwrap()
-                    .items
-                    .len(),
-                1
-            );
+        for text in ["霜", "雾露", "银河系"] {
+            assert!(upgraded
+                .search(&Query {
+                    text: text.into(),
+                    ..Default::default()
+                })
+                .unwrap()
+                .items
+                .is_empty());
         }
+        assert_eq!(
+            upgraded
+                .search(&Query {
+                    text: "题干内容".into(),
+                    ..Default::default()
+                })
+                .unwrap()
+                .items
+                .len(),
+            1
+        );
         assert_eq!(stored_rows(&upgraded), before);
         assert_eq!(upgraded.bank(&b).unwrap().version, version);
     }
@@ -353,179 +345,43 @@ fn failed_index_upgrade_rolls_back_both_indexes_and_version_marker() {
 }
 
 #[test]
-fn every_reader_can_repackage_and_updates_are_atomic_with_rollback() {
-    let (dir, author) = setup();
-    let b = author.create("发布测试").unwrap();
-    author.save(&b, sample()).unwrap();
-    let p1 = dir.path().join("v1.qbank.zip");
-    exchange::export(&author, &b, &p1, "package").unwrap();
-    let (_reader_dir, reader) = setup();
-    let p = exchange::preview(&reader, &p1, "").unwrap();
-    assert!(p.preview.errors.is_empty());
-    let id = exchange::commit(&reader, &p).unwrap();
-    assert!(reader.bank(&id).unwrap().read_only);
-    assert!(reader.save(&id, sample()).is_err());
-    let rp = dir.path().join("reader.qbank.zip");
-    exchange::export(&reader, &id, &rp, "package").unwrap();
-    let (_third_dir, third) = setup();
-    let p = exchange::preview(&third, &rp, "").unwrap();
-    assert!(p.preview.errors.is_empty());
-    exchange::commit(&third, &p).unwrap();
-    assert_eq!(
-        serde_json::to_value(author.questions(&b).unwrap()).unwrap(),
-        serde_json::to_value(third.questions(&b).unwrap()).unwrap()
-    );
-    let duplicate = exchange::preview(&reader, &p1, "").unwrap();
-    assert!(duplicate.preview.action.contains("跳过"));
-    exchange::commit(&reader, &duplicate).unwrap();
-    assert_eq!(reader.bank(&id).unwrap().count, 1);
-    let previous_name =
-        exchange::export_name(&reader.bank(&id).unwrap(), &reader.questions(&id).unwrap()).unwrap();
-    let mut q = author.questions(&b).unwrap().remove(0);
-    q.stem = "新版变更".into();
-    author.save(&b, q).unwrap();
-    let p2 = dir.path().join("v2.qbank.zip");
-    exchange::export(&author, &b, &p2, "package").unwrap();
-    let p = exchange::preview(&reader, &p2, "").unwrap();
-    assert_eq!(p.preview.changed, 1);
-    exchange::commit(&reader, &p).unwrap();
-    assert_eq!(find(&reader, "新版变更").len(), 1);
-    assert!(!exchange::preview(&reader, &p1, "")
-        .unwrap()
-        .preview
-        .errors
-        .is_empty());
-    reader.rollback(&id).unwrap();
-    assert!(find(&reader, "新版变更").is_empty());
-    assert_eq!(
-        exchange::export_name(&reader.bank(&id).unwrap(), &reader.questions(&id).unwrap()).unwrap(),
-        previous_name
-    );
-    assert_eq!(reader.bank(&id).unwrap().count, 1);
-    let fork = reader.fork(&id).unwrap();
-    assert!(!reader.bank(&fork).unwrap().read_only);
-    assert_ne!(
-        reader.questions(&id).unwrap()[0].question_id,
-        reader.questions(&fork).unwrap()[0].question_id
-    );
-    exchange::export(
-        &reader,
-        &fork,
-        &dir.path().join("fork.qbank.zip"),
-        "package",
-    )
-    .unwrap();
+fn offline_package_export_preserves_bank_identity_and_questions() {
+    let (dir, store) = setup();
+    let bank = store.create("离线发布").unwrap();
+    store.save(&bank, sample()).unwrap();
+    let path = dir.path().join("release.qbank.zip");
+    assert_eq!(exchange::export(&store, &bank, &path, "package").unwrap(), 1);
+    let mut archive = zip::ZipArchive::new(Cursor::new(std::fs::read(path).unwrap())).unwrap();
+    let mut manifest = String::new();
+    archive.by_name("manifest.json").unwrap().read_to_string(&mut manifest).unwrap();
+    let manifest: serde_json::Value = serde_json::from_str(&manifest).unwrap();
+    assert_eq!(manifest["bank_id"], bank);
+    assert_eq!(manifest["question_count"], 1);
+    let mut payload = String::new();
+    archive.by_name("questions.jsonl").unwrap().read_to_string(&mut payload).unwrap();
+    let exported: Question = serde_json::from_str(payload.lines().next().unwrap()).unwrap();
+    assert_eq!(exported.stem, store.questions(&bank).unwrap()[0].stem);
 }
 
 #[test]
-fn damaged_package_is_rejected_before_any_mutation() {
-    let (dir, s) = setup();
-    let b = s.create("完整性").unwrap();
-    s.save(&b, sample()).unwrap();
-    let data = exchange::package_bytes(&s.bank(&b).unwrap(), &s.questions(&b).unwrap()).unwrap();
-    let mut old = zip::ZipArchive::new(Cursor::new(data)).unwrap();
-    let mut out = zip::ZipWriter::new(Cursor::new(Vec::new()));
-    for i in 0..old.len() {
-        let mut f = old.by_index(i).unwrap();
-        let mut d = Vec::new();
-        f.read_to_end(&mut d).unwrap();
-        if f.name() == "questions.jsonl" {
-            d.extend(b" ");
-        }
-        out.start_file(f.name(), zip::write::SimpleFileOptions::default())
-            .unwrap();
-        out.write_all(&d).unwrap();
-    }
-    let path = dir.path().join("tampered.qbank.zip");
-    std::fs::write(&path, out.finish().unwrap().into_inner()).unwrap();
-    assert!(exchange::preview(&s, &path, "")
-        .err()
-        .unwrap()
-        .contains("校验失败"));
-    assert_eq!(s.bank(&b).unwrap().count, 1);
-}
-
-#[test]
-fn office_and_jsonl_roundtrip_preserve_multiline_content_and_answers() {
-    let (dir, s) = setup();
-    let b = s.create("交换测试").unwrap();
-    let mut examples: Vec<Question> =
-        serde_json::from_str(include_str!("../resources/examples.json")).unwrap();
-    examples[0].stem = "=SUM(A1:A2)\n<Component attr=\"安全\"> & literal".into();
-    for q in examples {
-        s.save(&b, q).unwrap();
-    }
-    for format in ["xlsx", "docx", "jsonl"] {
-        let path = dir.path().join(format!("exchange.{format}"));
-        exchange::export(&s, &b, &path, format).unwrap();
-        let (_other_dir, other) = setup();
-        let p = exchange::preview(&other, &path, "").unwrap();
-        assert!(
-            p.preview.errors.is_empty(),
-            "{format}: {:?}",
-            p.preview.errors
-        );
-        let new = exchange::commit(&other, &p).unwrap();
-        assert_eq!(
-            serde_json::to_value(s.questions(&b).unwrap()).unwrap(),
-            serde_json::to_value(other.questions(&new).unwrap()).unwrap(),
-            "{format}"
-        );
+fn supported_exports_write_package_jsonl_and_print_formats() {
+    let (dir, store) = setup();
+    let bank = store.create("导出格式").unwrap();
+    store.save(&bank, sample()).unwrap();
+    for format in ["package", "jsonl", "docx", "xlsx", "docx-study", "docx-exam", "docx-answers"] {
+        let path = dir.path().join(format!("export-{format}"));
+        assert_eq!(exchange::export(&store, &bank, &path, format).unwrap(), 1, "{format}");
+        assert!(!std::fs::read(path).unwrap().is_empty(), "{format}");
     }
 }
 
 #[test]
-fn import_preview_is_all_or_nothing_and_revision_guarded() {
-    let (dir, s) = setup();
-    let b = s.create("事务").unwrap();
-    s.save(&b, sample()).unwrap();
-    let path = dir.path().join("batch.jsonl");
-    exchange::export(&s, &b, &path, "jsonl").unwrap();
-    let mut qs = s.questions(&b).unwrap();
-    qs[0].stem = "批次更新".into();
-    std::fs::write(&path, serde_json::to_string(&qs[0]).unwrap()).unwrap();
-    let p = exchange::preview(&s, &path, &b).unwrap();
-    s.save(&b, sample()).unwrap();
-    assert!(exchange::commit(&s, &p).is_err());
-    assert!(find(&s, "批次更新").is_empty());
-    std::fs::write(
-        &path,
-        format!(
-            "{}\n{{\"bad\":true}}",
-            serde_json::to_string(&qs[0]).unwrap()
-        ),
-    )
-    .unwrap();
-    let p = exchange::preview(&s, &path, &b).unwrap();
-    assert!(!p.preview.errors.is_empty());
-    assert!(exchange::commit(&s, &p).is_err());
-    assert_eq!(s.bank(&b).unwrap().count, 2);
-}
-
-#[test]
-fn invalid_answer_types_and_formula_cells_fail() {
+fn invalid_answer_types_are_rejected() {
     let mut q = sample();
     q.answer = json!(["Z"]);
     assert!(q.validate(false).is_err());
     q.answer = json!("B");
     assert!(q.validate(false).is_err());
-    let (dir, s) = setup();
-    let mut wb = rust_xlsxwriter::Workbook::new();
-    let info = wb.add_worksheet().set_name("填写说明").unwrap();
-    info.write_string(0, 0, "模板版本").unwrap();
-    info.write_string(0, 1, "1.0").unwrap();
-    let sheet = wb.add_worksheet().set_name("题目").unwrap();
-    for (j, h) in exchange::HEADERS.iter().enumerate() {
-        sheet.write_string(0, j as u16, *h).unwrap();
-    }
-    sheet.write_formula(1, 4, "=1+1").unwrap();
-    sheet.write_string(1, 1, "判断").unwrap();
-    sheet.write_string(1, 13, "正确").unwrap();
-    let path = dir.path().join("formulas.xlsx");
-    wb.save(&path).unwrap();
-    let p = exchange::preview(&s, &path, "").unwrap();
-    assert!(p.preview.errors.iter().any(|e| e.contains("公式")));
-    assert!(exchange::commit(&s, &p).is_err());
 }
 
 #[test]
@@ -571,107 +427,15 @@ fn cursor_continuation_and_filtering_do_not_drop_records() {
 }
 
 #[test]
-fn migrated_bank_roundtrips_in_all_formats_without_losing_uncertain_answers() {
-    let (dir, s) = setup();
-    s.seed().unwrap();
-    let id = s.banks().unwrap()[0].id.clone();
-    let original = s.questions(&id).unwrap();
+fn migrated_bank_exports_all_supported_formats_without_losing_uncertain_answers() {
+    let (dir, store) = setup();
+    store.seed().unwrap();
+    let bank = store.banks().unwrap()[0].id.clone();
+    let original = store.questions(&bank).unwrap();
     assert_eq!(original.iter().filter(|q| q.answer.is_null()).count(), 3);
     for format in ["package", "jsonl", "docx", "xlsx"] {
-        let path = dir.path().join(if format == "package" {
-            "seed.qbank.zip".into()
-        } else {
-            format!("seed.{format}")
-        });
-        exchange::export(&s, &id, &path, format).unwrap();
-        let (_rdir, r) = setup();
-        let p = exchange::preview(&r, &path, "").unwrap();
-        assert!(
-            p.preview.errors.is_empty(),
-            "{format}: {:?}",
-            p.preview.errors
-        );
-        let b = exchange::commit(&r, &p).unwrap();
-        assert_eq!(
-            serde_json::to_value(&original).unwrap(),
-            serde_json::to_value(r.questions(&b).unwrap()).unwrap(),
-            "{format}"
-        );
-        let again = exchange::preview(&r, &path, "").unwrap();
-        assert!(again.preview.errors.is_empty());
-        assert!(again.preview.action.contains("跳过"));
-        exchange::commit(&r, &again).unwrap();
-        assert_eq!(r.banks().unwrap().len(), 1);
+        let path = dir.path().join(format!("seed.{format}"));
+        assert_eq!(exchange::export(&store, &bank, &path, format).unwrap(), original.len());
+        assert!(!std::fs::read(path).unwrap().is_empty(), "{format}");
     }
-}
-
-#[test]
-fn rollback_preserves_recycle_bin_and_rejects_missing_update_revision() {
-    let (dir, s) = setup();
-    let b = s.create("回退检查").unwrap();
-    s.save(&b, sample()).unwrap();
-    let hit = s.search(&Query::default()).unwrap().items.remove(0);
-    s.delete(hit.rowid, false).unwrap();
-    let path = dir.path().join("new.jsonl");
-    std::fs::write(&path, serde_json::to_string(&sample()).unwrap()).unwrap();
-    let p = exchange::preview(&s, &path, &b).unwrap();
-    exchange::commit(&s, &p).unwrap();
-    s.rollback(&b).unwrap();
-    assert_eq!(s.bank(&b).unwrap().count, 0);
-    assert_eq!(
-        s.search(&Query {
-            trash: true,
-            ..Default::default()
-        })
-        .unwrap()
-        .items
-        .len(),
-        1
-    );
-    let mut q = serde_json::to_value(hit.question).unwrap();
-    q.as_object_mut().unwrap().remove("base_revision");
-    std::fs::write(&path, q.to_string()).unwrap();
-    let p = exchange::preview(&s, &path, "").unwrap();
-    assert!(p.preview.errors.iter().any(|e| e.contains("基准修订号")));
-}
-
-#[test]
-fn downloadable_templates_match_the_import_contract() {
-    let (_dir, s) = setup();
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap();
-    for file in [
-        "templates/题库导入模板_v1.docx",
-        "templates/题库导入示例_v1.jsonl",
-        "src-tauri/tests/fixtures/excel-filled-test.xlsx",
-    ] {
-        let p = exchange::preview(&s, &root.join(file), "").unwrap();
-        assert!(
-            p.preview.errors.is_empty(),
-            "{file}: {:?}",
-            p.preview.errors
-        );
-        assert_eq!(p.preview.count, 3);
-    }
-    let p = exchange::preview(&s, &root.join("templates/题库导入模板_v1.xlsx"), "").unwrap();
-    assert_eq!(p.preview.count, 0);
-    assert_eq!(p.preview.errors.len(), 1);
-    assert!(p.preview.errors[0].contains("没有可导入"));
-}
-
-#[test]
-fn rollback_cannot_erase_edits_made_after_import() {
-    let (dir, s) = setup();
-    let b = s.create("保护编辑").unwrap();
-    s.save(&b, sample()).unwrap();
-    let path = dir.path().join("new.jsonl");
-    std::fs::write(&path, serde_json::to_string(&sample()).unwrap()).unwrap();
-    let p = exchange::preview(&s, &path, &b).unwrap();
-    exchange::commit(&s, &p).unwrap();
-    let mut q = s.questions(&b).unwrap().remove(0);
-    q.stem = "导入后的编辑必须保留".into();
-    s.save(&b, q).unwrap();
-    assert!(s.rollback(&b).unwrap_err().contains("其他修改"));
-    assert_eq!(find(&s, "必须保留").len(), 1);
 }

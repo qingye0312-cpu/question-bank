@@ -2,7 +2,7 @@ import {useCallback, useLayoutEffect, useRef, useState} from 'react';
 import {invoke} from '@tauri-apps/api/core';
 import type {Hit, Results} from './types';
 
-type Search = {text: string; bank_id: string; kind: string; trash: boolean};
+type Search = {text: string; bank_id: string; kind: string};
 type Session = {search: Search; items: Hit[]; after: number; more: boolean; pending: boolean};
 
 export function useQuestionResults(search: Search, revision: number, onResults: (result: Results, initial: boolean) => void) {
@@ -37,7 +37,7 @@ export function useQuestionResults(search: Search, revision: number, onResults: 
     setState({items: [], more: true, loading: true, error: ''});
     void loadMore();
     return () => { if (session.current === current) session.current = null; };
-  }, [search.text, search.bank_id, search.kind, search.trash, revision, loadMore]);
+  }, [search.text, search.bank_id, search.kind, revision, loadMore]);
 
   return {...state, loadMore};
 }

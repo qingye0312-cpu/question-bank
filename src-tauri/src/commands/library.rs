@@ -41,13 +41,12 @@ pub(crate) async fn save_question(
 pub(crate) async fn delete_question(
     s: State<'_, AppState>,
     rowid: i64,
-    restore: bool,
 ) -> Result<()> {
     let d = s.store.clone();
     let lock = s.writes.clone();
     blocking(move || {
         let _g = lock.lock().map_err(err)?;
-        d.delete(rowid, restore)
+        d.delete(rowid)
     })
     .await
 }
@@ -72,16 +71,6 @@ pub(crate) async fn delete_bank(
     blocking(move || {
         let _g = lock.lock().map_err(err)?;
         crate::library::delete_local_bank(&d, &bank_id, version)
-    })
-    .await
-}
-#[tauri::command]
-pub(crate) async fn rollback_bank(s: State<'_, AppState>, bank_id: String) -> Result<()> {
-    let d = s.store.clone();
-    let lock = s.writes.clone();
-    blocking(move || {
-        let _g = lock.lock().map_err(err)?;
-        d.rollback(&bank_id)
     })
     .await
 }

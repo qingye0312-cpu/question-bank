@@ -28,8 +28,6 @@ pub struct Query {
     pub kind: String,
     #[serde(default)]
     pub after_rowid: i64,
-    #[serde(default)]
-    pub trash: bool,
 }
 #[derive(Serialize)]
 pub struct Results {
@@ -69,7 +67,6 @@ impl Store {
           CREATE VIRTUAL TABLE IF NOT EXISTS search_short_vocab USING fts5vocab(search_short, 'row');
           CREATE TABLE IF NOT EXISTS history(id INTEGER PRIMARY KEY,bank_id TEXT NOT NULL,question_id TEXT NOT NULL,data TEXT NOT NULL,at TEXT NOT NULL,reason TEXT NOT NULL);
           CREATE TABLE IF NOT EXISTS snapshots(bank_id TEXT PRIMARY KEY,bank TEXT NOT NULL,questions TEXT NOT NULL);
-          CREATE TABLE IF NOT EXISTS imports(fingerprint TEXT NOT NULL,bank_id TEXT NOT NULL,at TEXT NOT NULL,PRIMARY KEY(fingerprint,bank_id));
           ").map_err(err)?;
         // v2 records the imported version so rollback cannot erase later edits.
         let mut c = s.conn()?;
@@ -88,7 +85,6 @@ impl Store {
         crate::drafts::initialize(&s.conn()?)?;
         crate::cloud::initialize(&s.conn()?)?;
         crate::promotion::initialize(&s.conn()?)?;
-        crate::import_jobs::initialize(&s.conn()?)?;
         s.conn()?
             .execute_batch("PRAGMA user_version=4;")
             .map_err(err)?;
@@ -255,11 +251,10 @@ impl Store {
         let mut values: Vec<rusqlite::types::Value> = Vec::new();
         let mut sql = if let Some((table, expr)) = groups.first() {
             values.push(expr.clone().into());
-            format!("SELECT q.rowid,q.bank_id,b.name,q.data,COALESCE((SELECT layer FROM question_layers l WHERE l.bank_id=q.bank_id AND l.question_id=q.id),(SELECT 'draft' FROM intake_entries e WHERE e.bank_id=q.bank_id AND e.question_id=q.id),'formal') FROM {table} CROSS JOIN questions q ON q.rowid={table}.rowid JOIN banks b ON b.id=q.bank_id WHERE {table} MATCH ? AND q.deleted=?")
+            format!("SELECT q.rowid,q.bank_id,b.name,q.data,COALESCE((SELECT layer FROM question_layers l WHERE l.bank_id=q.bank_id AND l.question_id=q.id),(SELECT 'draft' FROM intake_entries e WHERE e.bank_id=q.bank_id AND e.question_id=q.id),'formal') FROM {table} CROSS JOIN questions q ON q.rowid={table}.rowid JOIN banks b ON b.id=q.bank_id WHERE {table} MATCH ? AND q.deleted=0")
         } else {
-            "SELECT q.rowid,q.bank_id,b.name,q.data,COALESCE((SELECT layer FROM question_layers l WHERE l.bank_id=q.bank_id AND l.question_id=q.id),(SELECT 'draft' FROM intake_entries e WHERE e.bank_id=q.bank_id AND e.question_id=q.id),'formal') FROM questions q JOIN banks b ON b.id=q.bank_id WHERE q.deleted=?".into()
+            "SELECT q.rowid,q.bank_id,b.name,q.data,COALESCE((SELECT layer FROM question_layers l WHERE l.bank_id=q.bank_id AND l.question_id=q.id),(SELECT 'draft' FROM intake_entries e WHERE e.bank_id=q.bank_id AND e.question_id=q.id),'formal') FROM questions q JOIN banks b ON b.id=q.bank_id WHERE q.deleted=0".into()
         };
-        values.push((q.trash as i64).into());
         for (col, val) in [("q.bank_id", &q.bank_id), ("q.kind", &q.kind)] {
             if !val.is_empty() {
                 sql.push_str(&format!(" AND {col}=?"));
@@ -324,7 +319,7 @@ impl Store {
             )
             .map_err(err)?;
         if is_draft {
-            return Err("请在录题记录中编辑本题，避免覆盖未上传草稿".into());
+            return Err("请在待上传列表中编辑本题，避免覆盖未上传草稿".into());
         }
         q.validate(false)?;
         q.prepare();
@@ -387,7 +382,7 @@ impl Store {
         tx.commit().map_err(err)?;
         Ok(q.question_id)
     }
-    pub fn delete(&self, rowid: i64, restore: bool) -> Result<()> {
+    pub fn delete(&self, rowid: i64) -> Result<()> {
         let mut c = self.conn()?;
         let tx = c.transaction().map_err(err)?;
         let (bank_id,data,readonly):(String,String,bool)=tx.query_row("SELECT q.bank_id,q.data,b.read_only FROM questions q JOIN banks b ON b.id=q.bank_id WHERE q.rowid=?1",[rowid],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).map_err(err)?;
@@ -401,19 +396,19 @@ impl Store {
         }
         tx.execute(
             "UPDATE intake_originals SET deleted=?1 WHERE bank_id=?2 AND question_id=?3",
-            params![!restore, bank_id, q.question_id],
+            params![true, bank_id, q.question_id],
         )
         .map_err(err)?;
-        tx.execute("UPDATE draft_records SET revision=revision+1,data=json_set(data,'$.removed',json(?3),'$.revision',revision+1,'$.updatedAt',?4) WHERE bank_id=?1 AND id=?2",params![bank_id,q.question_id,if restore {"false"}else{"true"},now()]).map_err(err)?;
+        tx.execute("UPDATE draft_records SET revision=revision+1,data=json_set(data,'$.removed',json('true'),'$.revision',revision+1,'$.updatedAt',?3) WHERE bank_id=?1 AND id=?2",params![bank_id,q.question_id,now()]).map_err(err)?;
         record(
             &tx,
             &bank_id,
             &q,
-            if restore { "恢复" } else { "移入回收站" },
+            "删除",
         )?;
         tx.execute(
             "UPDATE questions SET deleted=?1 WHERE rowid=?2",
-            params![!restore, rowid],
+            params![true, rowid],
         )
         .map_err(err)?;
         touch(&tx, &bank_id)?;
@@ -462,58 +457,6 @@ impl Store {
             })
             .map_err(err)?;
         rows.map(|r|{let(d,at,reason)=r.map_err(err)?;Ok(serde_json::json!({"question":serde_json::from_str::<Question>(&d).map_err(err)?,"at":at,"reason":reason}))}).collect()
-    }
-    pub fn rollback(&self, id: &str) -> Result<()> {
-        let mut c = self.conn()?;
-        let tx = c.transaction().map_err(err)?;
-        if tx
-            .query_row(
-                "SELECT EXISTS(SELECT 1 FROM cloud_snapshots WHERE bank_id=?1)",
-                [id],
-                |r| r.get::<_, bool>(0),
-            )
-            .map_err(err)?
-        {
-            return Err("云端题库请通过云端版本历史回退；本机回退会破坏同步修订，已阻止".into());
-        }
-        let (b, d, expected): (String, String, i64) = tx
-            .query_row(
-                "SELECT bank,questions,expected_version FROM snapshots WHERE bank_id=?1",
-                [id],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-            )
-            .map_err(|_| "没有可以回退的上一版本".to_string())?;
-        if get_bank(&tx, id)?.version != expected {
-            return Err("导入后题库已有其他修改，不能直接回退。请先导出当前内容，再单独处理需要撤回的题目。".into());
-        }
-        let bank: Bank = serde_json::from_str(&b).map_err(err)?;
-        let qs: Vec<SnapshotRow> = serde_json::from_str(&d).map_err(err)?;
-        clear_bank(&tx, id)?;
-        tx.execute("UPDATE banks SET name=?1,read_only=?2,version=?3,updated_at=?4,content_hash=?5,provenance=?6 WHERE id=?7",params![bank.name,bank.read_only,bank.version,bank.updated_at,bank.content_hash,bank.provenance,id]).map_err(err)?;
-        for row in &qs {
-            insert(&tx, id, &row.question)?;
-            if row.deleted {
-                tx.execute(
-                    "UPDATE questions SET deleted=1 WHERE rowid=?1",
-                    [tx.last_insert_rowid()],
-                )
-                .map_err(err)?;
-            }
-        }
-        tx.execute("DELETE FROM snapshots WHERE bank_id=?1", [id])
-            .map_err(err)?;
-        tx.execute("DELETE FROM imports WHERE bank_id=?1", [id])
-            .map_err(err)?;
-        crate::intake::restore_snapshot(&tx, id)?;
-        if let (Some(name), Some(digest)) = (&bank.release_name, &bank.release_id) {
-            set_result(&tx, id, bank.merged_at.as_deref(), name, digest)?;
-        } else {
-            tx.execute("DELETE FROM bank_results WHERE bank_id=?1", [id])
-                .map_err(err)?;
-            tx.execute("DELETE FROM bank_result_content WHERE bank_id=?1", [id])
-                .map_err(err)?;
-        }
-        tx.commit().map_err(err)
     }
     pub fn reindex(&self) -> Result<()> {
         let mut c = self.conn()?;
@@ -621,37 +564,10 @@ pub fn record(c: &Connection, id: &str, q: &Question, reason: &str) -> Result<()
     .map_err(err)?;
     Ok(())
 }
-#[derive(Serialize, Deserialize)]
-struct SnapshotRow {
-    question: Question,
-    deleted: bool,
-}
 pub fn get_bank(c: &Connection, id: &str) -> Result<Bank> {
     let mut bank=c.query_row("SELECT b.id,b.name,b.read_only,b.version,b.updated_at,b.content_hash,b.provenance,(SELECT count(*) FROM questions WHERE bank_id=b.id AND deleted=0),(SELECT count(*) FROM questions WHERE bank_id=b.id AND deleted=0 AND status='needs_review') FROM banks b WHERE b.id=?1",[id],|r|Ok(Bank{result_content_hash:None,merged_at:None,release_name:None,release_id:None,id:r.get(0)?,name:r.get(1)?,read_only:r.get(2)?,version:r.get(3)?,updated_at:r.get(4)?,content_hash:r.get(5)?,provenance:r.get(6)?,count:r.get(7)?,review_count:r.get(8)?})).map_err(err)?;
     decorate_bank(c, &mut bank)?;
     Ok(bank)
-}
-pub fn snapshot(c: &Connection, bank: &Bank) -> Result<()> {
-    let mut st = c
-        .prepare("SELECT data,deleted FROM questions WHERE bank_id=?1 ORDER BY rowid")
-        .map_err(err)?;
-    let rows = st
-        .query_map([&bank.id], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, bool>(1)?))
-        })
-        .map_err(err)?;
-    let all: Vec<SnapshotRow> = rows
-        .map(|r| {
-            let (data, deleted) = r.map_err(err)?;
-            Ok(SnapshotRow {
-                question: serde_json::from_str(&data).map_err(err)?,
-                deleted,
-            })
-        })
-        .collect::<Result<_>>()?;
-    c.execute("INSERT OR REPLACE INTO snapshots(bank_id,bank,questions,expected_version) VALUES(?1,?2,?3,0)",params![bank.id,serde_json::to_string(bank).map_err(err)?,serde_json::to_string(&all).map_err(err)?]).map_err(err)?;
-    crate::intake::snapshot(c, &bank.id)?;
-    Ok(())
 }
 pub fn clear_bank(c: &Connection, id: &str) -> Result<()> {
     let ids = {

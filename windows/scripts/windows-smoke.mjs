@@ -37,9 +37,7 @@ async function check(name, run) {
     await fs.writeFile(path.join(output, 'report.json'), JSON.stringify(report, null, 2));
   }
 }
-const invoke = (command, args = {}) => page.evaluate(({command, args}) => window.__TAURI_INTERNALS__.invoke(command, args), {
-  command, args: command === 'import_preview' ? {jobId: crypto.randomUUID(), ...args} : args,
-});
+const invoke = (command, args = {}) => page.evaluate(({command, args}) => window.__TAURI_INTERNALS__.invoke(command, args), {command, args});
 const search = (text = '', bankId = '', extra = {}) => invoke('search', {query: {text, bank_id: bankId, ...extra}});
 async function all(bankId, extra = {}) {
   const items = []; let after = 0;
@@ -252,24 +250,15 @@ try {
     await page.keyboard.press('Escape');
     return {palettesPerMode:8,light:'ocean',dark:'pink',systemMediaChanges:true,restart:true};
   });
-  await check('Word Excel JSONL template output and import via real IPC', async () => {
-    for (const format of ['docx','xlsx','jsonl']) {
-      const destination=path.join(files, `录题 模板.${format}`);
-      await invoke('download_template',{path:destination,format});
-      const source=path.join(root,'templates',format==='jsonl'?'题库导入示例_v1.jsonl':`题库导入模板_v1.${format}`);
-      assert.deepEqual(await fs.readFile(destination), await fs.readFile(source));
-      const input=format==='xlsx'?path.join(root,'src-tauri/tests/fixtures/excel-filled-test.xlsx'):destination;
-      const preview=await invoke('import_preview',{path:input,bankId:''});
-      assert.deepEqual(preview.errors,[]); assert.equal(preview.count,3);
-      const bank=await invoke('import_commit',{token:preview.token});
-      assert.equal((await all(bank)).length,3);
-      const exported=path.join(files,`导出 往返.${format}`);
-      assert.equal(await invoke('export_bank',{bankId:bank,path:exported,format}),3);
-      const roundtrip=await invoke('import_preview',{path:exported,bankId:''});
-      assert.deepEqual(roundtrip.errors,[]); assert.equal(roundtrip.count,3);
+  await check('supported export formats', async () => {
+    for (const format of ['package','docx','xlsx','jsonl','docx-study','docx-exam','docx-answers']) {
+      const destination=path.join(files, `题库导出.${format}`);
+      const count=await invoke('export_bank',{bankId:seedBank.id,path:destination,format});
+      assert.equal(count,914,format);
+      assert.ok((await fs.stat(destination)).size>0,format);
     }
   });
-  await check('edit history, recycle/restore, package duplicate, rollback and index rebuild', async () => {
+  await check('edit history, delete, package export and index rebuild', async () => {
     const bankId=await invoke('create_bank',{name:'Windows 验证 test'});
     const question=JSON.parse(await fs.readFile(path.join(root,'src-tauri/resources/examples.json'),'utf8'))[0];
     question.question_id=''; question.base_revision=1; question.stem='Windows 验证 初稿';
@@ -280,22 +269,11 @@ try {
     await invoke('save_question',{bankId,question:hit.question});
     assert.ok((await invoke('history',{bankId,questionId:hit.question.question_id})).length>=1);
     assert.equal((await search('ExplanationOnlyMarkerXYZ',bankId)).items.length,0);
-    await invoke('delete_question',{rowid:hit.rowid,restore:false});
-    assert.equal((await all(bankId)).length,0); assert.equal((await all(bankId,{trash:true})).length,1);
-    await invoke('delete_question',{rowid:hit.rowid,restore:true});
-    assert.equal((await all(bankId)).length,1);
+    await invoke('delete_question',{rowid:hit.rowid});
+    assert.equal((await all(bankId)).length,0);
     const packagePath=path.join(files,'发布 题库.qbank.zip');
     assert.equal(await invoke('export_bank',{bankId:seedBank.id,path:packagePath,format:'package'}),914);
-    const duplicate=await invoke('import_preview',{path:packagePath,bankId:''});
-    assert.deepEqual(duplicate.errors,[]); assert.match(duplicate.action,/跳过/);
-    await invoke('import_commit',{token:duplicate.token});
-    const imported=path.join(files,'增量 数据.jsonl');
-    question.question_id=''; question.stem='Windows 导入后回退验证';
-    await fs.writeFile(imported,JSON.stringify(question)+'\n');
-    const preview=await invoke('import_preview',{path:imported,bankId});
-    assert.deepEqual(preview.errors,[]);
-    await invoke('import_commit',{token:preview.token}); assert.equal((await all(bankId)).length,2);
-    await invoke('rollback_bank',{bankId}); assert.equal((await all(bankId)).length,1);
+    assert.ok((await fs.stat(packagePath)).size>0);
     const copyId=await invoke('fork_bank',{bankId:seedBank.id});
     const copy=(await invoke('banks')).find(bank=>bank.id===copyId);
     assert.ok(!copy.read_only); assert.equal(copy.count,914);
@@ -416,7 +394,7 @@ try {
     assert.deepEqual(await invoke('software_update_check'), {configured:false});
     return info;
   });
-  await check('intake autosaves, edits, deletes and restores records, then retains incomplete drafts after restart', async () => {
+  await check('intake autosaves, edits and deletes pending records, then retains incomplete drafts after restart', async () => {
     await page.getByRole('button',{name:'大模型录题',exact:true}).click();
     await page.getByLabel('录入题库').selectOption(seedBank.id);
     const reply = {format:'qbank-photo-question-1',type:'single',stem:'Windows 0.2.7 原生录题验证',options:[{key:'A',content:'第一个选项'},{key:'B',content:'正确选项'}],answer:['B'],answer_origin:'inferred',explanation:'隔离测试',model:{name:'Synthetic',version:'test',version_source:'user'},warnings:[]};
@@ -445,22 +423,17 @@ try {
     const original = records[0];
     assert.deepEqual(original.question.answer,['A']);
     assert.ok(original.recordedAt);
-    await page.getByRole('button',{name:/^录题记录/}).click();
+    await page.getByRole('button',{name:/^待上传/}).click();
     await page.locator('.intake-record-card').getByRole('button',{name:'修改',exact:true}).click();
     await page.locator('.model-editor textarea').first().fill('Windows 录题修改后验证');
-    await page.getByRole('button',{name:/^录题记录/}).click();
+    await page.getByRole('button',{name:/^待上传/}).click();
     records = await invoke('draft_records',{bankId:seedBank.id});
     assert.equal(records[0].reply.stem,'Windows 录题修改后验证');
     assert.equal(records[0].recordedAt,original.recordedAt);
     await page.locator('.intake-record-card').getByRole('button',{name:'删除',exact:true}).click();
     await page.getByRole('button',{name:'上传 0 题',exact:true}).waitFor();
-    await page.getByRole('button',{name:'撤销删除',exact:true}).waitFor();
+    assert.equal(await page.getByRole('button',{name:'撤销删除',exact:true}).count(),0);
     assert.equal((await search('Windows 录题修改后验证',seedBank.id)).items.length,0);
-    await page.getByRole('button',{name:'撤销删除',exact:true}).click();
-    await page.getByRole('button',{name:'上传 1 题',exact:true}).waitFor();
-    await page.getByRole('button',{name:'撤销删除',exact:true}).waitFor({state:'hidden'});
-    assert.equal((await search('Windows 录题修改后验证',seedBank.id)).items.length,1);
-    assert.equal((await invoke('draft_records',{bankId:seedBank.id}))[0].id,original.id);
     await page.getByRole('button',{name:'下一题',exact:true}).click();
     reply.stem = 'Windows 待补全草稿验证'; reply.answer=[];
     await page.getByLabel('题目原文',{exact:true}).fill(JSON.stringify(reply));
@@ -472,25 +445,25 @@ try {
     records = await invoke('draft_records',{bankId:seedBank.id});
     assert.equal(records.length,2); assert.ok(records[1].issues.length);
     assert.equal((await search(reply.stem,seedBank.id)).items.length,0);
-    await page.getByRole('button',{name:'上传 2 题',exact:true}).click();
+    await page.getByRole('button',{name:'上传 1 题',exact:true}).click();
     await page.getByRole('alert').filter({hasText:'还有待补全题目，请修改或删除后再统一上传。'}).waitFor();
     assert.equal(await page.getByRole('heading',{name:'上传授权',exact:true}).count(),0);
     await assert.rejects(invoke('draft_export',{bankId:seedBank.id,path:path.join(files,'不能导出.json')}));
     await page.locator('.intake-record-card').getByRole('button',{name:'修改',exact:true}).click();
     await page.getByRole('button',{name:'B 答案标记',exact:true}).click();
-    await page.getByRole('button',{name:/^录题记录/}).click();
+    await page.getByRole('button',{name:/^待上传/}).click();
     const exported=path.join(files,'本次录题.qbank-upload.json');
-    assert.equal(await invoke('draft_export',{bankId:seedBank.id,path:exported}),2);
+    assert.equal(await invoke('draft_export',{bankId:seedBank.id,path:exported}),1);
     const envelope=JSON.parse(await fs.readFile(exported,'utf8'));
     const delta=JSON.parse(gunzipSync(Buffer.from(envelope.data,'base64')));
-    assert.equal(delta.question_count,2);
-    assert.equal(delta.payload.trim().split('\n').length,2);
+    assert.equal(delta.question_count,1);
+    assert.equal(delta.payload.trim().split('\n').length,1);
     records=await invoke('draft_records',{bankId:seedBank.id});
     assert.ok(records.every(r=>!r.submissionId&&!r.issues.length));
     await screenshot('intake-restart');
     assert.deepEqual(await invoke('client_state',{key:'upload-queue',value:null}),null);
     await page.getByRole('button',{name:'返回题库',exact:true}).click();
-    return {records:2,answer:original.question.answer,exported:2,uploaded:false};
+    return {records:2,answer:original.question.answer,exported:1,uploaded:false};
   });
   await check('compact intake fields grow, shrink and preserve full options across viewport changes', async () => {
     const bankId=await invoke('create_bank',{name:'Windows 录题自适应验证'});
@@ -537,19 +510,6 @@ try {
     assert.equal(records[0].reply.options[0].content,longText); assert.equal(records[0].reply.explanation,longText);
     assert.deepEqual(records[0].reply.answer,['A']);
     return {bankId,expanded,compact,viewportWidths:[viewport.width,1000],longTextCharacters:longText.length,alignment,restart:true};
-  });
-  await check('import preview survives process restart and selective undo restores the bank', async () => {
-    const bankId=await invoke('create_bank',{name:'Windows 持久导入'});
-    const source=path.join(root,'templates','题库导入示例_v1.jsonl');
-    const preview=await invoke('import_preview',{path:source,bankId});
-    assert.deepEqual(preview.errors,[]);
-    await stop(); await launch();
-    assert.ok((await invoke('import_jobs_list')).some(j=>j.preview.token===preview.token));
-    await invoke('import_commit',{token:preview.token});
-    assert.equal((await all(bankId)).length,3);
-    const runs=await invoke('import_runs',{bankId});
-    await invoke('import_undo',{runId:runs[0].id});
-    assert.equal((await all(bankId)).length,0);
   });
   await check('local library deletion confirms, clears navigation and search, and restores from its backup', async () => {
     const name='Windows 删除恢复验证';

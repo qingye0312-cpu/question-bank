@@ -35,7 +35,7 @@ type Props = {
 };
 
 export function SpeedResults({bankId, query, revision, fontScale, previewEnabled, onResults}: Props) {
-  const {items, more, loading, error, loadMore} = useQuestionResults({text: query, bank_id: bankId, kind: '', trash: false}, revision, onResults);
+  const {items, more, loading, error, loadMore} = useQuestionResults({text: query, bank_id: bankId, kind: ''}, revision, onResults);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(600);
   const [lineMetrics, setLineMetrics] = useState({width: 0, font: ''});

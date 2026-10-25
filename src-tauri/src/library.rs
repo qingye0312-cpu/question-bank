@@ -53,22 +53,14 @@ pub fn delete_local_bank(store: &Store, bank_id: &str, version: i64) -> Result<S
 
     db::clear_bank(&tx, bank_id)?;
     tx.execute("DELETE FROM intake_transfers WHERE batch_id IN (SELECT id FROM intake_batches WHERE bank_id=?1)", [bank_id]).map_err(err)?;
-    tx.execute(
-        "DELETE FROM import_changes WHERE run_id IN (SELECT id FROM import_runs WHERE bank_id=?1)",
-        [bank_id],
-    )
-    .map_err(err)?;
     for table in [
         "intake_entries",
         "intake_batches",
         "intake_originals",
-        "intake_snapshots",
         "delta_imports",
         "draft_records",
         "history",
         "snapshots",
-        "imports",
-        "import_runs",
         "question_layers",
         "bank_results",
         "bank_result_content",
@@ -76,11 +68,6 @@ pub fn delete_local_bank(store: &Store, bank_id: &str, version: i64) -> Result<S
         tx.execute(&format!("DELETE FROM {table} WHERE bank_id=?1"), [bank_id])
             .map_err(err)?;
     }
-    tx.execute(
-        "DELETE FROM import_jobs WHERE json_extract(data,'$.target')=?1",
-        [bank_id],
-    )
-    .map_err(err)?;
     tx.execute(
         "DELETE FROM client_state WHERE key=?1",
         [format!("draft:{bank_id}")],

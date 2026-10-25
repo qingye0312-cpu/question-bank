@@ -51,7 +51,6 @@ pub fn initialize(c: &Connection) -> Result<()> {
     c.execute_batch("CREATE TABLE IF NOT EXISTS intake_batches(id TEXT PRIMARY KEY,bank_id TEXT NOT NULL REFERENCES banks(id),created_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS intake_entries(bank_id TEXT NOT NULL,question_id TEXT NOT NULL,batch_id TEXT NOT NULL REFERENCES intake_batches(id),created_at TEXT NOT NULL,upload_status TEXT NOT NULL DEFAULT 'pending',uploaded_at TEXT NOT NULL DEFAULT '',exported_at TEXT NOT NULL DEFAULT '',PRIMARY KEY(bank_id,question_id));
       CREATE INDEX IF NOT EXISTS intake_by_batch ON intake_entries(batch_id);
-      CREATE TABLE IF NOT EXISTS intake_snapshots(bank_id TEXT PRIMARY KEY,data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS delta_imports(fingerprint TEXT NOT NULL,bank_id TEXT NOT NULL,at TEXT NOT NULL,PRIMARY KEY(fingerprint,bank_id));").map_err(err)
 }
 #[derive(Deserialize)]
@@ -644,7 +643,6 @@ pub fn import(store: &Store, path: &Path) -> Result<Imported> {
         result.skipped = qs.len();
         return Ok(result);
     }
-    let before = crate::import_jobs::rows(&tx, &d.bank_id)?;
     let old = all_questions(&tx, &d.bank_id)?;
     let mut by_id: HashMap<String, Question> = old
         .iter()
@@ -674,9 +672,6 @@ pub fn import(store: &Store, path: &Path) -> Result<Imported> {
                 result.skipped += 1;
             }
             continue;
-        }
-        if result.added == 0 && existing {
-            db::snapshot(&tx, &b)?;
         }
         q.bank = b.name.clone();
         q.prepare();
@@ -724,63 +719,11 @@ pub fn import(store: &Store, path: &Path) -> Result<Imported> {
     if result.added > 0 {
         db::touch(&tx, &d.bank_id)?;
         db::record_result(&tx, &d.bank_id, Some(&now()), "合并")?;
-        tx.execute("UPDATE snapshots SET expected_version=(SELECT version FROM banks WHERE id=?1) WHERE bank_id=?1",[&d.bank_id]).map_err(err)?;
     }
-    crate::import_jobs::record(&tx, &d.bank_id, "新题增量包", &d.sha256, &before)?;
     tx.commit().map_err(err)?;
     Ok(result)
 }
 type SnapshotEntry = (String, String, String, String, String, String);
-pub fn snapshot(c: &Connection, bank_id: &str) -> Result<()> {
-    let mut s=c.prepare("SELECT question_id,batch_id,created_at,upload_status,uploaded_at,exported_at FROM intake_entries WHERE bank_id=?1").map_err(err)?;
-    let rows = s
-        .query_map([bank_id], |r| {
-            Ok((
-                r.get(0)?,
-                r.get(1)?,
-                r.get(2)?,
-                r.get(3)?,
-                r.get(4)?,
-                r.get(5)?,
-            ))
-        })
-        .map_err(err)?;
-    let data: Vec<SnapshotEntry> = rows.collect::<std::result::Result<_, _>>().map_err(err)?;
-    c.execute(
-        "INSERT OR REPLACE INTO intake_snapshots VALUES(?1,?2)",
-        params![bank_id, serde_json::to_string(&data).map_err(err)?],
-    )
-    .map_err(err)?;
-    Ok(())
-}
-pub fn restore_snapshot(c: &Connection, bank_id: &str) -> Result<()> {
-    let data: Option<String> = c
-        .query_row(
-            "SELECT data FROM intake_snapshots WHERE bank_id=?1",
-            [bank_id],
-            |r| r.get(0),
-        )
-        .optional()
-        .map_err(err)?;
-    if let Some(data) = data {
-        let rows: Vec<SnapshotEntry> = serde_json::from_str(&data).map_err(err)?;
-        c.execute("DELETE FROM intake_entries WHERE bank_id=?1", [bank_id])
-            .map_err(err)?;
-        for (id, batch, created, status, uploaded, exported) in rows {
-            c.execute(
-                "INSERT INTO intake_entries VALUES(?1,?2,?3,?4,?5,?6,?7)",
-                params![bank_id, id, batch, created, status, uploaded, exported],
-            )
-            .map_err(err)?;
-        }
-        c.execute("DELETE FROM intake_snapshots WHERE bank_id=?1", [bank_id])
-            .map_err(err)?;
-    }
-    c.execute("UPDATE intake_originals SET data=(SELECT q.data FROM questions q WHERE q.bank_id=intake_originals.bank_id AND q.id=intake_originals.question_id),deleted=(SELECT q.deleted FROM questions q WHERE q.bank_id=intake_originals.bank_id AND q.id=intake_originals.question_id) WHERE bank_id=?1 AND EXISTS(SELECT 1 FROM questions q WHERE q.bank_id=intake_originals.bank_id AND q.id=intake_originals.question_id) AND NOT EXISTS(SELECT 1 FROM intake_entries e JOIN intake_transfers t ON t.batch_id=e.batch_id WHERE e.bank_id=intake_originals.bank_id AND e.question_id=intake_originals.question_id)",[bank_id]).map_err(err)?;
-    c.execute("DELETE FROM delta_imports WHERE bank_id=?1", [bank_id])
-        .map_err(err)?;
-    Ok(())
-}
 // Preserve local additions during a later full release. A publisher can absorb
 // an addition under another UUID; keep its original intake identity and receipt.
 pub fn preserve_additions(

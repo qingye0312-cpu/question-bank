@@ -89,19 +89,6 @@ fn run() -> Result<()> {
                 json!({"total":bank.count,"review":bank.review_count,"output":out})
             );
         }
-        Some("inspect") => {
-            let dir = tempfile::tempdir().map_err(err)?;
-            let store = Store::open(dir.path().join("inspect.sqlite"))?;
-            let p = exchange::preview(
-                &store,
-                &PathBuf::from(args.get(2).ok_or("缺少文件路径")?),
-                "",
-            )?;
-            println!("{}", serde_json::to_string_pretty(&p.preview).map_err(err)?);
-            if !p.preview.errors.is_empty() {
-                return Err("文件未通过校验".into());
-            }
-        }
         Some("remeasure") => {
             let path=PathBuf::from(args.get(2).ok_or("缺少基准库路径")?);
             if !path.exists(){return Err("基准库不存在".into());}
@@ -126,7 +113,7 @@ fn run() -> Result<()> {
         }
         _ => {
             return Err(
-                "用法：qbank-tool export-seed 输出目录 | inspect 文件 | benchmark 题数 数据库路径 | remeasure 已有基准库路径 | ocr 图片路径 | benchmark-ocr 合成性能库路径 [--fuzzy]"
+                "用法：qbank-tool export-seed 输出目录 | benchmark 题数 数据库路径 | remeasure 已有基准库路径 | ocr 图片路径 | benchmark-ocr 合成性能库路径 [--fuzzy]"
                     .into(),
             )
         }

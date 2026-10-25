@@ -45,21 +45,6 @@ fn deleting_local_copy_removes_its_owned_records_and_indexes_and_keeps_a_restora
     store.save(&copy, edited).unwrap();
     let c = store.conn().unwrap();
     for bank in [&source, &copy] {
-        c.execute(
-            "INSERT INTO import_runs VALUES(?1,?1,'导入','now','hash',0)",
-            [bank],
-        )
-        .unwrap();
-        c.execute(
-            "INSERT INTO import_changes VALUES(?1,'question',NULL,'{}')",
-            [bank],
-        )
-        .unwrap();
-        c.execute(
-            "INSERT INTO import_jobs VALUES(?1,?2,'now')",
-            rusqlite::params![bank, json!({"target":bank}).to_string()],
-        )
-        .unwrap();
         cloud::client_state(
             &store,
             &format!("draft:{bank}"),
@@ -89,7 +74,6 @@ fn deleting_local_copy_removes_its_owned_records_and_indexes_and_keeps_a_restora
         "draft_records",
         "bank_results",
         "bank_result_content",
-        "import_runs",
     ] {
         assert_eq!(
             c.query_row::<i64, _, _>(
@@ -102,16 +86,6 @@ fn deleting_local_copy_removes_its_owned_records_and_indexes_and_keeps_a_restora
             "{table}"
         );
     }
-    assert_eq!(
-        c.query_row::<i64, _, _>("SELECT COUNT(*) FROM import_changes", [], |r| r.get(0))
-            .unwrap(),
-        1
-    );
-    assert_eq!(
-        c.query_row::<i64, _, _>("SELECT COUNT(*) FROM import_jobs", [], |r| r.get(0))
-            .unwrap(),
-        1
-    );
     assert_eq!(
         c.query_row::<i64, _, _>("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |r| r
             .get(0))

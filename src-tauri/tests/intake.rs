@@ -1,6 +1,6 @@
 use question_bank::{
     db::{Query, Store},
-    exchange, intake,
+    intake,
 };
 use serde_json::{json, Value};
 fn setup() -> (tempfile::TempDir, Store) {
@@ -127,31 +127,7 @@ fn mobile_export_imports_into_desktop_with_model_and_option_ids_intact() {
     assert!(uuid::Uuid::parse_str(&q.options[0].option_id).is_ok());
 }
 #[test]
-fn full_release_keeps_local_additions() {
-    let (dir, s) = setup();
-    let mut base = intake::parse_reply(&reply().to_string()).unwrap();
-    base.stem = "官方题".into();
-    let bank = s.create("题库").unwrap();
-    s.save(&bank, base.clone()).unwrap();
-    s.conn()
-        .unwrap()
-        .execute("UPDATE banks SET read_only=1", [])
-        .unwrap();
-    intake::save(&s, &bank, "", &reply().to_string()).unwrap();
-    let mut release = s.bank(&bank).unwrap();
-    release.version += 1;
-    let file = dir.path().join("full.qbank.zip");
-    std::fs::write(&file, exchange::package_bytes(&release, &[base]).unwrap()).unwrap();
-    let pending = exchange::preview(&s, &file, "").unwrap();
-    exchange::commit(&s, &pending).unwrap();
-    assert_eq!(s.questions(&bank).unwrap().len(), 2);
-    assert_eq!(intake::batches(&s).unwrap()[0].count, 1);
-    s.rollback(&bank).unwrap();
-    assert_eq!(s.questions(&bank).unwrap().len(), 2);
-    assert_eq!(intake::batches(&s).unwrap()[0].count, 1);
-}
-#[test]
-fn additive_import_can_be_rolled_back_and_reimported() {
+fn additive_json_import_is_idempotent_and_keeps_the_merged_question() {
     let (dir, source) = setup();
     let bank = source.create("题库").unwrap();
     let saved = intake::save(&source, &bank, "", &reply().to_string()).unwrap();
@@ -167,10 +143,6 @@ fn additive_import_can_be_rolled_back_and_reimported() {
         )
         .unwrap();
     assert_eq!(intake::import(&target, &file).unwrap().added, 1);
-    target.rollback(&bank).unwrap();
-    assert!(target.questions(&bank).unwrap().is_empty());
-    assert!(intake::entries(&target, &saved.batch_id)
-        .unwrap()
-        .is_empty());
-    assert_eq!(intake::import(&target, &file).unwrap().added, 1);
+    assert_eq!(target.questions(&bank).unwrap().len(), 1);
+    assert_eq!(intake::import(&target, &file).unwrap().skipped, 1);
 }

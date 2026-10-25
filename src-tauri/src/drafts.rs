@@ -242,7 +242,7 @@ pub fn enqueue(
         .map(|r| json!({"id":r["id"],"revision":r["revision"]}))
         .collect();
     if expected != json!(versions) {
-        return Err("录题记录有变化，请核对最新内容后上传".into());
+        return Err("待上传列表中的题目有变化，请核对最新内容后上传".into());
     }
     if pending.is_empty() {
         return Err("没有待上传题目".into());
