@@ -165,7 +165,10 @@ fn search_cjk_short_substrings_symbols_and_atomic_edits() {
     assert!(find(&s, "独特").is_empty());
     s.reindex().unwrap();
     assert!(find(&s, "独特").is_empty());
-    assert!(s.history(&b, &id).unwrap().len() >= 3);
+    let history = s.history(&b, &id).unwrap();
+    assert_eq!(history.len(), 2);
+    assert_eq!(history[0]["reason"], "删除");
+    assert_eq!(history[1]["reason"], "编辑");
 }
 
 #[test]

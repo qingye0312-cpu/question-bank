@@ -25,6 +25,14 @@ function setup(){
     async readStateAt(bank,revision){const s=states.get(`${bank}/${revision}`);return s?structuredClone(s):null;},
     async listStates(bank){return [...states.values()].filter(s=>s.bank_id===bank).sort((a,b)=>b.revision-a.revision).map(s=>structuredClone(s));},
     async createState(state){const k=`${state.bank_id}/${state.revision}`;if(states.has(k))return false;const current=latest.get(state.bank_id);if(current&&current.revision>=state.revision)return false;states.set(k,structuredClone(state));latest.set(state.bank_id,structuredClone(state));return true;},
+    async createRollback(state,targetRevision,operation){
+      const from=state.rollback?.from_revision,current=latest.get(state.bank_id);
+      if(!current||current.revision!==from||targetRevision!==state.rollback?.target_revision)return false;
+      if(!states.has(`${state.bank_id}/${targetRevision}`)||!states.has(`${state.bank_id}/${from}`))throw new Error('Rollback source state is missing');
+      const k=`${state.bank_id}/${state.revision}`;if(states.has(k))return false;
+      states.set(k,structuredClone(state));latest.set(state.bank_id,structuredClone(state));return true;
+    },
+    async finalizeRollback(){return true;},
     async createSubmission(k,r){if(records.has(k))return {record:records.get(k),created:false};records.set(k,structuredClone(r));return {record:r,created:true};},
   };
   const handler=createHandler({env:()=>env,store,parseDelta,validateStandardQuestion,parseModelReply});

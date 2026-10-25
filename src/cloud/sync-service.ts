@@ -16,6 +16,7 @@ export function syncDesktop(bankId:string,advertised?:CloudManifest):Promise<boo
   checkOrigin();
   const versions=await invoke<{bank_id:string;revision:number;sha256:string}[]>('cloud_versions'),old=versions.find(v=>v.bank_id===bankId);
   checkOrigin();
+  if(old&&m.revision<old.revision)throw Error(`云端版本倒退：本地修订 ${old.revision}，云端修订 ${m.revision}，继续保留本地题库`);
   // A rollback or administrative restore can replace content without changing
   // the public release number. Skip only when both the history revision and
   // the snapshot digest match; the digest also repairs same-revision restores.

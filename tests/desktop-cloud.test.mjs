@@ -62,10 +62,10 @@ test('one desktop bank failing validation does not prevent discovery of another 
   if(command==='cloud_apply'){saved.push(args);return;}
   return {status:200,body:args.path==='/v1/catalog'?{banks:[manifest,next]}:args.path.includes(second)?packed:packText(payload+' ')};
  });
- const result=await c.syncDesktopCatalog();assert.equal(result.changed,true);assert.deepEqual([...result.failed],['测试库']);
+ const result=await c.syncDesktopCatalog();assert.equal(result.changed,true);assert.deepEqual([...result.failed],['测试库（Error: 云端题库摘要校验失败）']);
  assert.equal(saved.length,1);assert.equal(JSON.parse(saved[0].payload).bank_id,second);
 });
-test('desktop anonymous sync coalesces requests and rejects corrupt, rolled back or altered revisions before writing',async()=>{
+test('desktop anonymous sync coalesces requests, rejects corrupt or rolled back snapshots and repairs same-revision digest changes',async()=>{
  let mode='ok',saved=[],versions=[];const calls=[];
  const c=client(async(command,args)=>{
   calls.push(command);if(command==='cloud_versions')return versions;
@@ -76,8 +76,8 @@ test('desktop anonymous sync coalesces requests and rejects corrupt, rolled back
  assert.equal(calls.filter(x=>x==='cloud_request').length,2);
  versions=[{bank_id:bank,revision:1,sha256:wrapper.sha256}];assert.equal(await c.syncDesktop(bank),false);
  versions=[{bank_id:bank,revision:2,sha256:wrapper.sha256}];await assert.rejects(c.syncDesktop(bank),/版本倒退/);
- versions=[{bank_id:bank,revision:1,sha256:'0'.repeat(64)}];await assert.rejects(c.syncDesktop(bank),/同版本内容/);
- versions=[];mode='corrupt';await assert.rejects(c.syncDesktop(bank),/摘要校验失败/);assert.equal(saved.length,1);
+ versions=[{bank_id:bank,revision:1,sha256:'0'.repeat(64)}];assert.equal(await c.syncDesktop(bank),true);assert.equal(saved.length,2);
+ versions=[];mode='corrupt';await assert.rejects(c.syncDesktop(bank),/摘要校验失败/);assert.equal(saved.length,2);
 });
 test('changing desktop service while a snapshot downloads cancels the old apply and does not block the new service',async()=>{
  const downloading=pause(),response=pause();let applied=0;

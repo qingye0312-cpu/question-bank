@@ -106,6 +106,13 @@ pub fn apply(store: &Store, payload: &str, digest: &str) -> Result<()> {
         .optional()
         .map_err(err)?;
     if let Some((revision, cached_digest)) = old {
+        if s.revision < revision as u64 {
+            return Err(format!(
+                "云端题库版本倒退：本地修订 {revision}，云端修订 {}，保留本地题库",
+                s.revision
+            )
+            .into());
+        }
         if s.revision as i64 == revision && digest == cached_digest {
             return Ok(());
         }

@@ -1,10 +1,11 @@
 use question_bank::{
-    backup, cloud,
+    backup, cloud, exchange,
     db::{self, Query, Store},
     intake,
     model::*,
 };
 use serde_json::json;
+use std::io::Read;
 fn setup() -> (tempfile::TempDir, Store, String) {
     let d = tempfile::tempdir().unwrap();
     let s = Store::open(d.path().join("test.sqlite")).unwrap();
@@ -335,7 +336,7 @@ fn entry_time_survives_edit_and_session_package_is_atomic_and_frozen() {
 }
 #[test]
 fn default_cursor_preserves_recording_times_and_exports_do_not_fake_merge_time() {
-    let (d, s, b) = setup();
+    let (_d, s, b) = setup();
     let mut qs = vec![];
     for n in 0..65 {
         let mut q = question(&format!("按时间 {n}"));
@@ -344,7 +345,16 @@ fn default_cursor_preserves_recording_times_and_exports_do_not_fake_merge_time()
         q.recorded_at_source = Some("source".into());
         qs.push(q);
     }
-    import(&s, &b, &d.path().join("time.jsonl"), &qs);
+    let bank_name = s.bank(&b).unwrap().name;
+    let mut conn = s.conn().unwrap();
+    let tx = conn.transaction().unwrap();
+    for mut q in qs.iter().cloned() {
+        q.bank = bank_name.clone();
+        db::insert(&tx, &b, &q).unwrap();
+    }
+    db::touch(&tx, &b).unwrap();
+    db::record_result(&tx, &b, Some(&now()), "本地汇总").unwrap();
+    tx.commit().unwrap();
     let mut query = Query {
         bank_id: b.clone(),
         ..Default::default()

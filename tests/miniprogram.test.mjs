@@ -7,7 +7,7 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import * as intakeCore from '../shared/intake.ts';
 import * as answerPresentationCore from '../shared/answer-presentation.ts';
-import {applicationFields} from '../miniprogram/miniprogram/services/maintainer-application.ts';
+import {applicationFields,passwordMeetsPolicy,registrationFields} from '../miniprogram/miniprogram/services/maintainer-application.ts';
 import * as core from '../miniprogram/miniprogram/core/search.ts';
 import * as compact from '../miniprogram/miniprogram/core/compact.ts';
 import {brotliDecompressSync} from 'node:zlib';
@@ -261,7 +261,7 @@ async function loadPage(path, mocks = {}, searchCore = core, services = {}) {
   vm.runInNewContext(outputText, {
     exports: {}, require: name => name.endsWith('/appearance') ? {themePageData:()=>({}),showPageTheme:()=>{},hidePageTheme:()=>{}}
       : name.endsWith('/foreground') ? {foregroundGeneration:()=>1}
-      : name.endsWith('/maintainer-application') ? {applicationFields}
+      : name.endsWith('/maintainer-application') ? {applicationFields,passwordMeetsPolicy,registrationFields}
       : name.endsWith('/intake-controller') ? services.controller
       : name.endsWith('/cloud') ? services.cloud
       : name.endsWith('/search') ? searchCore
@@ -495,21 +495,22 @@ test('home caches the advanced bank automatically without switching and continue
  assert.match(page.data.syncNotice,/1 个题库同步未完成/);
 });
 
-test('maintainer application button shows validation, progress and persistent errors without a phone authorization popup',async()=>{
+test('maintainer registration validates required information, shows progress and preserves errors without a phone authorization popup',async()=>{
  let configured=false,submits=0,emitter,resolve;
  class Controller{constructor(emit){emitter=emit;}async open(){}dispose(){}async flush(){}render(){emitter({records:[],error:''})}}
  const messages=[];
  const page=await loadPage('pages/intake/intake.ts',{showToast:o=>messages.push(o.title)},core,{
   controller:{IntakeController:Controller},
-  cloud:{cloud:{state:()=>({configured,loggedIn:false}),applyMaintainer:async(_id,form)=>{submits++;assert.equal(form.realName,'张三');await new Promise(r=>resolve=r);throw Error('测试网络中断');}}},
+  cloud:{cloud:{state:()=>({configured,loggedIn:false}),registerMaintainer:async(_id,form)=>{submits++;assert.equal(form.realName,'张三');await new Promise(r=>resolve=r);throw Error('测试网络中断');}}},
   sync:{refreshCatalog:async()=>[{bank_id:manifest.bank_id}]},
  });
  page.onLoad();await new Promise(r=>setTimeout(r,0));
- await page.onApplyMaintainer();assert.match(page.data.applicationMessage,/手机号/);assert.equal(submits,0);assert.equal(page.data.applying,false);
- page.setData({maintainerPhone:'13812345678',maintainerRealName:'张三',maintainerIdentity:'课程助教'});
- await page.onApplyMaintainer();assert.match(page.data.applicationMessage,/HTTPS/);assert.equal(submits,0);
- configured=true;const pending=page.onApplyMaintainer();await new Promise(r=>setTimeout(r,0));
- assert.equal(page.data.applying,true);assert.match(page.data.applicationMessage,/登录微信/);await page.onApplyMaintainer();assert.equal(submits,1);
+ page.setData({maintainerUsername:'star-user',maintainerPassword:'StrongPass123',maintainerPasswordConfirm:'StrongPass123'});
+ await page.onRegisterMaintainer();assert.match(page.data.applicationMessage,/手机号/);assert.equal(submits,0);assert.equal(page.data.applying,false);
+ page.setData({maintainerPhone:'13812345678',maintainerRealName:'张三',maintainerIdentity:'课程助教',maintainerPassword:'StrongPass123',maintainerPasswordConfirm:'StrongPass123'});
+ await page.onRegisterMaintainer();assert.match(page.data.applicationMessage,/HTTPS/);assert.equal(submits,0);
+ configured=true;page.setData({maintainerPassword:'StrongPass123',maintainerPasswordConfirm:'StrongPass123'});const pending=page.onRegisterMaintainer();await new Promise(r=>setTimeout(r,0));
+ assert.equal(page.data.applying,true);assert.match(page.data.applicationMessage,/正在创建账号/);await page.onRegisterMaintainer();assert.equal(submits,1);
  resolve();await pending;assert.equal(page.data.applying,false);assert.match(page.data.applicationMessage,/网络中断/);
  emitter({records:[],error:''});assert.match(page.data.applicationMessage,/网络中断/);assert.equal(messages.length,3);
  const markup=await readFile(new URL('pages/intake/intake.wxml',base),'utf8');assert.ok(!markup.includes('getPhoneNumber'));assert.match(markup,/真实姓名（必填）/);assert.match(markup,/昵称（选填）/);
