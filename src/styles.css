@@ -1168,14 +1168,13 @@ input,select,textarea,fieldset { min-width:0; }
  .form-grid { grid-template-columns:1fr; }
 }
 
-/* Separate stored day/night colors; editing an inactive palette previews it. */
+/* Each day/night mode edits its matching saved palette. */
 .appearance-modes { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.6rem; }
-.appearance-modes button { padding:.8rem .4rem; white-space:nowrap; }
-.appearance-modes button[aria-pressed=true], .palette-tabs button[aria-pressed=true] { border-color:var(--accent); color:var(--accent); background:var(--tint); }
+.appearance-modes button { display:flex; align-items:center; justify-content:center; gap:.55rem; padding:.8rem .4rem; white-space:nowrap; }
+.appearance-modes button[aria-pressed=true] { border-color:var(--accent); color:var(--accent); background:var(--tint); }
+.appearance-mode-label { display:flex; align-items:baseline; gap:.45rem; min-width:0; }
+.appearance-mode-label small { color:var(--muted); font-size:.78em; font-weight:500; }
 .appearance-note { color:var(--muted); font-size:.8rem; line-height:1.7; margin:.8rem 0 1.2rem; }
-.palette-tabs { display:flex; gap:.6rem; margin-bottom:.9rem; }
-.palette-tabs button { flex:1; flex-wrap:wrap; }
-.palette-tabs small { color:var(--muted); font-size:.8rem; }
 .theme-options { grid-template-columns:repeat(auto-fit,minmax(8rem,1fr)); gap:.5rem; }
 .theme-options button { padding:.65rem; }
 .theme-options i { width:1.3rem; height:1.3rem; }
