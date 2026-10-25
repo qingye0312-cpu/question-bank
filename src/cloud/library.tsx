@@ -25,8 +25,8 @@ export function CloudLibrary({banks,onClose,onChanged,onDeleted,onCreated}:{bank
  async function remove(){if(!deleting||busy)return;const bank=deleting;setBusy(bank.id);setMessage('正在备份并删除本地题库…');
   try{const path=await invoke<string>('delete_bank',{bankId:bank.id,version:bank.version});setDeleting(null);await onDeleted(bank.id);setMessage(`已删除「${bank.name}」。删除前的完整备份：${path}。如需恢复，可在设置中选择“校验并恢复完整备份”。`)}catch(e){setMessage(String(e))}finally{setBusy('')}
  }
- return <div className="modal-backdrop"><section className="modal large library-manager" role="dialog" aria-modal="true" aria-label="题库管理"><button className="close-modal" aria-label="关闭题库管理" disabled={!!busy} onClick={onClose}>×</button><h2>题库管理</h2><p>本地题库、副本、云端同步与维护者授权集中在这里。</p>
-  <details className="library-cloud-settings"><summary>云端账户与服务地址</summary><CloudLogin disabled={!!busy||!!deleting} onChange={()=>{render(n=>n+1);void refresh().catch(e=>setMessage(String(e)))}}/></details>
+ return <div className="modal-backdrop"><section className="modal large library-manager" role="dialog" aria-modal="true" aria-label="题库管理"><button className="close-modal" aria-label="关闭题库管理" disabled={!!busy||!!deleting} onClick={onClose}>×</button><h2>题库管理</h2><p>本地题库、副本、云端同步与维护者授权集中在这里。</p>
+  <section className="library-access-section" aria-label="云端登录与权限"><CloudLogin disabled={!!busy||!!deleting} onChange={()=>{render(n=>n+1);void refresh().catch(e=>setMessage(String(e)))}}/></section>
   <div className="library-tabs" role="tablist" aria-label="题库管理功能">
    <button role="tab" aria-selected={tab==='local'} className={tab==='local'?'active':''} onClick={()=>setTab('local')}>本地题库</button>
    <button role="tab" aria-selected={tab==='cloud'} className={tab==='cloud'?'active':''} onClick={()=>setTab('cloud')}>云端同步与版本</button>

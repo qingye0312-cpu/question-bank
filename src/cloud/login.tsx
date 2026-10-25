@@ -1,5 +1,9 @@
 import {useState,type FormEvent} from 'react';
+import {invoke} from '@tauri-apps/api/core';
+import {open} from '@tauri-apps/plugin-dialog';
+import {FileKey} from 'lucide-react';
 import {cloudAccess,cloudCall,cloudLogin,cloudLoginPassword,cloudLogout,cloudOrigin,setCloudOrigin,remembersMachine,resumeDesktop,cloudForget,fetchCatalog} from '../cloud-client';
+import {parseMaintainerCertificate} from './session-service';
 
 type LoginMode='key'|'account'|'register'|'reset';
 type BankChoice={bank_id:string;name:string};
@@ -37,6 +41,21 @@ export function CloudLogin({onChange=()=>{},disabled=false}:{onChange?:()=>void;
   try{if(origin!==cloudOrigin())setCloudOrigin(origin);await cloudLogin(secret,remember);setMessage(remember?'最高权限登录成功；已确认任务可自动续取短期会话':'最高权限登录成功，仅用于本次会话');render(n=>n+1);onChange();}
   catch(e){setMessage(String(e));}finally{setBusy(false);}
  }
+ async function importCertificate(){
+  if(busy)return;
+  const path=await open({multiple:false,title:'导入最高权限证书',filters:[{name:'最高权限证书',extensions:['json','qbank-cert']}]});
+  if(!path||Array.isArray(path))return;
+  setBusy(true);setMessage('');
+  try{
+   if(origin!==cloudOrigin())setCloudOrigin(origin);
+   const raw=await invoke<string>('read_text_file',{path});
+   const cert=parseMaintainerCertificate(JSON.parse(raw));
+   if(cert.service_origin&&cert.service_origin!==cloudOrigin())throw Error('证书服务地址与当前服务地址不一致');
+   await cloudLogin(cert.key,remember);
+   setMessage(`最高权限证书登录成功：${cert.certificate_id}${remember?'；已保存到本机凭据管理器':'；仅用于本次会话'}`);
+   render(n=>n+1);onChange();
+  }catch(e){setMessage(String(e));}finally{setBusy(false);}
+ }
  async function loginAccount(){
   if(busy)return;setBusy(true);setMessage('');const secret=password;setPassword('');
   try{if(origin!==cloudOrigin())setCloudOrigin(origin);const result=await cloudLoginPassword(username,secret);
@@ -69,15 +88,17 @@ export function CloudLogin({onChange=()=>{},disabled=false}:{onChange?:()=>void;
   }catch(e){setMessage(String(e));}finally{setBusy(false);}
  }
  const statusLabel=access?.account_status==='approved'?'已授权':access?.account_status==='pending'?'等待管理员审批':access?.account_status==='rejected'?'申请未通过':access?.account_status==='password_reset_required'?'等待重置密码':access?.account_status==='desktop'?'最高权限':'';
- return <div className="cloud-access"><p>日常搜题与本地录题无需登录。维护者账号需由桌面最高权限审批后，才能上传获批题库；手机号用于唯一登记，当前不发送短信验证码。</p>
+ return <div className="cloud-access"><div className="cloud-access-heading"><h3>云端登录与权限</h3><span>{access?'已登录':'登录入口'}</span></div><p>日常搜题与本地录题无需登录。维护者账号需由桌面最高权限审批后，才能上传获批题库；手机号用于唯一登记，当前不发送短信验证码。</p>
   <label>云端 HTTPS 地址<input value={origin} disabled={disabled||busy} onChange={e=>setOrigin(e.target.value)}/></label>
+  <p className="cloud-address-hint">服务地址必须使用 HTTPS，且服务器证书需要受系统信任。</p>
   <button type="button" disabled={disabled||busy||!origin} onClick={saveOrigin}>保存服务地址</button>
-  {access?<><p>已登录：{access.auth_type==='password'?access.username||'维护者账号':access.auth_type==='key'?'最高权限密钥':'维护者账号'}{statusLabel?` · ${statusLabel}`:''}</p><p>已授权题库：{access.banks.map(b=>b.name).join('、')||'暂无'}</p><button type="button" disabled={disabled||busy} onClick={()=>{cloudLogout();render(n=>n+1);onChange();}}>退出维护者登录</button></>:<>
+  {access?<><p>当前身份：{access.auth_type==='password'?access.username||'维护者账号':access.auth_type==='key'?'最高权限（密钥／证书）':'维护者账号'}{statusLabel?` · ${statusLabel}`:''}</p><p>已授权题库：{access.banks.map(b=>b.name).join('、')||'暂无'}</p><div className="cloud-login-actions"><button type="button" disabled={disabled||busy} onClick={()=>{cloudLogout();setMode('key');setMessage('已退出，请选择最高权限密钥／证书或维护者账号登录。');render(n=>n+1);onChange();}}>重新登录 / 切换身份</button></div></>:<>
    <div className="cloud-login-mode" role="group" aria-label="登录或注册"><button type="button" aria-pressed={mode==='key'} disabled={disabled||busy} onClick={()=>{setMode('key');setMessage('');}}>最高权限</button><button type="button" aria-pressed={mode==='account'} disabled={disabled||busy} onClick={()=>{setMode('account');setMessage('');}}>账号登录</button><button type="button" aria-pressed={mode==='register'} disabled={disabled||busy} onClick={openRegistration}>注册申请</button></div>
    {mode==='key'?<>
+    <p className="cloud-login-hint">最高权限密钥和分发证书等效，任选一种即可登录。两种方式使用同一最高权限身份。</p>
     <label><input type="checkbox" checked={remember} onChange={e=>setRemember(e.target.checked)} disabled={disabled||busy}/>记住本机（系统钥匙串／凭据管理器）</label>
     <label>最高权限密钥<input type="password" autoComplete="off" spellCheck={false} value={key} disabled={disabled||busy} onChange={e=>setKey(e.target.value)}/></label>
-    <button type="button" disabled={disabled||busy||!key} onClick={()=>void loginKey()}>{busy?'正在验证…':'最高权限登录'}</button>
+    <div className="cloud-login-actions"><button type="button" disabled={disabled||busy||!key} onClick={()=>void loginKey()}>{busy?'正在验证…':'使用密钥登录'}</button><button type="button" disabled={disabled||busy} onClick={()=>void importCertificate()}><FileKey size={16}/>导入证书并登录</button></div>
    </>:mode==='account'?<>
     <label>维护者账号<input autoComplete="username" spellCheck={false} value={username} disabled={disabled||busy} onChange={e=>setUsername(e.target.value)}/></label>
     <label>密码<input type="password" autoComplete="current-password" value={password} disabled={disabled||busy} onChange={e=>setPassword(e.target.value)}/></label>
