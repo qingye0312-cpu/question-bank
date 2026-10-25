@@ -4,14 +4,11 @@ import {open} from '@tauri-apps/plugin-dialog';
 import {FileKey} from 'lucide-react';
 import {cloudAccess,cloudCall,cloudLogin,cloudLoginPassword,cloudLogout,cloudOrigin,setCloudOrigin,fetchCatalog} from '../cloud-client';
 import {parseMaintainerCertificate} from './session-service';
+import {maintainerPasswordRules,passwordMeetsPolicy} from '../../miniprogram/miniprogram/services/maintainer-password-policy';
+import {registrationFields} from '../../miniprogram/miniprogram/services/maintainer-application';
 
 type LoginMode='account'|'register'|'key'|'reset';
 type BankChoice={bank_id:string;name:string};
-function passwordMeetsPolicy(value:string){
- const length=Array.from(value).length;
- return length>=8&&length<=128&&/[A-Z]/.test(value)&&/[a-z]/.test(value)&&/[0-9]/.test(value);
-}
-
 export function CloudLogin({onChange=()=>{},disabled=false}:{onChange?:()=>void;disabled?:boolean}){
  const [origin,setOrigin]=useState(cloudOrigin()),[mode,setMode]=useState<LoginMode>('account');
  const [key,setKey]=useState(''),[password,setPassword]=useState(''),[confirmPassword,setConfirmPassword]=useState('');
@@ -21,6 +18,7 @@ export function CloudLogin({onChange=()=>{},disabled=false}:{onChange?:()=>void;
  const [busy,setBusy]=useState(false),[message,setMessage]=useState(''),[,render]=useState(0);
  const access=cloudAccess();
  const registrationPasswordReady=passwordMeetsPolicy(password)&&password===confirmPassword;
+ const registrationPasswordChecks=maintainerPasswordRules(password),resetPasswordChecks=maintainerPasswordRules(newPassword);
 
  function saveOrigin(){
   try{setCloudOrigin(origin);render(n=>n+1);setMessage('服务地址已保存');onChange();}
@@ -69,16 +67,14 @@ export function CloudLogin({onChange=()=>{},disabled=false}:{onChange?:()=>void;
  }
  async function registerAccount(event:FormEvent<HTMLFormElement>){
   event.preventDefault();if(busy)return;
-  if(!passwordMeetsPolicy(password)){setMessage('密码至少 8 位，且需包含大写字母、小写字母和数字。');return;}
-  if(password!==confirmPassword){setMessage('两次输入的密码不一致。');return;}
+  let fields:ReturnType<typeof registrationFields>;
+  try{fields=registrationFields({phone,realName,nickname,identity:identityDescription,password,passwordConfirm:confirmPassword});}
+  catch(error){setMessage(error instanceof Error?error.message:'注册信息无效');return;}
   if(!selectedBanks.length){setMessage('至少选择一个申请维护的题库。');return;}
   setBusy(true);setMessage('');
   try{
    if(origin!==cloudOrigin())setCloudOrigin(origin);
-   await cloudCall('/v1/auth/register',{
-    password,phone:phone.trim(),real_name:realName.trim(),nickname:nickname.trim(),
-    identity_description:identityDescription.trim(),bank_ids:selectedBanks,
-   });
+   await cloudCall('/v1/auth/register',{...fields,bank_ids:selectedBanks});
    setPassword('');setConfirmPassword('');setMode('account');
    setMessage('申请已提交，等待桌面最高权限审批。审批通过后，此账号才可上传所选题库。');
   }catch(e){setMessage(String(e));}finally{setBusy(false);}
@@ -112,7 +108,7 @@ export function CloudLogin({onChange=()=>{},disabled=false}:{onChange?:()=>void;
     <label>密码<input type="password" autoComplete="current-password" value={password} disabled={disabled||busy} onChange={e=>setPassword(e.target.value)}/></label>
     <div className="cloud-login-actions cloud-account-actions"><button className="primary" type="button" disabled={disabled||busy||!phone||!password} onClick={()=>void loginAccount()}>{busy?'正在登录…':'手机号和密码登录'}</button><button type="button" disabled={disabled||busy} onClick={()=>{setMode('reset');setMessage('请向桌面最高权限管理员申请一次性密码重置码。')}}>重置密码</button></div>
    </>:mode==='register'?<form className="cloud-registration" onSubmit={event=>void registerAccount(event)}>
-    <p className="callout">提交后由桌面最高权限审核。手机号为唯一登记信息，真实姓名必填，昵称选填；请填写身份说明并选择申请维护的题库。</p>
+   <p className="callout">提交后由桌面最高权限审核。手机号为唯一登记信息，真实姓名必填，昵称选填；请填写身份说明并选择申请维护的题库。</p>
     <label>手机号<input required type="tel" inputMode="tel" autoComplete="tel" value={phone} disabled={disabled||busy} onChange={e=>setPhone(e.target.value)} placeholder="中国大陆 11 位手机号"/></label>
     <label>真实姓名<input required maxLength={40} autoComplete="name" value={realName} disabled={disabled||busy} onChange={e=>setRealName(e.target.value)}/></label>
     <label>昵称（选填）<input maxLength={80} value={nickname} disabled={disabled||busy} onChange={e=>setNickname(e.target.value)}/></label>
@@ -121,14 +117,16 @@ export function CloudLogin({onChange=()=>{},disabled=false}:{onChange?:()=>void;
      <legend>申请维护的题库</legend>
      {banksLoading?<p>正在读取云端题库…</p>:banks.length?banks.map(bank=><label key={bank.bank_id}><input type="checkbox" checked={selectedBanks.includes(bank.bank_id)} onChange={event=>setSelectedBanks(current=>event.target.checked?[...current,bank.bank_id]:current.filter(id=>id!==bank.bank_id))}/>{bank.name}</label>):<p>暂无可申请题库。<button type="button" disabled={busy} onClick={()=>void loadBanks()}>重新获取</button></p>}
     </fieldset>
-    <label>设置密码<input required type="password" autoComplete="new-password" minLength={8} maxLength={128} value={password} disabled={disabled||busy} onChange={e=>setPassword(e.target.value)} placeholder="至少 8 位，含大小写字母和数字"/><small>至少 8 位，且包含大写字母、小写字母和数字。</small></label>
-    <label>确认密码<input required type="password" autoComplete="new-password" minLength={8} maxLength={128} value={confirmPassword} disabled={disabled||busy} onChange={e=>setConfirmPassword(e.target.value)}/>{confirmPassword&&confirmPassword!==password&&<small className="warning">两次输入的密码不一致。</small>}</label>
+    <label>设置密码<input required type="password" autoComplete="new-password" minLength={8} maxLength={128} value={password} disabled={disabled||busy} onChange={e=>setPassword(e.target.value)} placeholder="至少 8 位，含大小写字母和数字"/>
+     <span className="password-rules">{registrationPasswordChecks.map(rule=><small className={rule.valid?'valid':'invalid'} key={rule.key}>{rule.valid?'✓':'○'} {rule.label}</small>)}</span></label>
+    <label>确认密码<input required type="password" autoComplete="new-password" minLength={8} maxLength={128} value={confirmPassword} disabled={disabled||busy} onChange={e=>setConfirmPassword(e.target.value)}/>{confirmPassword&&<small className={confirmPassword===password?'valid':'invalid'}>{confirmPassword===password?'✓ 密码一致':'○ 两次密码不一致'}</small>}</label>
     <div className="cloud-login-actions"><button className="primary" type="submit" disabled={disabled||busy||banksLoading||!banks.length||!selectedBanks.length||!registrationPasswordReady}>{busy?'正在提交…':'提交注册申请'}</button><button type="button" disabled={disabled||busy||banksLoading} onClick={()=>void loadBanks()}>刷新题库</button></div>
    </form>:<form className="cloud-registration" onSubmit={event=>void resetAccountPassword(event)}>
     <p className="callout">一次性重置码由桌面最高权限管理员生成并转交。密码重置后，题库上传权限需要重新审批。</p>
     <label>手机号<input required type="tel" inputMode="tel" autoComplete="tel" value={phone} disabled={disabled||busy} onChange={e=>setPhone(e.target.value)} placeholder="注册时使用的手机号"/></label>
     <label>一次性重置码<input required autoComplete="one-time-code" value={resetToken} disabled={disabled||busy} onChange={e=>setResetToken(e.target.value)}/></label>
-    <label>新密码<input required type="password" autoComplete="new-password" minLength={8} maxLength={128} value={newPassword} disabled={disabled||busy} onChange={e=>setNewPassword(e.target.value)} placeholder="至少 8 位，含大小写字母和数字"/><small>至少 8 位，且包含大写字母、小写字母和数字。</small></label>
+    <label>新密码<input required type="password" autoComplete="new-password" minLength={8} maxLength={128} value={newPassword} disabled={disabled||busy} onChange={e=>setNewPassword(e.target.value)} placeholder="至少 8 位，含大小写字母和数字"/>
+     <span className="password-rules">{resetPasswordChecks.map(rule=><small className={rule.valid?'valid':'invalid'} key={rule.key}>{rule.valid?'✓':'○'} {rule.label}</small>)}</span></label>
     <div className="cloud-login-actions"><button className="primary" type="submit" disabled={disabled||busy||!phone||!resetToken||!passwordMeetsPolicy(newPassword)}>{busy?'正在重置…':'重置密码'}</button><button type="button" disabled={disabled||busy} onClick={()=>setMode('account')}>返回登录</button></div>
    </form>}</div>
   </>}

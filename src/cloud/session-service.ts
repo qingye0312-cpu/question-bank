@@ -3,7 +3,7 @@ import {invoke} from '@tauri-apps/api/core';
 import {UploadError} from '../../shared/queue';
 import desktopService from '../../shared/desktop-service.json';
 
-export type Access={capabilities?:string[];openid?:string;auth_type?:'key'|'password'|'wechat'|'';phone?:string;nickname?:string;account_status?:string;maintainer_id?:string;banks:{bank_id:string;name:string}[];grants:Record<string,string[]>;uploads_enabled:boolean};
+export type Access={capabilities?:string[];openid?:string;auth_type?:'key'|'password'|'';phone?:string;nickname?:string;account_status?:string;maintainer_id?:string;banks:{bank_id:string;name:string}[];grants:Record<string,string[]>;uploads_enabled:boolean};
 type Session={token:string;origin:string;expires:number;access:Access;authType:'key'|'password';refreshToken?:string};
 type NativeResponse<T=Record<string,unknown>>={status:number;auth_type?:'key'|'password'|'';body:T&{error?:{message?:string;code?:string}}};
 const ORIGIN_KEY='qbank-cloud-origin-v1';
@@ -78,6 +78,13 @@ export async function cloudCall<T>(path:string,body?:unknown,authenticated=false
   if(!current||current.origin!==origin)throw new UploadError('登录已失效，请重新登录',401,'SIGNED_OUT');
  }
  return assertResponse(await nativeRequest<T>(origin,path,body,authenticated?current!.token:undefined),authenticated?current:undefined);
+}
+
+export async function refreshAccess(){
+ const current=session;if(!current)return undefined;
+ const access=await cloudCall<Access>('/v1/me',undefined,true);
+ if(current===session)current.access=access;
+ return access;
 }
 
 async function acceptLogin(result:{access_token:string;expires_in:number;refresh_token?:string},attempt:number,origin:string,started:number,authType:'key'|'password'='key'){

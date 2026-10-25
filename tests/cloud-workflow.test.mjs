@@ -16,7 +16,7 @@ const key='b'.repeat(64);
 
 function setup(){
   const states=new Map(),latest=new Map(),records=new Map();
-  const env={WX_APP_ID:'wx0000000000000000',WX_APP_SECRET:'test',QBANK_SESSION_SECRET:'a'.repeat(64),
+  const env={QBANK_SESSION_SECRET:'a'.repeat(64),
     QBANK_UPLOAD_ENABLED:'true',QBANK_SYNC_ENABLED:'true',QBANK_CLOUD_CREATORS:JSON.stringify(['maintainer-tests']),
     QBANK_BANKS:JSON.stringify([{bank_id:id,name:delta.name}]),
     QBANK_MAINTAINERS:JSON.stringify([{id:'maintainer-tests',key_sha256:sha256(key),grants:{[id]:['upload','merge']}}])};

@@ -53,7 +53,7 @@ test('local HTTP host handler preserves health and catalog routes', async () => 
   const env = { QBANK_STORAGE_ROOT: root, QBANK_BIND_HOST: '127.0.0.1',
     QBANK_BANKS: JSON.stringify([{ bank_id: bankId, name: '测试库' }]), QBANK_SYNC_ENABLED: 'true',
     QBANK_UPLOAD_ENABLED: 'false', QBANK_ALLOWED_ORIGINS: '[]', QBANK_MAINTAINERS: '[]',
-    QBANK_CLOUD_CREATORS: '[]', WX_APP_ID: 'wx22c8135ae81d3acc', WX_APP_SECRET: 'test', QBANK_SESSION_SECRET: 'a'.repeat(64) };
+    QBANK_CLOUD_CREATORS: '[]', QBANK_SESSION_SECRET: 'a'.repeat(64) };
   const {server} = createLocalServer({env});
   const health = await localRequest(server, 'GET', '/health');
   assert.equal(health.status, 200);
@@ -92,7 +92,7 @@ test('packaged self-host merges an upload, reopens compressed disk state, replay
  const fixture=await fs.readFile(new URL('fixtures/intake/mobile-delta.json',import.meta.url),'utf8');
  const {delta,questions}=parseDelta(fixture),key='d'.repeat(64),id=delta.bank_id;
  const env={QBANK_STORAGE_ROOT:root,QBANK_SYNC_ENABLED:'true',QBANK_UPLOAD_ENABLED:'true',QBANK_SESSION_SECRET:'a'.repeat(64),
-  WX_APP_ID:'wx0000000000000000',WX_APP_SECRET:'test',QBANK_BANKS:JSON.stringify([{bank_id:id,name:delta.name}]),
+  QBANK_BANKS:JSON.stringify([{bank_id:id,name:delta.name}]),
   QBANK_CLOUD_CREATORS:JSON.stringify(['maintainer-tests']),QBANK_MAINTAINERS:JSON.stringify([{id:'maintainer-tests',key_sha256:sha256(key),grants:{[id]:['upload','merge']}}])};
  let {server}=createLocalServer({env});
  const login=await localRequest(server,'POST','/v1/auth/desktop',{key});assert.equal(login.status,200);

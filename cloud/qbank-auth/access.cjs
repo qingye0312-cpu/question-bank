@@ -1,9 +1,9 @@
 'use strict';
 
-// WeChat maintainer applications and approvals live in the same immutable
-// registry state as the cloud-bank catalogue. This keeps approvals durable in
-// the filesystem self-host without introducing a second mutable configuration.
-const {OPENID,sha256,fail}=require('./common.cjs');
+// Maintainer applications and approvals live in the same immutable registry
+// as the cloud-bank catalogue. Legacy WeChat records are retained as inert
+// archive data; they can no longer authenticate or receive new permissions.
+const {sha256,fail}=require('./common.cjs');
 const REGISTRY_ID='00000000-0000-0000-0000-000000000000';
 
 function normalizePhone(value){
@@ -16,13 +16,17 @@ function maskPhone(value){
   const text=String(value),digits=text.replace(/^\+/,'');
   return `${text.startsWith('+')?'+':''}${digits.slice(0,3)}****${digits.slice(-4)}`;
 }
-function emptyRegistry(){return {format:'qbank-state-1',bank_id:REGISTRY_ID,revision:0,banks:[],wechat_accounts:[],password_accounts:[],maintainer_applications:[],updated_at:''};}
+function emptyRegistry(){return {format:'qbank-state-1',bank_id:REGISTRY_ID,revision:0,banks:[],legacy_accounts:[],password_accounts:[],maintainer_applications:[],updated_at:''};}
 function cleanRegistry(value){
   if(!value)return emptyRegistry();
   if(value.format!=='qbank-state-1'||value.bank_id!==REGISTRY_ID||!Number.isSafeInteger(value.revision)||value.revision<0)
     throw new Error('Invalid access registry');
   const result={...emptyRegistry(),...structuredClone(value)};
-  if(!Array.isArray(result.banks)||!Array.isArray(result.wechat_accounts)||!Array.isArray(result.password_accounts)||!Array.isArray(result.maintainer_applications))throw new Error('Invalid access registry');
+  if(!Array.isArray(result.banks)||!Array.isArray(result.password_accounts)||!Array.isArray(result.maintainer_applications))throw new Error('Invalid access registry');
+  if(!Array.isArray(result.legacy_accounts))result.legacy_accounts=Array.isArray(value.wechat_accounts)?value.wechat_accounts:[];
+  delete result.wechat_accounts;
+  for(const account of [...result.legacy_accounts,...result.password_accounts])if(account&&typeof account==='object')delete account.username;
+  for(const application of result.maintainer_applications)if(application&&typeof application==='object')delete application.username;
   return result;
 }
 
@@ -40,9 +44,4 @@ function createAccessRegistry({store,clock=Date.now}){
   return {read,update,normalizePhone,maskPhone,phoneHash:value=>sha256(normalizePhone(value)),REGISTRY_ID};
 }
 
-function validateWechatIdentity(identity){
-  if(!identity||typeof identity!=='object'||!OPENID.test(identity.openid))fail(401,'WECHAT_LOGIN_FAILED','微信登录凭证无效，请重新登录');
-  return {openid:identity.openid};
-}
-
-module.exports={REGISTRY_ID,createAccessRegistry,normalizePhone,maskPhone,validateWechatIdentity};
+module.exports={REGISTRY_ID,createAccessRegistry,normalizePhone,maskPhone};

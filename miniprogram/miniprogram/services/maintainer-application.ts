@@ -11,13 +11,12 @@ export function applicationFields(form:MaintainerForm){
  return {phone,real_name,nickname,identity_description};
 }
 
-export function passwordMeetsPolicy(value:string){
- const length=Array.from(value).length;
- return length>=8&&length<=128&&/[A-Z]/.test(value)&&/[a-z]/.test(value)&&/[0-9]/.test(value);
-}
-
 export function registrationFields(form:MaintainerRegistrationForm){
  if(!passwordMeetsPolicy(form.password))throw Error('密码至少 8 位，且需包含大写字母、小写字母和数字');
  if(form.password!==form.passwordConfirm)throw Error('两次输入的密码不一致');
  return {...applicationFields(form),password:form.password};
 }
+import {passwordMeetsPolicy} from './maintainer-password-policy';
+export {maintainerPasswordRules,passwordMeetsPolicy} from './maintainer-password-policy';
+export type {PasswordRule} from './maintainer-password-policy';
+

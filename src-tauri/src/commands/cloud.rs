@@ -97,6 +97,19 @@ pub(crate) async fn cloud_versions(s: State<'_, AppState>) -> Result<Vec<serde_j
     blocking(move || crate::cloud::versions(&d)).await
 }
 #[tauri::command]
+pub(crate) async fn cloud_clear_cached_snapshot(
+    s: State<'_, AppState>,
+    bank_ids: Vec<String>,
+) -> Result<Vec<String>> {
+    let d = s.store.clone();
+    let lock = s.writes.clone();
+    blocking(move || {
+        let _g = lock.lock().map_err(err)?;
+        crate::cloud::clear_cached_snapshot(&d, &bank_ids)
+    })
+    .await
+}
+#[tauri::command]
 pub(crate) async fn cloud_apply(
     s: State<'_, AppState>,
     payload: String,

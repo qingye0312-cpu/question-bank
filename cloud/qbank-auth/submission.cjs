@@ -1,6 +1,6 @@
 'use strict';
 const {gunzipSync,gzipSync}=require('node:zlib');
-const {VERSION,LIMITS,UUID,HASH,OPENID,sha256,object,HttpError,fail,exact}=require('./common.cjs');
+const {VERSION,LIMITS,UUID,HASH,SUBJECT,sha256,object,HttpError,fail,exact}=require('./common.cjs');
 function strictBase64(text, maxBytes) {
   if (typeof text !== 'string' || !text.length || text.length > Math.ceil(maxBytes / 3) * 4
     || text.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(text))

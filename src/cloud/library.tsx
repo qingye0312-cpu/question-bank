@@ -15,7 +15,7 @@ export function CloudLibrary({banks,onClose,onChanged,onDeleted,onCreated}:{bank
  const refresh=()=>promotionTasks().then(setTasks);
  useEffect(()=>{void refresh().catch(e=>setMessage(String(e)))},[]);
  useEffect(()=>{const escape=(e:KeyboardEvent)=>{if(e.key==='Escape'){e.preventDefault();e.stopImmediatePropagation();if(!busy)onClose()}};window.addEventListener('keydown',escape,true);return()=>window.removeEventListener('keydown',escape,true)},[busy,onClose]);
- const access=cloudAccess(),isHighestPrivilege=access?.auth_type==='key'&&access.capabilities?.includes('cloud_bank:create')&&access.capabilities.includes('wechat:manage'),canCreate=access?.capabilities?.includes('cloud_bank:create');
+ const access=cloudAccess(),isHighestPrivilege=access?.auth_type==='key'&&access.capabilities?.includes('cloud_bank:create')&&access.capabilities.includes('maintainer:manage'),canCreate=access?.capabilities?.includes('cloud_bank:create');
  const selectedTab=isHighestPrivilege?tab:'local';
  useEffect(()=>{
   let previous=cloudAccess();

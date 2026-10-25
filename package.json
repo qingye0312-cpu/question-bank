@@ -23,7 +23,7 @@
     "prepare:ocr": "node scripts/prepare-ocr.mjs",
     "test:intake": "node scripts/sync-client-assets.mjs --check && node --test tests/intake.test.mjs",
     "build:self-host": "node scripts/build-self-host.mjs",
-    "test:self-host": "pnpm build:self-host && node --test tests/self-host.test.mjs tests/cloud-auth.test.mjs tests/cloud-workflow.test.mjs tests/wechat-maintainer.test.mjs",
+    "test:self-host": "pnpm build:self-host && node --test tests/self-host.test.mjs tests/cloud-auth.test.mjs tests/cloud-workflow.test.mjs tests/password-maintainer.test.mjs",
     "self-host:deploy": "sh tools/self-host/deploy-alpine.sh"
   },
   "dependencies": {

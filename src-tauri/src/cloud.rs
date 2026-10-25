@@ -12,7 +12,7 @@ use flate2::{bufread::GzDecoder, write::GzEncoder, Compression};
 use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-pub use snapshot::{apply, formal_questions, versions, Snapshot};
+pub use snapshot::{apply, clear_cached_snapshot, formal_questions, versions, Snapshot};
 use std::{
     collections::HashSet,
     io::{Read, Write},

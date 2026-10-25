@@ -25,7 +25,24 @@ export function syncDesktop(bankId:string,advertised?:CloudManifest):Promise<boo
   const wrapper=await cloudCall<unknown>(snapshotPath(m));readSnapshot(wrapper,m);
   checkOrigin();
   await invoke('cloud_apply',snapshotPayload(wrapper));return true;
- })();syncing.set(key,task);void task.finally(()=>syncing.delete(key)).catch(()=>{});return task;
+ })();syncing.set(key,task);void task.finally(()=>{if(syncing.get(key)===task)syncing.delete(key)}).catch(()=>{});return task;
+}
+
+export function reloadDesktopCache(bankId:string,advertised:CloudManifest):Promise<boolean>{
+ const origin=cloudOrigin(),key=`${origin}/${bankId}`,previous=syncing.get(key);
+ const checkOrigin=()=>{if(origin!==cloudOrigin())throw Error('服务地址已改变，本次重载已取消，原题库仍保留');};
+ const task=(async()=>{
+  if(previous){try{await previous}catch{/* Continue with a fresh download after the in-flight sync settles. */}}
+  const m=readManifest(advertised);if(m.bank_id!==bankId)throw Error('题库身份不一致');
+  checkOrigin();
+  const wrapper=await cloudCall<unknown>(snapshotPath(m));readSnapshot(wrapper,m);
+  const payload=snapshotPayload(wrapper);checkOrigin();
+  await invoke('cloud_clear_cached_snapshot',{bankIds:[bankId]});
+  checkOrigin();
+  await invoke('cloud_apply',payload);
+  return true;
+ })();
+ syncing.set(key,task);void task.finally(()=>{if(syncing.get(key)===task)syncing.delete(key)}).catch(()=>{});return task;
 }
 
 const catalogSyncs=new Map<string,Promise<{changed:boolean;failed:string[]}>>();

@@ -31,13 +31,11 @@ node -e 'require("node:fs").renameSync(process.argv[1],process.argv[2])' "$CURRE
 if [ ! -f "$ENV_FILE" ]; then
   session_secret=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')
   cat > "$ENV_FILE" <<EOF
-# 由部署脚本创建；AppSecret、维护者名单和最高权限名单由管理员在本机编辑。
+# 由部署脚本创建；维护者名单和最高权限名单由管理员在本机编辑。
 QBANK_ENV_FILE=$ENV_FILE
 QBANK_STORAGE_ROOT=$DATA_ROOT
 QBANK_BIND_HOST=127.0.0.1
 QBANK_PORT=8080
-WX_APP_ID=wx22c8135ae81d3acc
-WX_APP_SECRET=
 QBANK_SESSION_SECRET=$session_secret
 QBANK_AUTH_VERSION=1
 QBANK_BANKS=[{"bank_id":"ad50971f-66af-51c2-bb0e-dc798b03b369","name":"HarmonyOS 初级认证"}]

@@ -13,8 +13,6 @@ function validatePassword(value){
     ||!/[A-Z]/.test(value)||!/[a-z]/.test(value)||!/[0-9]/.test(value))
     fail(422,'PASSWORD_INVALID','密码至少 8 位，且需包含大写字母、小写字母和数字');
 }
-function validUsername(value){return typeof value==='string'&&/^[a-z0-9][a-z0-9._-]{2,30}[a-z0-9]$/.test(value);}
-function normalizeUsername(value){return typeof value==='string'?value.trim().toLowerCase():'';}
 async function derive(value,salt){return scrypt(value,salt,COST.keyLength,{N:COST.N,r:COST.r,p:COST.p,maxmem:COST.maxmem});}
 async function hashPassword(value){
   validatePassword(value);
@@ -31,4 +29,4 @@ async function verifyPassword(value,encoded){
   return timingSafeEqual(actual,expected);
 }
 
-module.exports={DUMMY_HASH,hashPassword,normalizeUsername,validUsername,validatePassword,verifyPassword};
+module.exports={DUMMY_HASH,hashPassword,validatePassword,verifyPassword};

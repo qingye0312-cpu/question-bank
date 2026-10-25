@@ -8,7 +8,6 @@ import { encodeUpload } from '../tools/encode-upload.mjs';
 
 const require = createRequire(import.meta.url);
 const { createHandler, LIMITS } = require('../cloud/qbank-auth/service.cjs');
-const { createWechatLoginExchange } = require('../cloud/qbank-auth/wechat-login.cjs');
 const fixture = fs.readFileSync(new URL('./fixtures/intake/mobile-delta.json', import.meta.url), 'utf8');
 const packet = JSON.parse(fixture);
 const bankId = packet.bank_id;
@@ -18,7 +17,7 @@ function setup() {
   const states = new Map(), records = new Map();
   let time = Date.now();
   const env = {
-    WX_APP_ID: 'wx0000000000000000', WX_APP_SECRET: 'test-only-app-secret', QBANK_SESSION_SECRET: 'a'.repeat(64),
+    QBANK_SESSION_SECRET: 'a'.repeat(64),
     QBANK_BANKS: JSON.stringify([{ bank_id: bankId, name: packet.name }]), QBANK_UPLOAD_ENABLED: 'true', QBANK_SYNC_ENABLED: 'true',
     QBANK_CLOUD_CREATORS: JSON.stringify(['maintainer-tests']),
     QBANK_MAINTAINERS: JSON.stringify([{ id: 'maintainer-tests', key_sha256: sha256(key), grants: { [bankId]: ['upload', 'merge'] } }]),
@@ -45,9 +44,9 @@ test('health reports the self-hosted current protocol and never exposes secrets'
   const s = setup();
   const health = await s.call('GET', '/health');
   assert.equal(health.status, 200);
-  assert.deepEqual(health.data.auth_checks, { WX_APP_ID: 'ok', WX_APP_SECRET: 'ok', QBANK_SESSION_SECRET: 'ok', QBANK_BANKS: 'ok' });
+  assert.deepEqual(health.data.auth_checks, { QBANK_SESSION_SECRET: 'ok', QBANK_BANKS: 'ok' });
   assert.ok(health.data.capabilities.includes('confirmed-upload-v1'));
-  assert.equal((await s.call('POST', '/v1/auth/wechat', { code: 'removed' })).status, 404);
+  assert.equal((await s.call('POST', '/v1/auth/wechat-login', { login_code: 'removed' })).status, 404);
   assert.ok(!JSON.stringify(health).includes(s.env.QBANK_SESSION_SECRET));
 });
 
@@ -74,20 +73,6 @@ test('bad packages and stale sessions fail closed without creating records', asy
   s.advance(LIMITS.sessionSeconds);
   assert.equal((await s.call('GET', '/v1/me', undefined, token)).status, 401);
   assert.equal(s.records.size, 0);
-});
-
-test('WeChat login exchanges only the login code and never requests a phone or exposes session secrets', async () => {
-  const requests=[];
-  const exchange=createWechatLoginExchange(async(url,options)=>{
-    requests.push({url:new URL(url),options});
-    return new Response(JSON.stringify({openid:'ok1993Y5Uw6nd3pd9nAJXk6ccciM',session_key:'private'}));
-  });
-  const identity=await exchange({appId:'wx-test',appSecret:'secret',loginCode:'login-code'});
-  assert.equal(requests.length,1);assert.equal(requests[0].url.pathname,'/sns/jscode2session');
-  assert.equal(requests[0].url.searchParams.get('js_code'),'login-code');
-  assert.deepEqual(identity,{openid:'ok1993Y5Uw6nd3pd9nAJXk6ccciM'});
-  const failing=createWechatLoginExchange(async()=>new Response(JSON.stringify({errcode:40029,errmsg:'private-message'})));
-  await assert.rejects(()=>failing({appId:'wx-test',appSecret:'secret',loginCode:'bad'}),error=>error.code==='WECHAT_LOGIN_FAILED'&&!error.message.includes('private-message'));
 });
 
 test('disabled version sync cannot accept a submission into a pending queue',async()=>{

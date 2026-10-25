@@ -90,6 +90,7 @@ pub fn run() {
             commands::cloud::cloud_transfer,
             commands::cloud::cloud_receipt,
             commands::cloud::cloud_versions,
+            commands::cloud::cloud_clear_cached_snapshot,
             commands::cloud::cloud_apply,
             commands::library::bank_questions,
             commands::library::banks,

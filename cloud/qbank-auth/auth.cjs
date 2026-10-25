@@ -1,6 +1,6 @@
 'use strict';
 const {createHmac,timingSafeEqual}=require('node:crypto');
-const {VERSION,LIMITS,UUID,HASH,OPENID,sha256,object,HttpError,fail,exact}=require('./common.cjs');
+const {VERSION,LIMITS,UUID,HASH,SUBJECT,sha256,object,HttpError,fail,exact}=require('./common.cjs');
 function sign(payload, config) {
   const encoded = Buffer.from(JSON.stringify(payload)).toString('base64url');
   const signature = createHmac('sha256', Buffer.from(config.sessionSecret, 'hex'))
@@ -19,7 +19,7 @@ function verify(token, config, now, registry) {
   let payload;
   try { payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')); }
   catch { fail(401, 'SESSION_INVALID', '登录已失效，请重新登录'); }
-  if (!object(payload) || !OPENID.test(payload.sub) || !['qbank-desktop-v1','qbank-wechat-v3','qbank-maintainer-account-v1'].includes(payload.aud)
+  if (!object(payload) || !SUBJECT.test(payload.sub) || !['qbank-desktop-v1','qbank-maintainer-account-v1'].includes(payload.aud)
     || payload.app_id !== config.appId || payload.auth_version !== config.authVersion
     || !Number.isSafeInteger(payload.exp) || !Number.isSafeInteger(payload.iat)
     || payload.exp <= now || payload.iat > now + 30 || payload.exp - payload.iat !== LIMITS.sessionSeconds)
@@ -28,15 +28,7 @@ function verify(token, config, now, registry) {
     const maintainer=config.maintainers.find(m=>`d_${m.id}`===payload.sub && m.key_sha256===payload.key_version);
     if(!maintainer)fail(403,'MAINTAINER_REVOKED','维护者授权已撤销，请联系管理员');
     return {openid:payload.sub,banks:Object.keys(maintainer.grants),grants:maintainer.grants,desktop:true,
-      capabilities:config.creators.includes(maintainer.id)?['cloud_bank:create','wechat:manage']:[] ,maintainer_id:maintainer.id};
-  }
-  if(payload.aud==='qbank-wechat-v3'){
-    const account=(registry?.wechat_accounts||[]).find(a=>a.openid===payload.sub);
-    if(account?.status==='revoked')fail(403,'MAINTAINER_REVOKED','题库维护者授权已撤销，请重新申请');
-    const approved=account?.status==='approved';
-    const grants=approved&&object(account.grants)?account.grants:{};
-    return {openid:payload.sub,phone_masked:account?.phone_masked||'',nickname:account?.nickname||'',real_name:account?.real_name||'',
-      banks:Object.keys(grants),grants,desktop:false,wechat:true,pending:!approved,account_status:account?.status||'pending'};
+      capabilities:config.creators.includes(maintainer.id)?['cloud_bank:create','maintainer:manage']:[] ,maintainer_id:maintainer.id};
   }
   if(payload.aud==='qbank-maintainer-account-v1'){
     const accountId=payload.sub.slice(2),account=(registry?.password_accounts||[]).find(a=>a.id===accountId);

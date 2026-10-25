@@ -9,7 +9,7 @@ import {createRoot} from 'react-dom/client';
 import {invoke, isTauri} from '@tauri-apps/api/core';
 import {getCurrentWebview} from '@tauri-apps/api/webview';
 import {SoftwareUpdate} from './software-update';
-import {cloudInitializePersistentSession,startCloudWorker} from './cloud-client';
+import {cloudInitializePersistentSession,fetchCatalog,reloadDesktopCache,startCloudWorker} from './cloud-client';
 import {IntakePanel} from './intake-panel';
 import {IntakeHub} from './intake-hub';
 import {APP_VERSION} from './generated/client-assets';
@@ -83,6 +83,20 @@ function App(){
  function switchBank(id:string){setBankId(id)}
  function openExport(format='package'){setExportBank(bankId||active?.bank_id||banks[0]?.id||'');setExportFormat(format);setModal('export')}
  async function doExport(){await work('正在制作文件，请稍候',async()=>{const b=banks.find(b=>b.id===exportBank);if(!b)throw Error('请选择题库');const ext=exportFormat==='package'?'qbank.zip':exportFormat.startsWith('docx')?'docx':exportFormat;const path=await save({title:exportFormat==='package'?'制作离线题库包':'导出题库',defaultPath:`${await invoke<string>('export_name',{bankId:exportBank})}.${ext}`,filters:[{name:ext,extensions:exportFormat==='package'?['zip']:[ext]}]});if(!path)return;const count=await invoke<number>('export_bank',{bankId:exportBank,path,format:exportFormat,filter:exportFiltered&&exportFormat!=='package'?{text:committed,kind,bank_id:exportBank}:null});setModal('');setNotice(`已保存 ${count.toLocaleString()} 题：${path}`);})}
+ async function clearAndReloadCloudCache(){await work('正在删除本地题库缓存并重新下载',async()=>{
+  const cached=await invoke<{bank_id:string;revision:number;sha256:string}[]>('cloud_versions');
+  const localIds=[...new Set(cached.map(item=>item.bank_id).filter(id=>banks.some(bank=>bank.id===id&&bank.read_only)))];
+  if(!localIds.length){setNotice('当前没有已下载的云端题库缓存。');return}
+  const catalog=await fetchCatalog(),manifests=new Map(catalog.map(manifest=>[manifest.bank_id,manifest]));
+  const targets=localIds.filter(id=>manifests.has(id)),skipped=localIds.length-targets.length;
+  if(!targets.length){setNotice('云端目录中未找到本机缓存的题库；现有本地题目保持不变。');return}
+  if(!window.confirm(`将清除并重新下载 ${targets.length} 个本机云端题库缓存。新快照校验通过后才会替换现有发布内容；本地自建题库、录题草稿和待上传内容会保留。${skipped?`另有 ${skipped} 个本地缓存题库不在当前云端目录，将保持不变。`:''}确定继续？`))return;
+  const results=await Promise.allSettled(targets.map(id=>reloadDesktopCache(id,manifests.get(id)!)));
+  await refresh();
+  const succeeded=results.filter(result=>result.status==='fulfilled').length;
+  const failed=results.filter((result):result is PromiseRejectedResult=>result.status==='rejected');
+  setNotice(`缓存重载完成：${succeeded}/${targets.length} 个云端题库已重新下载并校验。${skipped?` ${skipped} 个不在目录中的缓存未改动。`:''}${failed.length?` 失败 ${failed.length} 个：${String(failed[0].reason)}`:''}`);
+ })}
  async function importDelta(path:string){
   const result=await invoke<{bank_id:string;name:string;added:number;skipped:number;conflicts:number}>('import_delta',{path});
   await refresh();switchBank(result.bank_id);setModal('');
@@ -184,6 +198,7 @@ function App(){
      <div className="settings-backup-actions">
       <button className="template-card" disabled={!!busy} onClick={()=>void work('正在创建一致性备份',async()=>{const path=await save({defaultPath:'题库备份.sqlite',filters:[{name:'完整题库备份',extensions:['sqlite']}]});if(!path)return;const n=await invoke<number>('backup_database',{path,restore:false});setNotice(`已备份 ${n} 道题及修订记录：${path}`);})}>保存完整数据库备份</button>
       <button className="template-card" disabled={!!busy} onClick={()=>void work('正在校验并恢复备份',async()=>{const path=await open({multiple:false,filters:[{name:'完整题库备份',extensions:['sqlite']}]});if(typeof path!=='string')return;if(!window.confirm('将用所选备份替换本机全部题库和修订记录。当前数据库会先自动备份，确认恢复？'))return;await invoke('backup_database',{path,restore:true});setActive(null);await refresh();setNotice('备份已校验并恢复；恢复前的数据库保存在 backups 目录。')})}>校验并恢复完整备份</button>
+      <button className="template-card" disabled={!!busy} onClick={()=>void clearAndReloadCloudCache()}>删除本地题库缓存</button>
      </div>
      <SoftwareUpdate busy={!!busy} onBusy={value=>setBusy(value?'正在安装软件更新':'')}/>
      <div className="settings-maintenance-runtime">

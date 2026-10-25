@@ -39,6 +39,39 @@ pub fn versions(store: &Store) -> Result<Vec<Value>> {
         .map_err(err)?;
     rows.collect::<std::result::Result<_, _>>().map_err(err)
 }
+
+pub fn clear_cached_snapshot(store: &Store, bank_ids: &[String]) -> Result<Vec<String>> {
+    if bank_ids.len() > 100 {
+        return Err("一次最多重载 100 个题库缓存".into());
+    }
+    let mut seen = HashSet::new();
+    for bank_id in bank_ids {
+        if uuid::Uuid::parse_str(bank_id).is_err() || !seen.insert(bank_id) {
+            return Err("待重载题库身份无效或重复".into());
+        }
+    }
+
+    let mut c = store.conn()?;
+    let tx = c
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .map_err(err)?;
+    let mut cleared = Vec::new();
+    for bank_id in bank_ids {
+        let cached_cloud_bank: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM cloud_snapshots s JOIN banks b ON b.id=s.bank_id WHERE s.bank_id=?1 AND b.read_only=1)",
+            [bank_id],
+            |r| r.get(0),
+        ).map_err(err)?;
+        if cached_cloud_bank {
+            tx.execute("DELETE FROM cloud_snapshots WHERE bank_id=?1", [bank_id])
+                .map_err(err)?;
+            cleared.push(bank_id.clone());
+        }
+    }
+    tx.commit().map_err(err)?;
+    Ok(cleared)
+}
+
 pub fn apply(store: &Store, payload: &str, digest: &str) -> Result<()> {
     if payload.len() > 4 * 1024 * 1024 || hash(payload.as_bytes()) != digest {
         return Err("同步数据摘要或大小无效".into());

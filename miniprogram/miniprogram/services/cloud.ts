@@ -1,7 +1,7 @@
 import {UploadError} from '../core/queue';
 import {authOrigin} from '../config/cloud';
 import {prepareUpload,verifyReceipt} from '../core/upload';
-import {applicationFields,passwordMeetsPolicy,registrationFields,type MaintainerForm,type MaintainerRegistrationForm} from './maintainer-application';
+import {passwordMeetsPolicy,registrationFields,type MaintainerForm,type MaintainerRegistrationForm} from './maintainer-application';
 
 type Bank={bank_id:string;name:string};
 type Session={openid:string;token:string;refreshToken:string;origin:string;expiresAt:number;banks:Bank[];uploadsEnabled:boolean;status?:string;phone?:string;nickname?:string;authType:'password'};

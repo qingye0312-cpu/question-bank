@@ -19,15 +19,13 @@ function loadConfig(env) {
     || new Set(maintainers.map(m=>m.id)).size!==maintainers.length) fail(503,'CONFIG_INVALID','桌面维护者配置无效');
   const creators=envJSON(env,'QBANK_CLOUD_CREATORS','[]');
   if(!Array.isArray(creators)||creators.some(id=>!maintainers.some(m=>m.id===id)))fail(503,'CONFIG_INVALID','最高权限账号配置无效');
-  return { banks, origins, maintainers, creators, syncEnabled: env.QBANK_SYNC_ENABLED === 'true', appId: env.WX_APP_ID || '', appSecret: env.WX_APP_SECRET || '',
+  return { banks, origins, maintainers, creators, syncEnabled: env.QBANK_SYNC_ENABLED === 'true', appId: env.QBANK_TOKEN_ISSUER || 'qbank-selfhosted-v1',
     sessionSecret: env.QBANK_SESSION_SECRET || '', authVersion: env.QBANK_AUTH_VERSION || '1',
     uploadsEnabled: env.QBANK_UPLOAD_ENABLED === 'true' };
 }
 function authChecks(config) {
   // Public diagnostics contain only fixed status labels, never environment values.
   return {
-    WX_APP_ID: !config.appId ? 'missing' : /^wx[0-9a-f]{16}$/.test(config.appId) ? 'ok' : 'invalid',
-    WX_APP_SECRET: config.appSecret.trim() ? 'ok' : 'missing',
     QBANK_SESSION_SECRET: !config.sessionSecret ? 'missing' : HASH.test(config.sessionSecret) ? 'ok' : 'invalid',
     QBANK_BANKS: config.banks.length > 0 ? 'ok' : 'empty',
   };
@@ -37,14 +35,9 @@ function authConfigured(config) {
 }
 function sessionConfigured(config) {
   const checks=authChecks(config);
-  return checks.WX_APP_ID==='ok'&&checks.QBANK_SESSION_SECRET==='ok'&&checks.QBANK_BANKS==='ok';
+  return checks.QBANK_SESSION_SECRET==='ok'&&checks.QBANK_BANKS==='ok';
 }
 function requireSessionConfig(config) {
   if (!sessionConfigured(config)) fail(503, 'AUTH_NOT_CONFIGURED', '会话服务尚未配置完成');
 }
-function requireAuthConfig(config) {
-  requireSessionConfig(config);
-  if (!authConfigured(config)) fail(503, 'AUTH_NOT_CONFIGURED', '登录服务尚未配置完成');
-}
-
-module.exports={loadConfig,authChecks,authConfigured,sessionConfigured,requireSessionConfig,requireAuthConfig};
+module.exports={loadConfig,authChecks,authConfigured,sessionConfigured,requireSessionConfig};
