@@ -823,6 +823,25 @@ mark[data-term="11"] { background:var(--highlight-11); }
   border-radius:0.923077rem;
   background:var(--tint);
   color:var(--secondary)}
+.settings-modal { --modal-padding:1.923077rem; }
+.settings-modal-heading {
+  display:flex;
+  align-items:center;
+  gap:1.076923rem;
+  margin-bottom:1.076923rem;
+  padding-right:2.307692rem}
+.settings-modal-heading .modal-icon { flex:none; }
+.settings-modal-heading > div:last-child { min-width:0; }
+.settings-modal-heading h2 {
+  margin:0 0 .307692rem;
+  font-size:1.538462rem;
+  line-height:1.25}
+.settings-modal-heading p {
+  margin:0;
+  color:var(--muted);
+  font-size:.846154rem;
+  line-height:1.45;
+  overflow-wrap:anywhere}
 .modal label {
   display:block;
   font-size:0.846154rem;
