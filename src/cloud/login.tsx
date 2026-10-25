@@ -111,7 +111,7 @@ export function CloudLogin({onChange=()=>{},disabled=false}:{onChange?:()=>void;
    </>:mode==='account'?<>
     <label>维护者账号<input autoComplete="username" spellCheck={false} value={username} disabled={disabled||busy} onChange={e=>setUsername(e.target.value)}/></label>
     <label>密码<input type="password" autoComplete="current-password" value={password} disabled={disabled||busy} onChange={e=>setPassword(e.target.value)}/></label>
-    <div className="cloud-login-actions"><button type="button" disabled={disabled||busy||!username||!password} onClick={()=>void loginAccount()}>{busy?'正在登录…':'账号密码登录'}</button><button type="button" disabled={disabled||busy} onClick={()=>{setMode('reset');setMessage('请向桌面最高权限管理员申请一次性密码重置码。')}}>重置密码</button></div>
+    <div className="cloud-login-actions cloud-account-actions"><button className="primary" type="button" disabled={disabled||busy||!username||!password} onClick={()=>void loginAccount()}>{busy?'正在登录…':'账号密码登录'}</button><button type="button" disabled={disabled||busy} onClick={()=>{setMode('reset');setMessage('请向桌面最高权限管理员申请一次性密码重置码。')}}>重置密码</button></div>
    </>:mode==='register'?<form className="cloud-registration" onSubmit={event=>void registerAccount(event)}>
     <p className="callout">提交后由桌面最高权限审核。手机号为唯一登记信息，真实姓名必填，昵称选填；请填写身份说明并选择申请维护的题库。</p>
     <label>账号<input required minLength={4} maxLength={32} pattern="[A-Za-z0-9][A-Za-z0-9._-]{2,30}[A-Za-z0-9]" autoComplete="username" spellCheck={false} value={username} disabled={disabled||busy} onChange={e=>setUsername(e.target.value)} placeholder="4–32 位字母、数字、点、下划线或连字符"/></label>
@@ -134,7 +134,13 @@ export function CloudLogin({onChange=()=>{},disabled=false}:{onChange?:()=>void;
     <div className="cloud-login-actions"><button className="primary" type="submit" disabled={disabled||busy||!username||!resetToken||!passwordMeetsPolicy(newPassword)}>{busy?'正在重置…':'重置密码'}</button><button type="button" disabled={disabled||busy} onClick={()=>setMode('account')}>返回登录</button></div>
    </form>}</div>
   </>}
-  {remembersMachine()&&<><button type="button" disabled={disabled||busy} onClick={()=>{void resumeDesktop().then(()=>{render(n=>n+1);onChange()}).catch(e=>setMessage(String(e)))}}>使用本机凭据登录</button><button type="button" disabled={disabled||busy} onClick={()=>{void cloudForget().then(()=>{setRemember(false);render(n=>n+1)}).catch(e=>setMessage(String(e)))}}>移除本机凭据</button></>}
+  {remembersMachine()&&<div className="cloud-machine-credentials" role="group" aria-label="本机凭据">
+   <div className="cloud-machine-copy"><strong>本机凭据</strong><span>已保存在系统凭据管理器</span></div>
+   <div className="cloud-machine-actions">
+    <button className="primary" type="button" disabled={disabled||busy} onClick={()=>{void resumeDesktop().then(()=>{render(n=>n+1);onChange()}).catch(e=>setMessage(String(e)))}}>使用本机凭据登录</button>
+    <button className="cloud-remove-credential" type="button" disabled={disabled||busy} onClick={()=>{void cloudForget().then(()=>{setRemember(false);render(n=>n+1)}).catch(e=>setMessage(String(e)))}}>移除本机凭据</button>
+   </div>
+  </div>}
   {message&&<p role="status">{message}</p>}
   <details className="cloud-server-settings"><summary>云端服务器地址</summary><div className="cloud-server-fields">
    <label>云端 HTTPS 地址<input value={origin} disabled={disabled||busy} onChange={e=>setOrigin(e.target.value)}/></label>

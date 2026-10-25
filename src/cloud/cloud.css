@@ -12,6 +12,15 @@
 .cloud-session-info p{margin:.2rem 0 .7rem;overflow-wrap:anywhere}
 .cloud-access input[type="checkbox"]{display:inline-block;width:auto;margin:0 .6rem 0 0;vertical-align:middle}
 .cloud-login-actions{display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;margin-top:.7rem}
+.cloud-account-actions{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:.6rem;margin-top:.85rem}
+.cloud-account-actions button{min-height:2.75rem}
+.cloud-machine-credentials{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:1rem;margin-top:1rem;padding-top:.9rem;border-top:1px solid var(--border)}
+.cloud-machine-copy{display:grid;gap:.18rem;min-width:0}
+.cloud-machine-copy strong{color:var(--secondary);font-size:.9rem}
+.cloud-machine-copy span{color:var(--muted);font-size:.78rem}
+.cloud-machine-actions{display:grid;grid-template-columns:minmax(12rem,auto) minmax(8rem,auto);gap:.55rem}
+.cloud-machine-actions button{min-height:2.75rem;white-space:nowrap}
+.cloud-remove-credential{color:var(--muted)}
 .cloud-registration{display:grid;gap:.15rem;margin-top:.8rem}
 .cloud-registration>label{display:block;color:var(--secondary);font-size:.9rem;margin:.55rem 0}
 .cloud-registration>label input,.cloud-registration>label textarea{display:block;margin-top:.4rem}
@@ -60,6 +69,15 @@
 .cloud-login-modal .cloud-access-heading{margin-right:2rem}
 .cloud-login-modal .cloud-login-panel{max-height:55vh;overflow:auto;padding-right:.25rem}
 .cloud-login-modal .cloud-registration{padding-right:.25rem}
+@media(max-width:42rem){
+ .cloud-account-actions{grid-template-columns:minmax(0,1fr) minmax(0,.75fr)}
+ .cloud-machine-credentials{grid-template-columns:minmax(0,1fr);gap:.6rem}
+ .cloud-machine-actions{grid-template-columns:minmax(0,1.4fr) minmax(0,.9fr)}
+ .cloud-machine-actions button{min-width:0;white-space:normal}
+}
+@media(max-width:26rem){
+ .cloud-machine-actions{grid-template-columns:minmax(0,1fr)}
+}
 .library-tabs{display:flex;gap:.45rem;flex-wrap:wrap;margin:.8rem 0;border-bottom:1px solid var(--border);padding-bottom:.55rem}
 .library-tabs button{display:inline-flex;align-items:center;padding:.55rem .8rem;border:1px solid transparent;border-radius:.55rem;color:var(--secondary)}
 .library-tabs button.active{background:var(--accent-soft);border-color:var(--accent);color:var(--accent);font-weight:650}
