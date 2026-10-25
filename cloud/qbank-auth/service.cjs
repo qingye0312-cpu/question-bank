@@ -1,6 +1,6 @@
 'use strict';
 const {timingSafeEqual,randomUUID,randomBytes}=require('node:crypto');
-const {VERSION,LIMITS,UUID,HASH,sha256,object,fail,exact}=require('./common.cjs');
+const {VERSION,LIMITS,UUID,HASH,sha256,object,HttpError,fail,exact}=require('./common.cjs');
 const {loadConfig,authChecks,authConfigured,requireSessionConfig}=require('./config.cjs');
 const {sign,verify}=require('./auth.cjs');
 const {decodeUpload,jsonBody,receipt}=require('./submission.cjs');
