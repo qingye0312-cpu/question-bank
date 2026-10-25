@@ -53,9 +53,10 @@ export function syncBank(id:string,advertised?:CloudManifest):Promise<boolean>{
  const task=(async()=>{
   const manifest=readManifest(advertised||await request(`/v1/banks/${id}/manifest`));if(manifest.bank_id!==id)throw Error('题库身份不符');
   const previous=await cachedSnapshot(id);
-  // Revision is the cache version. Every mismatch downloads and atomically
-  // replaces this bank's cache, including restored content. Equal versions skip.
-  if(previous&&manifest.revision===previous.manifest.revision)return false;
+  // Compare the revision and digest. A rollback or server-side restore can
+  // replace a snapshot while retaining the same revision, so revision alone
+  // must not leave a stale local bank in place.
+  if(previous&&manifest.revision===previous.manifest.revision&&manifest.sha256===previous.manifest.sha256)return false;
   // Revision zero is the catalog placeholder for a bank with no formal snapshot.
   if(manifest.revision===0)return false;
   const wrapper=await request(snapshotPath(manifest)),snapshot=readSnapshot(wrapper,manifest);

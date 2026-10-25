@@ -14,11 +14,12 @@ export function syncDesktop(bankId:string,advertised?:CloudManifest):Promise<boo
  const task=(async()=>{
   const m=readManifest(advertised||await cloudCall(`/v1/banks/${bankId}/manifest`));if(m.bank_id!==bankId)throw Error('题库身份不一致');
   checkOrigin();
-  const versions=await invoke<{bank_id:string;revision:number}[]>('cloud_versions'),old=versions.find(v=>v.bank_id===bankId);
+  const versions=await invoke<{bank_id:string;revision:number;sha256:string}[]>('cloud_versions'),old=versions.find(v=>v.bank_id===bankId);
   checkOrigin();
-  // Revision is the cache version. Any mismatch downloads and replaces the
-  // cache, including restored content; equal revisions skip I/O.
-  if(old?.revision===m.revision)return false;
+  // A rollback or administrative restore can replace content without changing
+  // the public release number. Skip only when both the history revision and
+  // the snapshot digest match; the digest also repairs same-revision restores.
+  if(old?.revision===m.revision&&old.sha256===m.sha256)return false;
   if(m.revision===0)return false;
   const wrapper=await cloudCall<unknown>(snapshotPath(m));readSnapshot(wrapper,m);
   checkOrigin();

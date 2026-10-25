@@ -26,9 +26,17 @@ pub struct Snapshot {
 pub fn versions(store: &Store) -> Result<Vec<Value>> {
     let c = store.conn()?;
     let mut stmt = c
-        .prepare("SELECT bank_id,revision FROM cloud_snapshots")
+        .prepare("SELECT bank_id,revision,sha256 FROM cloud_snapshots")
         .map_err(err)?;
-    let rows=stmt.query_map([],|r|Ok(json!({"bank_id":r.get::<_,String>(0)?,"revision":r.get::<_,i64>(1)?}))).map_err(err)?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok(json!({
+                "bank_id": r.get::<_, String>(0)?,
+                "revision": r.get::<_, i64>(1)?,
+                "sha256": r.get::<_, String>(2)?
+            }))
+        })
+        .map_err(err)?;
     rows.collect::<std::result::Result<_, _>>().map_err(err)
 }
 pub fn apply(store: &Store, payload: &str, digest: &str) -> Result<()> {
@@ -89,16 +97,16 @@ pub fn apply(store: &Store, payload: &str, digest: &str) -> Result<()> {
     }
     let mut c = store.conn()?;
     let tx = c.transaction().map_err(err)?;
-    let old: Option<i64> = tx
+    let old: Option<(i64, String)> = tx
         .query_row(
-            "SELECT revision FROM cloud_snapshots WHERE bank_id=?1",
+            "SELECT revision,sha256 FROM cloud_snapshots WHERE bank_id=?1",
             [&s.bank_id],
-            |r| r.get(0),
+            |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .optional()
         .map_err(err)?;
-    if let Some(revision) = old {
-        if s.revision as i64 == revision {
+    if let Some((revision, cached_digest)) = old {
+        if s.revision as i64 == revision && digest == cached_digest {
             return Ok(());
         }
     }
