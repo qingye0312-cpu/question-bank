@@ -1,7 +1,7 @@
 {
   "name": "question-bank",
   "private": true,
-  "version": "0.2.7",
+  "version": "0.2.8",
   "type": "module",
   "packageManager": "pnpm@11.25.0",
   "engines": {
@@ -11,6 +11,7 @@
     "dev": "node scripts/sync-client-assets.mjs && node scripts/prepare-ocr.mjs && vite --host 127.0.0.1",
     "build": "node scripts/sync-client-assets.mjs && node scripts/prepare-ocr.mjs && tsc --noEmit && vite build",
     "tauri": "node scripts/tauri.mjs",
+    "release:mac": "sh mac/scripts/env.sh node tools/macos/release.mjs",
     "build:windows:portable": "powershell -NoProfile -ExecutionPolicy Bypass -File windows/scripts/build-portable.ps1",
     "test:platforms": "node --test tests/platform-build.test.mjs",
     "test:desktop": "node --test tests/desktop-cloud.test.mjs tests/draft-codec.test.mjs",

@@ -150,14 +150,12 @@ export function SpeedResults({bankId, query, revision, fontScale, previewEnabled
       : !items.length ? <div className="speed-message">没有找到题目</div> : null}
   </div>
     {previewEnabled && preview && question && <QuestionPreview id={previewId} anchor={preview.anchor} fontScale={fontScale}>
-      <div className="question-preview-heading"><span>题目预览</span><span className={`type-badge ${question.type}`}>{({single: '单选', multiple: '多选', true_false: '判断', programming: '编程'} as Record<string, string>)[question.type]}</span>{question.external_id && <span>{question.external_id}</span>}</div>
       <h2 className="question-preview-stem"><SearchMark text={question.stem} query={query}/></h2>
       {question.options.length > 0 && <div className="question-preview-options">{question.options.map(option => {
         const correct = Array.isArray(question.answer) && question.answer.includes(option.key);
         return <div key={option.key} className={`question-preview-option ${correct ? 'correct' : ''}`}><span className="question-preview-key">{option.key}</span><p><SearchMark text={option.content} query={query}/></p>{correct && <Check size={16} aria-label="正确选项"/>}</div>;
       })}</div>}
       <div className="question-preview-answer"><span>参考答案</span><strong>{answerText(question)}</strong></div>
-      {question.explanation && <div className="question-preview-explanation"><span>解析</span><p>{question.explanation}</p></div>}
     </QuestionPreview>}
   </>;
 }

@@ -4,5 +4,11 @@
 https://qbank.creart.top:8443 {
 	bind 127.0.0.1
 	tls /etc/caddy/certs/qbank.creart.top/current/fullchain.pem /etc/caddy/certs/qbank.creart.top/current/key.pem
+	handle_path /v1/desktop/* {
+		root * /var/lib/qbank-desktop-updates
+		@latest path /latest.json
+		header @latest Cache-Control "no-store"
+		file_server
+	}
 	reverse_proxy 127.0.0.1:8080
 }

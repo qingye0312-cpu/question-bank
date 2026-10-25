@@ -5,6 +5,7 @@
   },
   "bundle": {
     "targets": ["app"],
+    "createUpdaterArtifacts": true,
     "macOS": {
       "minimumSystemVersion": "13.0",
       "signingIdentity": "-"

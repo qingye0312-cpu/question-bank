@@ -43,6 +43,7 @@ function App(){
  const fontScale=fontSizes.find(f=>f.id===preferences.fontSize)!.scale;
  const [banks,setBanks]=useState<Bank[]>([]),[bankId,setBankId]=useState(preferences.bankId),[text,setText]=useState(''),[committed,setCommitted]=useState(''),[kind,setKind]=useState(''),[results,setResults]=useState<Results>({items:[],has_more:false,elapsed_ms:0}),[active,setActive]=useState<Hit|null>(null),[answerOpen,setAnswerOpen]=useState(true),[revision,setRevision]=useState(0);
  const [busy,setBusy]=useState(''),[notice,setNotice]=useState(''),[error,setError]=useState(''),[modal,setModal]=useState(''),[draft,setDraft]=useState<Question|null>(null),[editBank,setEditBank]=useState(''),[exportBank,setExportBank]=useState(''),[exportFormat,setExportFormat]=useState('package'),[history,setHistory]=useState<{question:Question;at:string;reason:string}[]>([]),[info,setInfo]=useState<Record<string,string>>({});
+ const startupUpdate=useRef(false);
  const [intakeRecord,setIntakeRecord]=useState(''),[intakeInitial,setIntakeInitial]=useState(''),[intakeManual,setIntakeManual]=useState(false);
  const [dropping,setDropping]=useState(false);
  function openIntake(value='',record='',manual=false){setIntakeRecord(record);setIntakeInitial(value);setIntakeManual(manual);setModal('intake')}
@@ -65,8 +66,30 @@ function App(){
  },[preferences,mode,bankId,fontScale]);
  useEffect(()=>{if(banks.length&&((bankId&&!banks.some(b=>b.id===bankId))||(mode==='speed'&&!bankId)))setBankId(banks[0].id)},[banks,bankId,mode]);
  useEffect(()=>startCloudWorker(()=>{void refresh()},setNotice),[]);
- useEffect(()=>{void invoke<{configured:boolean;version?:string}>('software_update_check').then(result=>{if(result.version)setNotice(`软件有新版本 ${result.version}，可在设置中查看并安装。`);}).catch(()=>{});},[]);
  useEffect(()=>{work('正在打开本地题库',async()=>{await refresh();setInfo(await invoke('app_info'));});},[]);
+ useEffect(()=>{
+  if(!info.version||busy||startupUpdate.current)return;
+  startupUpdate.current=true;
+  let disposed=false,stop:(()=>void)|undefined;
+  void (async()=>{
+   try{
+    const update=await invoke<{configured:boolean;version?:string;notes?:string}>('software_update_check');
+    if(disposed||!update.version)return;
+    setNotice(`检测到题库 ${update.version}，正在自动下载并安装。`);
+    setBusy(`正在安装软件更新 ${update.version}`);
+    stop=await listen<{downloaded:number;total?:number}>('software-update-progress',event=>{
+     if(disposed)return;
+     const downloaded=(event.payload.downloaded/1048576).toFixed(1);
+     const total=event.payload.total?` / ${(event.payload.total/1048576).toFixed(1)} MB`:'';
+     setNotice(`正在自动更新 ${update.version}：${downloaded} MB${total}`);
+    });
+    await invoke('software_update_install',{version:update.version});
+   }catch{
+    if(!disposed){setBusy('');setNotice('软件更新暂不可用，继续使用当前版本。');}
+   }
+  })();
+  return()=>{disposed=true;stop?.()};
+ },[info.version,busy]);
  useEffect(()=>{const handle=(e:KeyboardEvent)=>{if((e.metaKey||e.ctrlKey)&&e.shiftKey&&e.key.toLowerCase()==='o'&&!modal){e.preventDefault();openOcr();return}if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'&&!modal){e.preventDefault();input.current?.focus();input.current?.select();}if(e.key==='Escape'){if(modal&&!busy){setModal('');setDraft(null)}else{input.current?.focus();}}};window.addEventListener('keydown',handle);return()=>window.removeEventListener('keydown',handle);},[results,active,modal,busy]);
  useEffect(()=>{const paste=(e:ClipboardEvent)=>{if(modal||busy||!e.clipboardData)return;const item=Array.from(e.clipboardData.items).find(i=>i.type.startsWith('image/'));if(item){const file=item.getAsFile();if(file){e.preventDefault();readImage(file).then(image=>openOcr({image})).catch(e=>setError(String(e)))}return}const value=e.clipboardData.getData('text/plain');if(value.includes('qbank-photo-question-1')){e.preventDefault();openIntake(value);return}if(looksLikeQuestion(value)){e.preventDefault();openOcr({text:value})}};window.addEventListener('paste',paste);return()=>window.removeEventListener('paste',paste)},[modal,busy]);
  useEffect(()=>{if(benchPending.current){requestAnimationFrame(()=>requestAnimationFrame(()=>{const done=benchPending.current;benchPending.current=null;done?.(results)}));}},[results]);
