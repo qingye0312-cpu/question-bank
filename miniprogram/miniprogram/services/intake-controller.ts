@@ -13,7 +13,7 @@ export function intakeView(record:DraftRecord|null,records:DraftRecord[],jobs:Up
   sourceIndex:['platform','user','unknown'].indexOf(reply?.model.version_source||'unknown'),warningsText:reply?.warnings.join('\n')||'',tagsText:record?.metadata.tags.join('|')||'',difficultyIndex:['','easy','medium','hard'].indexOf(record?.metadata.difficulty||''),pendingCount:pending.length,
   records:visibleRecords.map(r=>{const job=jobs.find(j=>j.id===r.submissionId);return {id:r.id,stem:r.reply?.stem||'未完成的题目',recordedAt:displayTime(r.recordedAt),editable:!r.submissionId,invalid:!!r.issues.length&&!r.submissionId,
    status:r.submissionId?(job?jobLabels[job.status]:'待找回原提交回执'):r.issues.length?'待补全':'待上传',issue:r.issues[0]?.message||''};}),
-  jobs:jobs.filter(j=>j.status!=='done'||!!j.syncError).map(j=>({...j,label:jobLabels[j.status],time:displayTime(j.confirmedAt)))};
+  jobs:jobs.filter(j=>j.status!=='done'||!!j.syncError).map(j=>({...j,label:jobLabels[j.status],time:displayTime(j.confirmedAt)}))};
 }
 export class IntakeController {
  bankId='';current:DraftRecord|null=null;records:DraftRecord[]=[];jobs:UploadJob[]=[];saved='已存本机';error='';notice='';private jobsReady=false;private previousJobStatus=new Map<string,UploadJob['status']>();
