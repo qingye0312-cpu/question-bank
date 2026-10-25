@@ -766,30 +766,6 @@ mark[data-term="11"] { background:var(--highlight-11); }
   color:var(--secondary);
   border-radius:0.615385rem;
   font-size:0.923077rem}
-.startup-update-backdrop {
-  position:fixed;
-  inset:0;
-  z-index:1000;
-  display:grid;
-  place-items:center;
-  padding:2rem;
-  background:rgba(18,24,38,.48);
-  backdrop-filter:blur(3px)}
-.startup-update-card {
-  display:flex;
-  align-items:flex-start;
-  gap:1rem;
-  width:min(100%,34rem);
-  padding:1.4rem 1.6rem;
-  border:1px solid var(--accent-border);
-  border-radius:.9rem;
-  background:var(--surface);
-  color:var(--ink);
-  box-shadow:0 1rem 3rem var(--shadow)}
-.startup-update-card > svg { flex-shrink:0; color:var(--accent); margin-top:.15rem; }
-.startup-update-card b { display:block; font-size:1rem; }
-.startup-update-card p { margin:.4rem 0 .65rem; color:var(--secondary); }
-.startup-update-card small { color:var(--muted); }
 .spin {
   animation:spin 1.1s linear infinite}
 @keyframes spin {

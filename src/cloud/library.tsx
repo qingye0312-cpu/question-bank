@@ -15,7 +15,14 @@ export function CloudLibrary({banks,onClose,onChanged,onDeleted,onCreated}:{bank
  const refresh=()=>promotionTasks().then(setTasks);
  useEffect(()=>{void refresh().catch(e=>setMessage(String(e)))},[]);
  useEffect(()=>{const escape=(e:KeyboardEvent)=>{if(e.key==='Escape'){e.preventDefault();e.stopImmediatePropagation();if(!busy)onClose()}};window.addEventListener('keydown',escape,true);return()=>window.removeEventListener('keydown',escape,true)},[busy,onClose]);
- const access=cloudAccess(),canCreate=access?.capabilities?.includes('cloud_bank:create');
+ const access=cloudAccess(),isHighestPrivilege=access?.auth_type==='key'&&access.capabilities?.includes('cloud_bank:create')&&access.capabilities.includes('wechat:manage'),canCreate=access?.capabilities?.includes('cloud_bank:create');
+ const selectedTab=isHighestPrivilege?tab:'local';
+ useEffect(()=>{
+  let previous=cloudAccess();
+  const timer=window.setInterval(()=>{const current=cloudAccess();if(current!==previous){previous=current;render(n=>n+1)}},5000);
+  return()=>window.clearInterval(timer);
+ },[]);
+ useEffect(()=>{if(!isHighestPrivilege&&tab!=='local')setTab('local')},[isHighestPrivilege,tab]);
  async function createLocalBank(){if(busy)return;const name=newBankName.trim();if(!name){setMessage('请输入题库名称。');return}setBusy('create');setMessage('正在创建本地题库…');try{const id=await invoke<string>('create_bank',{name});await onChanged();onCreated(id);setNewBankName('');setMessage(`已创建本地题库「${name}」。`)}catch(e){setMessage(String(e))}finally{setBusy('')}}
  async function run(bank:Bank,task?:PromotionTask){if(busy)return;
   if(!task&&!window.confirm(`将「${bank.name}」的 ${bank.count} 道题设为自动同步云端题库？首版将可供所有用户下载。会先保留本地备份，转换期间仅锁定这个题库。`))return;
@@ -26,12 +33,12 @@ export function CloudLibrary({banks,onClose,onChanged,onDeleted,onCreated}:{bank
  }
  return <div className="modal-backdrop"><section className="modal large library-manager" role="dialog" aria-modal="true" aria-label="题库管理"><button className="close-modal" aria-label="关闭题库管理" disabled={!!busy||!!deleting} onClick={onClose}>×</button><h2>题库管理</h2><p>本地题库、副本、云端同步与维护者授权集中在这里。</p>
   <div className="library-tabs" role="tablist" aria-label="题库管理功能">
-   <button role="tab" aria-selected={tab==='local'} className={tab==='local'?'active':''} onClick={()=>setTab('local')}>本地题库</button>
-   <button role="tab" aria-selected={tab==='cloud'} className={tab==='cloud'?'active':''} onClick={()=>setTab('cloud')}>云端同步与版本</button>
-   <button role="tab" aria-selected={tab==='maintainers'} className={tab==='maintainers'?'active':''} onClick={()=>setTab('maintainers')}>维护者与申请</button>
+   <button role="tab" aria-selected={selectedTab==='local'} className={selectedTab==='local'?'active':''} onClick={()=>setTab('local')}>本地题库</button>
+   {isHighestPrivilege&&<button role="tab" aria-selected={selectedTab==='cloud'} className={selectedTab==='cloud'?'active':''} onClick={()=>setTab('cloud')}>云端同步与版本</button>}
+   {isHighestPrivilege&&<button role="tab" aria-selected={selectedTab==='maintainers'} className={selectedTab==='maintainers'?'active':''} onClick={()=>setTab('maintainers')}>维护者与申请</button>}
   </div>
   {message&&<p className="callout library-message" role="status">{message}</p>}
-  {tab==='local'&&<>
+  {selectedTab==='local'&&<>
    <p className="library-tab-intro">管理本地题库与可编辑副本。云端及发布题库保留同步，不支持删除。</p>
    <form className="library-create" onSubmit={e=>{e.preventDefault();void createLocalBank()}}><label htmlFor="library-new-bank">新建本地题库</label><input id="library-new-bank" value={newBankName} onChange={e=>setNewBankName(e.target.value)} maxLength={120} placeholder="输入题库名称" disabled={!!busy}/><button type="submit" disabled={!!busy||!newBankName.trim()}>{busy==='create'?'正在创建…':'创建题库'}</button></form>
    <div className="library-banks">{banks.map(bank=>{const task=tasks.find(t=>t.bankId===bank.id),confirming=deleting?.id===bank.id;return <article className="library-bank" key={bank.id}>
@@ -45,7 +52,7 @@ export function CloudLibrary({banks,onClose,onChanged,onDeleted,onCreated}:{bank
    </article>})}</div>
    {!banks.length&&<p className="callout">还没有本地题库，可在上方创建。</p>}
   </>}
-  {tab==='cloud'&&<CloudPanel embedded banks={banks} onBusy={value=>setBusy(value?'正在处理云端题库':'')} onChanged={onChanged} onClose={onClose}/>}
-  {tab==='maintainers'&&<MaintainerAdmin banks={banks.map(b=>({bank_id:b.id,name:b.name}))} onChange={()=>{render(n=>n+1);void onChanged()}}/>}
+  {isHighestPrivilege&&selectedTab==='cloud'&&<CloudPanel embedded banks={banks} onBusy={value=>setBusy(value?'正在处理云端题库':'')} onChanged={onChanged} onClose={onClose}/>}
+  {isHighestPrivilege&&selectedTab==='maintainers'&&<MaintainerAdmin banks={banks.map(b=>({bank_id:b.id,name:b.name}))} onChange={()=>{render(n=>n+1);void onChanged()}}/>}
  </section></div>;
 }

@@ -44,8 +44,7 @@ function App(){
  const fontScale=fontSizes.find(f=>f.id===preferences.fontSize)!.scale;
  const [banks,setBanks]=useState<Bank[]>([]),[bankId,setBankId]=useState(preferences.bankId),[text,setText]=useState(''),[committed,setCommitted]=useState(''),[kind,setKind]=useState(''),[results,setResults]=useState<Results>({items:[],has_more:false,elapsed_ms:0}),[active,setActive]=useState<Hit|null>(null),[answerOpen,setAnswerOpen]=useState(true),[revision,setRevision]=useState(0);
  const [busy,setBusy]=useState(''),[notice,setNotice]=useState(''),[error,setError]=useState(''),[modal,setModal]=useState(''),[draft,setDraft]=useState<Question|null>(null),[editBank,setEditBank]=useState(''),[exportBank,setExportBank]=useState(''),[exportFormat,setExportFormat]=useState('package'),[history,setHistory]=useState<{question:Question;at:string;reason:string}[]>([]),[info,setInfo]=useState<Record<string,string>>({});
- const startupUpdateStarted=useRef(false),startupUpdateInstallStarted=useRef(false);
- const [startupUpdate,setStartupUpdate]=useState<{version:string;notes?:string}|null>(null),[autoUpdating,setAutoUpdating]=useState(false),[startupUpdateStatus,setStartupUpdateStatus]=useState('');
+ const startupUpdate=useRef(false);
  const [intakeRecord,setIntakeRecord]=useState(''),[intakeInitial,setIntakeInitial]=useState(''),[intakeManual,setIntakeManual]=useState(false);
  const [dropping,setDropping]=useState(false);
  function openIntake(value='',record='',manual=false){setIntakeRecord(record);setIntakeInitial(value);setIntakeManual(manual);setModal('intake')}
@@ -69,37 +68,8 @@ function App(){
  useEffect(()=>{if(banks.length&&((bankId&&!banks.some(b=>b.id===bankId))||(mode==='speed'&&!bankId)))setBankId(banks[0].id)},[banks,bankId,mode]);
  useEffect(()=>startCloudWorker(()=>{void refresh()},setNotice),[]);
  useEffect(()=>{work('正在打开本地题库',async()=>{await refresh();setInfo(await invoke('app_info'));});},[]);
- useEffect(()=>{
-  if(!info.version||startupUpdateStarted.current)return;
-  startupUpdateStarted.current=true;
-  void invoke<{configured:boolean;version?:string;notes?:string}>('software_update_check').then(update=>{
-   if(!update.version)return;
-   setStartupUpdate(update);
-   setStartupUpdateStatus(`已发现题库 ${update.version}，当前页面关闭后将自动安装。`);
-  }).catch(()=>setNotice('软件更新暂不可用，继续使用当前版本。'));
- },[info.version]);
- useEffect(()=>{
-  if(!startupUpdate||busy||modal||draft||startupUpdateInstallStarted.current)return;
-  startupUpdateInstallStarted.current=true;
-  setAutoUpdating(true);
-  setStartupUpdateStatus(`正在下载并校验题库 ${startupUpdate.version}…`);
-  setBusy(`正在安装软件更新 ${startupUpdate.version}`);
-  let stop:(()=>void)|undefined;
-  void (async()=>{
-   try{
-    stop=await listen<{downloaded:number;total?:number}>('software-update-progress',event=>{
-     const downloaded=(event.payload.downloaded/1048576).toFixed(1);
-     const total=event.payload.total?` / ${(event.payload.total/1048576).toFixed(1)} MB`:'';
-     setStartupUpdateStatus(`正在更新 ${startupUpdate.version}：${downloaded} MB${total}`);
-    });
-    await invoke('software_update_install',{version:startupUpdate.version});
-   }catch{
-    setAutoUpdating(false);setBusy('');setStartupUpdate(null);setStartupUpdateStatus('');
-    setNotice('软件更新未完成，继续使用当前版本。');
-   }finally{stop?.()}
-  })();
- },[startupUpdate,busy,modal,draft]);
- useEffect(()=>{const handle=(e:KeyboardEvent)=>{if(autoUpdating){e.preventDefault();return}if((e.metaKey||e.ctrlKey)&&e.shiftKey&&e.key.toLowerCase()==='o'&&!modal){e.preventDefault();openOcr();return}if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'&&!modal){e.preventDefault();input.current?.focus();input.current?.select();}if(e.key==='Escape'){if(modal&&!busy){setModal('');setDraft(null)}else{input.current?.focus();}}};window.addEventListener('keydown',handle);return()=>window.removeEventListener('keydown',handle);},[results,active,modal,busy,autoUpdating]);
+ useEffect(()=>{if(!info.version||busy||startupUpdate.current)return;startupUpdate.current=true;void invoke<{configured:boolean;version?:string}>('software_update_check').then(result=>{if(result.version)setNotice(`软件有新版本 ${result.version}，可在设置中查看并安装。`);}).catch(()=>{});},[info.version,busy]);
+ useEffect(()=>{const handle=(e:KeyboardEvent)=>{if((e.metaKey||e.ctrlKey)&&e.shiftKey&&e.key.toLowerCase()==='o'&&!modal){e.preventDefault();openOcr();return}if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'&&!modal){e.preventDefault();input.current?.focus();input.current?.select();}if(e.key==='Escape'){if(modal&&!busy){setModal('');setDraft(null)}else{input.current?.focus();}}};window.addEventListener('keydown',handle);return()=>window.removeEventListener('keydown',handle);},[results,active,modal,busy]);
  useEffect(()=>{const paste=(e:ClipboardEvent)=>{if(modal||busy||!e.clipboardData)return;const item=Array.from(e.clipboardData.items).find(i=>i.type.startsWith('image/'));if(item){const file=item.getAsFile();if(file){e.preventDefault();readImage(file).then(image=>openOcr({image})).catch(e=>setError(String(e)))}return}const value=e.clipboardData.getData('text/plain');if(value.includes('qbank-photo-question-1')){e.preventDefault();openIntake(value);return}if(looksLikeQuestion(value)){e.preventDefault();openOcr({text:value})}};window.addEventListener('paste',paste);return()=>window.removeEventListener('paste',paste)},[modal,busy]);
  useEffect(()=>{if(benchPending.current){requestAnimationFrame(()=>requestAnimationFrame(()=>{const done=benchPending.current;benchPending.current=null;done?.(results)}));}},[results]);
  useEffect(()=>{if(notice){const t=setTimeout(()=>setNotice(''),8000);return()=>clearTimeout(t)}},[notice]);
@@ -159,8 +129,8 @@ function App(){
  })}
  const q=active?.question;
  const modeSwitch=<div className="mode-switch" role="group" aria-label="页面模式">{([['detail','详细模式'],['speed','极速模式']] as const).map(([value,label])=><button key={value} aria-pressed={mode===value} className={mode===value?'active':''} onClick={()=>switchMode(value)}>{label}</button>)}</div>;
- const searchBox=<div className="search-box"><Search size={22}/><input ref={input} autoFocus disabled={autoUpdating} aria-label={mode==='speed'?`搜索当前题库：${bank?.name||'正在载入'}`:'搜索题目'} placeholder={mode==='speed'?`搜索「${bank?.name||'当前题库'}」中的全部题目…`:'搜索题目、选项、标签、章节或编号…'} value={text} onChange={e=>{setText(e.target.value);if(!composing.current){setCommitted(e.target.value)}}} onCompositionStart={()=>{composing.current=true}} onCompositionEnd={e=>{composing.current=false;setCommitted(e.currentTarget.value)}}/>{text?<button aria-label="清空搜索" onClick={()=>{setText('');setCommitted('');input.current?.focus()}}><X size={17}/></button>:mode==='detail'?<kbd>⌘ / Ctrl K</kbd>:null}<button className="ocr-search-entry" title="截图 / 粘贴识题（⌘ / Ctrl Shift O）" aria-label="截图或粘贴识题" onClick={()=>openOcr()}><ScanText size={19}/></button></div>;
- return <div className={`app ${mode==='speed'?'speed-mode':''}`} aria-busy={autoUpdating}>
+ const searchBox=<div className="search-box"><Search size={22}/><input ref={input} autoFocus aria-label={mode==='speed'?`搜索当前题库：${bank?.name||'正在载入'}`:'搜索题目'} placeholder={mode==='speed'?`搜索「${bank?.name||'当前题库'}」中的全部题目…`:'搜索题目、选项、标签、章节或编号…'} value={text} onChange={e=>{setText(e.target.value);if(!composing.current){setCommitted(e.target.value)}}} onCompositionStart={()=>{composing.current=true}} onCompositionEnd={e=>{composing.current=false;setCommitted(e.currentTarget.value)}}/>{text?<button aria-label="清空搜索" onClick={()=>{setText('');setCommitted('');input.current?.focus()}}><X size={17}/></button>:mode==='detail'?<kbd>⌘ / Ctrl K</kbd>:null}<button className="ocr-search-entry" title="截图 / 粘贴识题（⌘ / Ctrl Shift O）" aria-label="截图或粘贴识题" onClick={()=>openOcr()}><ScanText size={19}/></button></div>;
+ return <div className={`app ${mode==='speed'?'speed-mode':''}`}>
   {mode==='detail'&&<div id="workspace-sidebar" className={`sidebar-shell ${preferences.sidebarCollapsed?'is-collapsed':''}`} aria-hidden={preferences.sidebarCollapsed} inert={preferences.sidebarCollapsed}><aside className="sidebar">
    <div className="brand"><div className="brand-mark"><Layers size={24}/></div><div className="brand-name"><b>题库</b><small>离线知识工作台</small></div></div>
    <button className={`nav-item ${!bankId?'selected':''}`} onClick={()=>switchBank('')}><Library size={18}/>全部题目 <span>{total.toLocaleString()}</span></button>
@@ -194,7 +164,6 @@ function App(){
   </main>
   {(notice||error)&&<div className={`toast ${error?'error':''}`} role={error?'alert':'status'}><span>{error||notice}</span><button aria-label="关闭提示" onClick={()=>{setError('');setNotice('')}}><X size={16}/></button></div>}
   {busy&&<div className="busy" role="status"><RefreshCw size={16} className="spin"/>{busy}</div>}
-  {autoUpdating&&<div className="startup-update-backdrop" role="dialog" aria-modal="true" aria-labelledby="startup-update-title"><section className="startup-update-card"><RefreshCw size={22} className="spin"/><div><b id="startup-update-title">正在更新题库</b><p role="status">{startupUpdateStatus}</p><small>更新完成后会自动重启；本地题库数据会保留。</small></div></section></div>}
   {dropping&&<div className="delta-drop-overlay">松开即可导入 JSON 增量题库<br/><small>按题库身份合并 · 自动跳过重复题</small></div>}
   {modal==='library'&&<CloudLibrary banks={banks} onClose={()=>setModal('')} onChanged={refresh} onDeleted={bankDeleted} onCreated={switchBank}/>}
   {modal==='intake-hub'&&<IntakeHub busy={!!busy} onAI={()=>openIntake()} onManual={()=>beginManualEntry()} onJSON={()=>void chooseJsonImport()} onClose={()=>setModal('')}/>}

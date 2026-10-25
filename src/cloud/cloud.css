@@ -22,6 +22,11 @@
 .cloud-bank-picker p{margin:.35rem 0;color:var(--muted)}
 .cloud-bank{display:flex;align-items:center;gap:0.923077rem;padding:0.923077rem 0;flex-wrap:wrap}
 .cloud-bank span{color:var(--muted)}
+.cloud-bank-name{appearance:none;display:flex;flex:1 1 18rem;min-width:0;flex-direction:column;gap:.2rem;padding:0;border:0;background:transparent;color:inherit;text-align:left;cursor:pointer}
+.cloud-bank-name b{color:var(--ink);overflow-wrap:anywhere}
+.cloud-bank-name small{color:var(--muted);font-size:.78rem;line-height:1.35;overflow-wrap:anywhere}
+.cloud-bank-name:hover b{text-decoration:underline}
+.cloud-bank-name:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:.2rem}
 .pending-label{display:block;font-size:0.769231rem;line-height:1.2;color:var(--warning)}
 .cloud-maintenance{max-height:92vh;overflow:auto}
 .cloud-maintenance input[type=checkbox]{width:auto;margin-right:.6rem}
