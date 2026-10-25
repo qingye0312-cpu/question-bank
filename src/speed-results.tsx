@@ -2,7 +2,6 @@ import {memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, u
 import type {PointerEvent} from 'react';
 import {Check} from 'lucide-react';
 import {QuestionPreview} from './question-preview';
-import {QuestionExplanation} from './question-explanation';
 import type {PreviewAnchor} from './question-preview';
 import {useQuestionResults} from './use-question-results';
 import {matchRanges, queryTerms, searchSnippet} from './search-presentation';
@@ -43,48 +42,20 @@ export function SpeedResults({bankId, query, revision, fontScale, previewEnabled
   const pointer = useRef<{x: number; y: number} | null>(null);
   const [preview, setPreview] = useState<{hit: Hit; anchor: PreviewAnchor} | null>(null);
   const previewId = useId();
-  const closeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const rowHeight = Math.ceil(42 * fontScale);
 
-  const cancelClose = useCallback(() => {
-    clearTimeout(closeTimer.current);
-    closeTimer.current = undefined;
-  }, []);
-  const closePreview = useCallback(() => {
-    cancelClose();
-    pointer.current = null;
-    setPreview(null);
-  }, [cancelClose]);
-  const isPreviewTarget = useCallback((target: EventTarget | null) => target instanceof Node
-    && !!document.getElementById(previewId)?.contains(target), [previewId]);
-  const scheduleClose = useCallback(() => {
-    cancelClose();
-    closeTimer.current = setTimeout(() => {
-      if (!isPreviewTarget(document.activeElement)) closePreview();
-    }, 180);
-  }, [cancelClose, closePreview, isPreviewTarget]);
   const openPreview = useCallback((hit: Hit, row: HTMLElement, point: {x: number; y: number}) => {
     if (!previewEnabled) return;
-    cancelClose();
     const {top, bottom} = row.getBoundingClientRect();
     setPreview(previous => previous?.hit === hit && previous.anchor.top === top && previous.anchor.bottom === bottom
       ? previous : {hit, anchor: {...point, top, bottom}});
-  }, [previewEnabled, cancelClose]);
+  }, [previewEnabled]);
   const previewAt = useCallback((target: Element | null, point: {x: number; y: number}) => {
-    if (isPreviewTarget(target)) { cancelClose(); return; }
     const row = target?.closest<HTMLElement>('.speed-row');
     const hit = row && viewport.current?.contains(row) ? items[Number(row.dataset.resultIndex)] : undefined;
-    const rect = document.getElementById(previewId)?.getBoundingClientRect();
-    // Let the pointer cross the small gap into the preview without switching to
-    // the adjacent row on its way to the source disclosure.
-    if (rect && point.x >= rect.left && point.x <= rect.right
-      && point.y >= rect.top - 12 * fontScale && point.y <= rect.bottom + 12 * fontScale) {
-      cancelClose();
-      return;
-    }
     if (row && hit) openPreview(hit, row, point);
-    else scheduleClose();
-  }, [items, openPreview, isPreviewTarget, previewId, fontScale, cancelClose, scheduleClose]);
+    else setPreview(null);
+  }, [items, openPreview]);
   const trackPointer = (event: PointerEvent<HTMLDivElement>) => {
     if (!previewEnabled || event.pointerType === 'touch') return;
     const point = {x: event.clientX, y: event.clientY};
@@ -93,8 +64,9 @@ export function SpeedResults({bankId, query, revision, fontScale, previewEnabled
   };
 
   useLayoutEffect(() => {
-    closePreview();
-  }, [previewEnabled, bankId, query, revision, closePreview]);
+    setPreview(null);
+    pointer.current = null;
+  }, [previewEnabled, bankId, query, revision]);
   useLayoutEffect(() => {
     const point = pointer.current;
     // Wheel scrolling can put a new row under a stationary pointer. Resolve it
@@ -102,18 +74,18 @@ export function SpeedResults({bankId, query, revision, fontScale, previewEnabled
     if (previewEnabled && point) previewAt(document.elementFromPoint(point.x, point.y), point);
   }, [scrollTop, previewAt, previewEnabled, fontScale]);
   useEffect(() => {
-    const keydown = (event: KeyboardEvent) => { if (event.key === 'Escape') closePreview(); };
-    const visibility = () => { if (document.hidden) closePreview(); };
-    window.addEventListener('blur', closePreview);
+    const close = () => { setPreview(null); pointer.current = null; };
+    const keydown = (event: KeyboardEvent) => { if (event.key === 'Escape') close(); };
+    const visibility = () => { if (document.hidden) close(); };
+    window.addEventListener('blur', close);
     window.addEventListener('keydown', keydown);
     document.addEventListener('visibilitychange', visibility);
     return () => {
-      cancelClose();
-      window.removeEventListener('blur', closePreview);
+      window.removeEventListener('blur', close);
       window.removeEventListener('keydown', keydown);
       document.removeEventListener('visibilitychange', visibility);
     };
-  }, [closePreview, cancelClose]);
+  }, []);
 
   const measureViewport = useCallback(() => {
     const element = viewport.current;
@@ -163,11 +135,11 @@ export function SpeedResults({bankId, query, revision, fontScale, previewEnabled
   const start = Math.max(0, Math.floor(scrollTop / rowHeight) - 6);
   const end = Math.min(items.length, Math.ceil((scrollTop + viewportHeight) / rowHeight) + 6);
   const question = preview?.hit.question;
-  return <><div className="speed-viewport" ref={viewport} onScroll={event => setScrollTop(event.currentTarget.scrollTop)} onPointerOver={trackPointer} onPointerMove={trackPointer} onPointerLeave={event => { pointer.current = null; if (!isPreviewTarget(event.relatedTarget)) scheduleClose(); }} aria-label="极速搜索结果，可连续向下滚动" aria-busy={loading} tabIndex={0}>
+  return <><div className="speed-viewport" ref={viewport} onScroll={event => setScrollTop(event.currentTarget.scrollTop)} onPointerOver={trackPointer} onPointerMove={trackPointer} onPointerLeave={() => { pointer.current = null; setPreview(null); }} aria-label="极速搜索结果，可连续向下滚动" aria-busy={loading} tabIndex={0}>
     <div className="speed-rows" role="table" aria-label="题目与答案" aria-rowcount={more ? -1 : items.length} style={{height: items.length * rowHeight}}>
       {items.slice(start, end).map((hit, index) => {
         const isPreview = previewEnabled && preview?.hit.rowid === hit.rowid;
-        return <div className="speed-row" role="row" aria-rowindex={start + index + 1} key={hit.rowid} data-result-index={start + index} data-preview={isPreview || undefined} aria-haspopup={previewEnabled ? 'dialog' : undefined} aria-expanded={previewEnabled ? isPreview : undefined} aria-controls={isPreview ? previewId : undefined} tabIndex={previewEnabled ? 0 : undefined} onFocus={event => { const row = event.currentTarget, rect = row.getBoundingClientRect(); openPreview(hit, row, {x: rect.left + rect.width / 2, y: rect.top + rect.height / 2}); }} onBlur={event => { if (!isPreviewTarget(event.relatedTarget)) scheduleClose(); }} onKeyDown={event => { if (previewEnabled && (event.key === 'Enter' || event.key === 'F2')) { event.preventDefault(); document.getElementById(previewId)?.focus(); } }} style={{top: (start + index) * rowHeight, height: rowHeight}}>
+        return <div className="speed-row" role="row" aria-rowindex={start + index + 1} key={hit.rowid} data-result-index={start + index} data-preview={isPreview || undefined} aria-describedby={isPreview ? previewId : undefined} tabIndex={previewEnabled ? 0 : undefined} onFocus={event => { const row = event.currentTarget, rect = row.getBoundingClientRect(); openPreview(hit, row, {x: rect.left + rect.width / 2, y: rect.top + rect.height / 2}); }} onBlur={() => setPreview(null)} style={{top: (start + index) * rowHeight, height: rowHeight}}>
           <SpeedQuestion question={hit.question} query={query} line={line} previewEnabled={previewEnabled}/>
           <span className="speed-answer" role="cell">{answerText(hit.question)}{hit.layer==='draft'&&<small className="pending-label">本地新题</small>}</span>
         </div>;
@@ -177,7 +149,7 @@ export function SpeedResults({bankId, query, revision, fontScale, previewEnabled
       : loading ? <div className="speed-message" role="status">正在检索…</div>
       : !items.length ? <div className="speed-message">没有找到题目</div> : null}
   </div>
-    {previewEnabled && preview && question && <QuestionPreview key={question.question_id} id={previewId} anchor={preview.anchor} fontScale={fontScale} onPointerEnter={() => { pointer.current = null; cancelClose(); }} onPointerLeave={scheduleClose} onFocus={cancelClose} onBlur={event => { if (!isPreviewTarget(event.relatedTarget)) scheduleClose(); }}>
+    {previewEnabled && preview && question && <QuestionPreview id={previewId} anchor={preview.anchor} fontScale={fontScale}>
       <div className="question-preview-heading"><span>题目预览</span><span className={`type-badge ${question.type}`}>{({single: '单选', multiple: '多选', true_false: '判断', programming: '编程'} as Record<string, string>)[question.type]}</span>{question.external_id && <span>{question.external_id}</span>}</div>
       <h2 className="question-preview-stem"><SearchMark text={question.stem} query={query}/></h2>
       {question.options.length > 0 && <div className="question-preview-options">{question.options.map(option => {
@@ -185,7 +157,7 @@ export function SpeedResults({bankId, query, revision, fontScale, previewEnabled
         return <div key={option.key} className={`question-preview-option ${correct ? 'correct' : ''}`}><span className="question-preview-key">{option.key}</span><p><SearchMark text={option.content} query={query}/></p>{correct && <Check size={16} aria-label="正确选项"/>}</div>;
       })}</div>}
       <div className="question-preview-answer"><span>参考答案</span><strong>{answerText(question)}</strong></div>
-      <QuestionExplanation question={question} className="question-preview-explanation"/>
+      {question.explanation && <div className="question-preview-explanation"><span>解析</span><p>{question.explanation}</p></div>}
     </QuestionPreview>}
   </>;
 }

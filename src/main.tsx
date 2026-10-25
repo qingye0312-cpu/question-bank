@@ -145,7 +145,7 @@ function App(){
   </aside></div>}
   <main>
    {mode==='speed'?<>
-    <header className="speed-header"><div className="speed-tools"><button className="speed-settings" title="设置与维护" aria-label="设置与维护" onClick={()=>setModal('settings')}><Settings size={19}/></button><button className="speed-preview-toggle" title={preferences.speedPreview?'关闭题目预览':'开启题目预览：鼠标移入题目立即显示'} aria-label="题目预览" aria-pressed={preferences.speedPreview} onClick={()=>setPreferences(p=>({...p,speedPreview:!p.speedPreview}))}><Eye size={18}/><span>预览</span></button></div>{searchBox}<div className="speed-header-actions"><div className="mode-actions"><button onClick={()=>setModal('intake-hub')}><Upload size={16}/>录题与导入</button><button className="primary" onClick={()=>openExport()}><Package size={16}/>制作离线包</button></div>{modeSwitch}</div></header>
+    <header className="speed-header"><div className="speed-tools"><button className="speed-settings" title="设置与维护" aria-label="设置与维护" onClick={()=>setModal('settings')}><Settings size={19}/></button><button className="speed-preview-toggle" title={preferences.speedPreview?'关闭题目预览':'开启题目预览：鼠标移入题目立即显示'} aria-label="题目预览" aria-pressed={preferences.speedPreview} onClick={()=>setPreferences(p=>({...p,speedPreview:!p.speedPreview}))}><Eye size={18}/><span>预览</span></button></div>{searchBox}{modeSwitch}</header>
     <SpeedResults bankId={bankId||'__no_selected_bank__'} query={committed} revision={revision} fontScale={fontScale} previewEnabled={preferences.speedPreview&&!modal&&!busy} onResults={setResults}/>
    </>:<>
 

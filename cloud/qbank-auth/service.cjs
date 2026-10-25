@@ -89,7 +89,7 @@ function createHandler({ env = () => process.env, store, exchangeWechat, parseDe
           if(registry.password_accounts.some(account=>account.username===username))fail(409,'USERNAME_TAKEN','此账号已注册，请直接登录');
           const at=new Date(clock()).toISOString();accountId=randomUUID();applicationId=randomUUID();
           const account={id:accountId,username,password_hash:passwordHash,phone,phone_hash:phoneHash,phone_masked:access.maskPhone(phone),phone_source:'self_reported',real_name:realName,nickname,identity_description:identityDescription,grants:{},status:'pending',created_at:at};
-          const application={id:applicationId,auth_type:'password',account_id:accountId,username,...{phone,phone_hash:phoneHash,phone_masked:access.maskPhone(phone),phone_source:'self_reported',real_name,nickname,identity_description},bank_ids:bankIds,status:'pending',created_at:at};
+          const application={id:applicationId,auth_type:'password',account_id:accountId,username,...{phone,phone_hash:phoneHash,phone_masked:access.maskPhone(phone),phone_source:'self_reported',real_name:realName,nickname,identity_description:identityDescription},bank_ids:bankIds,status:'pending',created_at:at};
           registry.password_accounts.push(account);registry.maintainer_applications.push(application);
         });
         const application=result.maintainer_applications.find(item=>item.id===applicationId);
