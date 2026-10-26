@@ -139,10 +139,23 @@ jobs:
           if (-not (Get-Command makensis.exe -ErrorAction SilentlyContinue)) {
             choco install nsis --yes --no-progress
             if ($LASTEXITCODE -ne 0) { throw 'Could not install NSIS.' }
-            $nsisPath = Join-Path ${env:ProgramFiles(x86)} 'NSIS'
-            if (Test-Path (Join-Path $nsisPath 'makensis.exe')) {
-              $nsisPath | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+
+            $nsisRoots = @(
+              (Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'NSIS'),
+              (Join-Path $env:ChocolateyInstall 'lib/nsis.install/tools'),
+              (Join-Path $env:ChocolateyInstall 'lib/nsis/tools')
+            ) | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Container) }
+
+            $makensis = $null
+            foreach ($nsisRoot in $nsisRoots) {
+              $makensis = Get-ChildItem -LiteralPath $nsisRoot -Filter 'makensis.exe' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+              if ($makensis) { break }
             }
+
+            if (-not $makensis) { throw 'NSIS was installed, but makensis.exe was not found under the NSIS install directories.' }
+            $nsisBin = $makensis.DirectoryName
+            $env:PATH = "$nsisBin;$env:PATH"
+            Add-Content -LiteralPath $env:GITHUB_PATH -Value $nsisBin -Encoding utf8
           }
           if (-not (Get-Command makensis.exe -ErrorAction SilentlyContinue)) { throw 'NSIS makensis.exe is unavailable.' }
 
