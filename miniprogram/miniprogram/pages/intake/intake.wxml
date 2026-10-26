@@ -40,7 +40,9 @@
   <view wx:if="{{loggedIn}}" class="account-panel">
    <view class="account-name">手机号 {{maintainerPhoneDisplay}}</view>
    <view class="muted">登录方式：手机号和密码 · 状态：{{maintainerAccountStatus==='approved'?'已授权':maintainerAccountStatus==='rejected'?'申请被拒绝':maintainerAccountStatus==='revoked'?'权限已撤销':'等待管理员审核'}}</view>
+   <view class="muted">Word 导出权限：{{hasExportPermission?'已授权':pendingExportPermission?'等待审批':'未授权'}}</view>
    <button class="secondary-button" bindtap="onRequestCurrentBank" loading="{{applying}}" disabled="{{busy || applying}}">申请维护当前题库</button>
+   <button wx:if="{{!hasExportPermission && !pendingExportPermission}}" class="secondary-button" bindtap="onRequestExportPermission" loading="{{applying}}" disabled="{{busy || applying}}">申请 Word 导出权限</button>
    <button class="secondary-button" bindtap="onLogout" disabled="{{busy || applying}}">退出登录</button>
   </view>
   <view wx:else>
@@ -74,6 +76,7 @@
     <checkbox-group wx:elif="{{maintainerBanks.length}}" class="maintainer-bank-list" bindchange="onMaintainerBanksChange">
      <label wx:for="{{maintainerBanks}}" wx:key="bank_id" class="maintainer-bank-option {{item.checked?'checked':''}}"><checkbox value="{{item.bank_id}}" checked="{{item.checked}}" disabled="{{busy || applying}}"/><text>{{item.name}}</text></label>
     </checkbox-group>
+    <checkbox-group class="permission-list" bindchange="onToggleExportPermission"><label><checkbox value="export" checked="{{applyExportPermission}}" disabled="{{busy || applying}}"/><text>申请 Word 导出权限</text></label></checkbox-group>
     <view class="label identity-label">密码</view>
     <input password placeholder-class="theme-placeholder" value="{{maintainerPassword}}" bindinput="onMaintainerPassword" placeholder="8–128 个字符，含大小写字母和数字" disabled="{{busy || applying}}"/>
     <view wx:for="{{maintainerPasswordRules}}" wx:key="key" class="password-check {{item.valid?'valid':'invalid'}}">{{item.valid?'✓':'○'}} {{item.label}}</view>
@@ -81,7 +84,7 @@
     <input password placeholder-class="theme-placeholder" value="{{maintainerPasswordConfirm}}" bindinput="onMaintainerPasswordConfirm" placeholder="再次输入密码" disabled="{{busy || applying}}"/>
     <view wx:if="{{maintainerPasswordConfirm}}" class="password-check {{maintainerPasswordsMatch?'valid':'invalid'}}">{{maintainerPasswordsMatch?'✓':'○'}} {{maintainerPasswordsMatch?'密码一致':'两次密码不一致'}}</view>
     <view class="muted auth-note">注册信息和登录方式与桌面版一致。上传权限需由桌面管理员审批。</view>
-    <button bindtap="onRegisterMaintainer" loading="{{applying}}" disabled="{{busy || applying || !maintainerNickname || maintainerBanksLoading || !maintainerBankIds.length || !maintainerPasswordValid || !maintainerPasswordsMatch}}">{{applying?'正在提交…':'注册并提交维护申请'}}</button>
+    <button bindtap="onRegisterMaintainer" loading="{{applying}}" disabled="{{busy || applying || !maintainerNickname || maintainerBanksLoading || (!maintainerBankIds.length && !applyExportPermission) || !maintainerPasswordValid || !maintainerPasswordsMatch}}">{{applying?'正在提交…':'注册并提交维护申请'}}</button>
    </block>
    <block wx:else>
     <view class="label identity-label">密码</view>

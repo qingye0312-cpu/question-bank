@@ -3,7 +3,7 @@ import {invoke} from '@tauri-apps/api/core';
 import {UploadError} from '../../shared/queue';
 import desktopService from '../../shared/desktop-service.json';
 
-export type Access={capabilities?:string[];openid?:string;auth_type?:'key'|'password'|'';phone?:string;nickname?:string;account_status?:string;maintainer_id?:string;banks:{bank_id:string;name:string}[];grants:Record<string,string[]>;uploads_enabled:boolean};
+export type Access={capabilities?:string[];permissions?:string[];pending_permissions?:string[];pending_bank_ids?:string[];openid?:string;auth_type?:'key'|'password'|'';phone?:string;nickname?:string;account_status?:string;maintainer_id?:string;banks:{bank_id:string;name:string}[];grants:Record<string,string[]>;uploads_enabled:boolean};
 type Session={token:string;origin:string;expires:number;access:Access;authType:'key'|'password';refreshToken?:string};
 type NativeResponse<T=Record<string,unknown>>={status:number;auth_type?:'key'|'password'|'';body:T&{error?:{message?:string;code?:string}}};
 const ORIGIN_KEY='qbank-cloud-origin-v1';
@@ -11,12 +11,13 @@ let session:Session|undefined;
 let generation=0;
 let onLogout=()=>{};
 let restoring:Promise<Access|undefined>|undefined;
+function notifyAccessChange(){if(typeof window!=='undefined')window.dispatchEvent(new Event('qbank-cloud-access-change'));}
 
 export function setLogoutHandler(handler:()=>void){onLogout=handler}
 export function sessionGeneration(){return generation}
 export function cloudOrigin(){return localStorage.getItem(ORIGIN_KEY)||import.meta.env.VITE_QBANK_API_ORIGIN||desktopService.origin;}
 export function setCloudOrigin(value:string){const u=new URL(value);if(u.protocol!=='https:'||u.username||u.password||u.pathname!=='/'||u.search||u.hash)throw Error('请填写不带路径的 HTTPS 地址');
- localStorage.setItem(ORIGIN_KEY,u.origin);session=undefined;generation++;}
+ localStorage.setItem(ORIGIN_KEY,u.origin);session=undefined;generation++;notifyAccessChange();}
 export function cloudAccess(){if(session&&session.origin!==cloudOrigin()){session=undefined;generation++;}return session?.access;}
 const rememberKey=(origin=cloudOrigin())=>'qbank-remember:'+origin;
 function queueCredential(command:string,args:Record<string,unknown>){return invoke(command,args);}
@@ -24,11 +25,11 @@ export async function cloudForget(){const origin=cloudOrigin();localStorage.remo
  queueCredential('credential_save',{origin,key:null}),queueCredential('credential_refresh_save',{origin,refreshToken:null}),
 ]);}
 
-function clearSession(clearStored=false){const origin=session?.origin||cloudOrigin();session=undefined;generation++;onLogout();
+function clearSession(clearStored=false){const origin=session?.origin||cloudOrigin();session=undefined;generation++;onLogout();notifyAccessChange();
  if(clearStored)void Promise.all([queueCredential('credential_save',{origin,key:null}),queueCredential('credential_refresh_save',{origin,refreshToken:null})]).catch(()=>{});
 }
 export async function cloudLogout(){
- const origin=session?.origin||cloudOrigin();session=undefined;generation++;onLogout();localStorage.removeItem(rememberKey(origin));
+ const origin=session?.origin||cloudOrigin();session=undefined;generation++;onLogout();notifyAccessChange();localStorage.removeItem(rememberKey(origin));
  await queueCredential('credential_logout',{origin});
 }
 
@@ -63,7 +64,7 @@ async function renewSession(current:Session):Promise<Access>{
  try{
   const access=assertResponse(await nativeRequest<Access>(origin,'/v1/me',undefined,renewed.token),renewed);
   if(!Array.isArray(access.banks)||!access.grants)throw new Error('维护权限响应无效');
-  if(session===renewed)renewed.access=access;
+  if(session===renewed){renewed.access=access;notifyAccessChange();}
   return access;
  }catch(error){if(session===renewed)clearSession(true);throw error;}
 }
@@ -83,7 +84,7 @@ export async function cloudCall<T>(path:string,body?:unknown,authenticated=false
 export async function refreshAccess(){
  const current=session;if(!current)return undefined;
  const access=await cloudCall<Access>('/v1/me',undefined,true);
- if(current===session)current.access=access;
+ if(current===session){current.access=access;notifyAccessChange();}
  return access;
 }
 
@@ -91,12 +92,12 @@ async function acceptLogin(result:{access_token:string;expires_in:number;refresh
  if(!/^v1\.[\w-]+\.[\w-]+$/.test(result.access_token)||result.expires_in<1||result.expires_in>900||origin!==cloudOrigin()||attempt!==generation)throw Error('登录响应无效');
  const candidate:Session={token:result.access_token,origin,expires:started+result.expires_in*1000,access:{banks:[],grants:{},uploads_enabled:false},authType,refreshToken:result.refresh_token};
  session=candidate;
- try{const me=await cloudCall<Access>('/v1/me',undefined,true);if(!Array.isArray(me.banks)||!me.grants)throw Error('维护权限响应无效');if(attempt!==generation||session!==candidate)throw Error('登录已取消，请重新验证');candidate.access=me;return me;}
+ try{const me=await cloudCall<Access>('/v1/me',undefined,true);if(!Array.isArray(me.banks)||!me.grants)throw Error('维护权限响应无效');if(attempt!==generation||session!==candidate)throw Error('登录已取消，请重新验证');candidate.access=me;notifyAccessChange();return me;}
  catch(e){if(attempt===generation&&session===candidate)session=undefined;throw e;}
 }
 
 export async function cloudLogin(key:string){
- session=undefined;const attempt=++generation,origin=cloudOrigin(),started=Date.now();
+ session=undefined;const attempt=++generation,origin=cloudOrigin(),started=Date.now();notifyAccessChange();
  const result=await cloudCall<{access_token:string;expires_in:number}>('/v1/auth/desktop',{key});
  await queueCredential('credential_save',{origin,key});
  if(attempt!==generation||origin!==cloudOrigin()){await queueCredential('credential_save',{origin,key:null});throw Error('登录已取消，请重试');}
@@ -105,7 +106,7 @@ export async function cloudLogin(key:string){
 }
 
 export async function cloudLoginPassword(phone:string,password:string){
- session=undefined;const attempt=++generation,origin=cloudOrigin(),started=Date.now();
+ session=undefined;const attempt=++generation,origin=cloudOrigin(),started=Date.now();notifyAccessChange();
  const result=await cloudCall<{access_token:string;refresh_token:string;expires_in:number}>('/v1/auth/password-login',{phone,password});
  if(typeof result.refresh_token!=='string'||!/^r1\.[A-Za-z0-9_-]{43}$/.test(result.refresh_token))throw Error('服务端没有返回有效的登录续期凭据');
  await queueCredential('credential_refresh_save',{origin,refreshToken:result.refresh_token});

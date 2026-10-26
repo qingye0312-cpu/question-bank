@@ -11,13 +11,13 @@ import {importDelta} from '../../services/intake';
 type MaintainerBankChoice={bank_id:string;name:string;checked:boolean};
 let controller:IntakeController|undefined,alive=false,poll:ReturnType<typeof setInterval>|undefined,previousType:ModelReply|null=null;
 Page({
-  data:{...themePageData(),currentId:'',banks:[] as BankSummary[],bankIndex:0,tab:'edit',busy:false,ready:false,reply:null as ModelReply|null,locked:false,raw:'',records:[] as any[],visibleRecords:[] as any[],jobs:[] as any[],pendingCount:0,issues:[] as any[],sourceIssues:[] as any[],saved:'',error:'',notice:'',more:false,tools:false,canUndoType:false,recordedAt:'',metadata:{} as any,editOptions:[] as any[],boolSelected:false,typeIndex:0,sourceIndex:2,warningsText:'',tagsText:'',difficultyIndex:0,filePath:'',fileName:'',query:'',loggedIn:false,authMode:'login',maintainerPassword:'',maintainerPasswordRules:[] as PasswordRule[],maintainerPasswordConfirm:'',maintainerPasswordValid:false,maintainerPasswordsMatch:false,maintainerResetToken:'',maintainerAuthType:'',maintainerAccountStatus:'',maintainerPhone:'',maintainerPhoneDisplay:'',maintainerRealName:'',maintainerNickname:'',maintainerIdentity:'',maintainerBanks:[] as MaintainerBankChoice[],maintainerBankIds:[] as string[],maintainerBanksLoading:false,maintainerBanksError:'',maintainerApplication:'',applying:false,applicationMessage:'',applicationError:false,
+  data:{...themePageData(),currentId:'',banks:[] as BankSummary[],bankIndex:0,tab:'edit',busy:false,ready:false,reply:null as ModelReply|null,locked:false,raw:'',records:[] as any[],visibleRecords:[] as any[],jobs:[] as any[],pendingCount:0,issues:[] as any[],sourceIssues:[] as any[],saved:'',error:'',notice:'',more:false,tools:false,canUndoType:false,recordedAt:'',metadata:{} as any,editOptions:[] as any[],boolSelected:false,typeIndex:0,sourceIndex:2,warningsText:'',tagsText:'',difficultyIndex:0,filePath:'',fileName:'',query:'',loggedIn:false,hasExportPermission:false,pendingExportPermission:false,authMode:'login',maintainerPassword:'',maintainerPasswordRules:[] as PasswordRule[],maintainerPasswordConfirm:'',maintainerPasswordValid:false,maintainerPasswordsMatch:false,maintainerResetToken:'',maintainerAuthType:'',maintainerAccountStatus:'',maintainerPhone:'',maintainerPhoneDisplay:'',maintainerRealName:'',maintainerNickname:'',maintainerIdentity:'',applyExportPermission:false,maintainerBanks:[] as MaintainerBankChoice[],maintainerBankIds:[] as string[],maintainerBanksLoading:false,maintainerBanksError:'',maintainerApplication:'',applying:false,applicationMessage:'',applicationError:false,
   types:['单选','多选','判断'],versionSources:['平台提供','用户提供','未知'],difficulties:['未设置','简单','中等','困难']},
  onLoad(){alive=true;previousType=null;controller=new IntakeController(view=>{if(!alive)return;const changed=view.currentId!==this.data.currentId||view.raw!==this.data.raw;if(changed)previousType=null;this.setData({...view,...(changed?{canUndoType:false}:{}),visibleRecords:view.records.filter(r=>!this.data.query||r.stem.includes(this.data.query))})});void this.run(async()=>{const banks=await listBanks(),bank=activeBankId();this.setData({banks,bankIndex:Math.max(0,banks.findIndex(b=>b.id===bank))});await controller!.open(bank);this.setData({ready:true});});},
- onShow(){showPageTheme(this);alive=true;void cloud.restoreSession().catch(()=>{}).finally(()=>{if(alive){const access=cloud.state();this.setData({loggedIn:access.loggedIn,maintainerPhoneDisplay:access.phone||'',maintainerAuthType:access.authType||'',maintainerAccountStatus:access.status||''})}});poll=setInterval(()=>void controller?.refreshJobs().catch(()=>{}),3000)},
+ onShow(){showPageTheme(this);alive=true;void cloud.restoreSession().catch(()=>{}).finally(()=>{if(alive){const access=cloud.state();this.setData({loggedIn:access.loggedIn,hasExportPermission:access.permissions.includes('export'),pendingExportPermission:access.pendingPermissions.includes('export'),maintainerPhoneDisplay:access.phone||'',maintainerAuthType:access.authType||'',maintainerAccountStatus:access.status||''})}});poll=setInterval(()=>void controller?.refreshJobs().catch(()=>{}),3000)},
  onHide(){hidePageTheme(this);if(poll)clearInterval(poll);void controller?.flush().catch(()=>{})},
  onUnload(){hidePageTheme(this);alive=false;if(poll)clearInterval(poll);controller?.dispose();controller=undefined},
- async run(fn:()=>Promise<void>){if(this.data.busy||this.data.applying)return;this.setData({busy:true,error:'',notice:''});try{await fn()}catch(e){if(alive&&controller){controller.error=e instanceof Error?e.message:(e as any)?.errMsg||String(e);controller.render()}}finally{if(alive)this.setData({busy:false,loggedIn:cloud.state().loggedIn})}},
+ async run(fn:()=>Promise<void>){if(this.data.busy||this.data.applying)return;this.setData({busy:true,error:'',notice:''});try{await fn()}catch(e){if(alive&&controller){controller.error=e instanceof Error?e.message:(e as any)?.errMsg||String(e);controller.render()}}finally{if(alive){const access=cloud.state();this.setData({busy:false,loggedIn:access.loggedIn,hasExportPermission:access.permissions.includes('export'),pendingExportPermission:access.pendingPermissions.includes('export')})}}},
  onTab(e:WechatMiniprogram.TouchEvent){void this.run(async()=>{await controller!.flush();this.setData({tab:e.currentTarget.dataset.tab})})},
  onBankChange(e:WechatMiniprogram.PickerChange){const index=Number(e.detail.value),bank=this.data.banks[index];void this.run(async()=>{await controller!.open(bank.id);selectBank(bank.id);this.setData({bankIndex:index,filePath:'',query:''})})},
  onSearch(e:WechatMiniprogram.Input){const query=e.detail.value;this.setData({query,visibleRecords:this.data.records.filter(r=>!query||r.stem.includes(query))})},
@@ -57,7 +57,8 @@ Page({
  onMaintainerPassword(e:WechatMiniprogram.Input){const password=e.detail.value;this.setData({maintainerPassword:password,maintainerPasswordRules:maintainerPasswordRules(password),maintainerPasswordValid:passwordMeetsPolicy(password),maintainerPasswordsMatch:password===this.data.maintainerPasswordConfirm})},
  onMaintainerPasswordConfirm(e:WechatMiniprogram.Input){const confirm=e.detail.value;this.setData({maintainerPasswordConfirm:confirm,maintainerPasswordsMatch:confirm===this.data.maintainerPassword})},
  onMaintainerResetToken(e:WechatMiniprogram.Input){this.setData({maintainerResetToken:e.detail.value})},
- onAuthMode(e:WechatMiniprogram.TouchEvent){const mode=e.currentTarget.dataset.mode;this.setData({authMode:mode,maintainerPassword:'',maintainerPasswordRules:[],maintainerPasswordConfirm:'',maintainerPasswordValid:false,maintainerPasswordsMatch:false,maintainerResetToken:'',applicationMessage:'',applicationError:false});if(mode==='register')void this.loadMaintainerBanks()},
+ onAuthMode(e:WechatMiniprogram.TouchEvent){const mode=e.currentTarget.dataset.mode;this.setData({authMode:mode,maintainerPassword:'',maintainerPasswordRules:[],maintainerPasswordConfirm:'',maintainerPasswordValid:false,maintainerPasswordsMatch:false,maintainerResetToken:'',applyExportPermission:false,applicationMessage:'',applicationError:false});if(mode==='register')void this.loadMaintainerBanks()},
+ onToggleExportPermission(e:WechatMiniprogram.CheckboxGroupChange){this.setData({applyExportPermission:e.detail.value.includes('export')})},
  async loadMaintainerBanks(){
   if(this.data.maintainerBanksLoading)return;
   this.setData({maintainerBanksLoading:true,maintainerBanksError:''});
@@ -76,7 +77,7 @@ Page({
  onRefreshMaintainerBanks(){void this.loadMaintainerBanks()},
  onMaintainerBanksChange(e:WechatMiniprogram.CheckboxGroupChange){const selected=e.detail.value;this.setData({maintainerBankIds:selected,maintainerBanks:this.data.maintainerBanks.map(bank=>({...bank,checked:selected.includes(bank.bank_id)}))})},
  onForgotMaintainerPassword(){
-  wx.showModal({title:'忘记密码',content:'需联系管理员重新设置维护者状态并获取一次性重置码。管理员重置后会清除现有维护权限；设置新密码后还需管理员重新授权。确认后进入密码重置页面。',confirmText:'确认重置状态',cancelText:'取消',success:result=>{
+  wx.showModal({title:'忘记密码',content:'需联系管理员重新设置维护者状态并获取一次性重置码。管理员重置后会清除现有题库维护权限和 Word 导出权限；设置新密码后还需管理员重新授权。确认后进入密码重置页面。',confirmText:'确认重置状态',cancelText:'取消',success:result=>{
     if(result.confirm)this.setData({authMode:'reset',maintainerPassword:'',maintainerPasswordConfirm:'',maintainerPasswordValid:false,maintainerPasswordsMatch:false,maintainerResetToken:'',applicationError:false,applicationMessage:'请联系管理员获取一次性重置码。'});
   }});
  },
@@ -90,14 +91,15 @@ Page({
     if(!cloud.state().configured)throw Error('尚未配置云端 HTTPS 域名，暂时无法提交申请，请联系管理员');
     const catalog=await refreshCatalog();
     let bankIds=this.data.maintainerBankIds;
-    if(!bankIds.length){const currentBank=this.data.banks[this.data.bankIndex];if(currentBank&&catalog.some(b=>b.bank_id===currentBank.id))bankIds=[currentBank.id];}
-    if(!bankIds.length)throw Error('至少选择一个要申请维护的云端题库');
+    if(!bankIds.length&&!this.data.applyExportPermission){const currentBank=this.data.banks[this.data.bankIndex];if(currentBank&&catalog.some(b=>b.bank_id===currentBank.id))bankIds=[currentBank.id];}
+    if(!bankIds.length&&!this.data.applyExportPermission)throw Error('至少申请一个题库维护权限或 Word 导出权限');
     if(bankIds.some(id=>!catalog.some(bank=>bank.bank_id===id)))throw Error('云端题库目录已更新，请重新获取并选择题库');
     if(!alive)return;
     this.setData({applicationMessage:'正在创建账号并提交申请…',maintainerPassword:'',maintainerPasswordConfirm:'',maintainerPasswordValid:false,maintainerPasswordsMatch:false});
-    const application=await cloud.registerMaintainer(bankIds,form);
+    const permissions=this.data.applyExportPermission?['export']:[];
+    const application=await cloud.registerMaintainer(bankIds,form,permissions);
     const requestedBanks=bankIds.map(id=>catalog.find(bank=>bank.bank_id===id)?.name).filter((name):name is string=>Boolean(name));
-    if(alive)this.setData({authMode:'login',maintainerApplication:application.status,applicationMessage:`手机号已登记，已申请维护：${requestedBanks.join('、')||`${bankIds.length} 个题库`}。等待桌面管理员核实，请使用手机号和密码登录查看状态。`});
+    if(alive)this.setData({authMode:'login',maintainerApplication:application.status,applyExportPermission:false,applicationMessage:`手机号已登记，申请权限：${[...requestedBanks,...(permissions.includes('export')?['导出题库']:[])].join('、')}。等待桌面管理员核实，请使用手机号和密码登录查看状态。`});
   }catch(error){
     if(alive){const message=error instanceof Error?error.message:'申请未完成，请重试';this.setData({applicationError:true,applicationMessage:message});wx.showToast({title:message,icon:'none',duration:3000});}
   }finally{if(alive)this.setData({applying:false,loggedIn:cloud.state().loggedIn,maintainerPassword:'',maintainerPasswordConfirm:'',maintainerPasswordValid:false,maintainerPasswordsMatch:false});}
@@ -110,7 +112,7 @@ Page({
     if(!cloud.state().configured)throw Error('尚未配置云端 HTTPS 地址，请联系管理员');
     const access=await cloud.loginPassword(phone,password);
     const message=access.status==='approved'?`登录成功，已授权：${access.banks.map(bank=>bank.name).join('、')||'暂无题库'}`:access.status==='rejected'?'登录成功，上次申请未通过；可重新申请当前题库。':'登录成功，维护申请仍待桌面管理员审批。';
-    if(alive)this.setData({maintainerPhoneDisplay:access.phone||'',maintainerAccountStatus:access.status||'pending',maintainerAuthType:access.authType||'password',applicationMessage:message});
+    if(alive)this.setData({maintainerPhoneDisplay:access.phone||'',maintainerAccountStatus:access.status||'pending',maintainerAuthType:access.authType||'password',hasExportPermission:access.permissions.includes('export'),pendingExportPermission:access.pendingPermissions.includes('export'),applicationMessage:message});
   }catch(error){
     if(alive){const message=error instanceof Error?error.message:'登录失败，请检查账号密码后重试';this.setData({applicationError:true,applicationMessage:message});wx.showToast({title:message,icon:'none',duration:3000});}
   }finally{if(alive)this.setData({applying:false,loggedIn:cloud.state().loggedIn,maintainerPassword:''});}
@@ -122,7 +124,7 @@ Page({
   try{
     if(!cloud.state().configured)throw Error('尚未配置云端 HTTPS 地址，请联系管理员');
     await cloud.resetMaintainerPassword(phone,resetToken,password,passwordConfirm);
-    if(alive)this.setData({authMode:'login',maintainerPasswordConfirm:'',maintainerPasswordRules:[],maintainerResetToken:'',maintainerAccountStatus:'pending',applicationMessage:'密码已重置。维护权限已清除，请使用新密码登录并等待管理员重新授权。'});
+    if(alive)this.setData({authMode:'login',maintainerPasswordConfirm:'',maintainerPasswordRules:[],maintainerResetToken:'',maintainerAccountStatus:'pending',hasExportPermission:false,pendingExportPermission:false,applicationMessage:'密码已重置。维护权限已清除，请使用新密码登录并等待管理员重新授权。'});
   }catch(error){
     if(alive){const message=error instanceof Error?error.message:'密码重置失败，请联系管理员';this.setData({applicationError:true,applicationMessage:message});wx.showToast({title:message,icon:'none',duration:3000});}
   }finally{if(alive)this.setData({applying:false,loggedIn:cloud.state().loggedIn,maintainerPassword:'',maintainerPasswordConfirm:'',maintainerPasswordValid:false,maintainerPasswordsMatch:false});}
@@ -138,12 +140,19 @@ Page({
   }catch(error){if(alive){const message=error instanceof Error?error.message:'申请未完成，请重试';this.setData({applicationError:true,applicationMessage:message});wx.showToast({title:message,icon:'none',duration:3000});}}
   finally{if(alive)this.setData({applying:false})}
  },
+ async onRequestExportPermission(){
+  if(this.data.busy||this.data.applying)return;
+  this.setData({applying:true,applicationError:false,applicationMessage:'正在提交 Word 导出权限申请…'});
+  try{const application=await cloud.applyPermissions(['export']);const access=cloud.state();if(alive)this.setData({pendingExportPermission:access.pendingPermissions.includes('export'),hasExportPermission:access.permissions.includes('export'),applicationMessage:application.status==='pending'?'Word 导出权限申请已提交，等待桌面最高权限审批。':'已获得 Word 导出权限。'});}
+  catch(error){if(alive){const message=error instanceof Error?error.message:'申请未完成，请重试';this.setData({applicationError:true,applicationMessage:message});wx.showToast({title:message,icon:'none',duration:3000});}}
+  finally{if(alive)this.setData({applying:false})}
+ },
  onRetry(){
   if(!cloud.state().loggedIn){this.setData({tab:'uploads',error:'恢复上传前请先登录维护者账号'});return;}
   void this.run(()=>controller!.retry())
  },
  onSync(){void this.run(()=>controller!.sync())},
- onLogout(){void cloud.logout();void pauseUploads().catch(e=>{controller!.error=String(e);controller!.render()});this.setData({loggedIn:false,maintainerPhone:'',maintainerPhoneDisplay:'',maintainerPassword:'',maintainerPasswordConfirm:'',maintainerPasswordValid:false,maintainerPasswordsMatch:false,maintainerResetToken:'',maintainerAccountStatus:'',maintainerAuthType:'',applicationMessage:'已退出登录'})},
+ onLogout(){void cloud.logout();void pauseUploads().catch(e=>{controller!.error=String(e);controller!.render()});this.setData({loggedIn:false,hasExportPermission:false,pendingExportPermission:false,maintainerPhone:'',maintainerPhoneDisplay:'',maintainerPassword:'',maintainerPasswordConfirm:'',maintainerPasswordValid:false,maintainerPasswordsMatch:false,maintainerResetToken:'',maintainerAccountStatus:'',maintainerAuthType:'',applicationMessage:'已退出登录'})},
  onExport(){void this.run(async()=>{const file=await controller!.export();this.setData({...file,notice:'已导出，题目仍可修改；未触发上传'})})},
  onShare(){if(!this.data.filePath)return;(wx as WechatMiniprogram.Wx & {shareFileMessage:(options:{filePath:string;fileName:string;fail:(e:{errMsg:string})=>void})=>void}).shareFileMessage({filePath:this.data.filePath,fileName:this.data.fileName,fail:e=>this.setData({error:e.errMsg})})},
  onCreateBank(){wx.showModal({title:'新建私人本地题库',editable:true,placeholderText:'题库名称',success:r=>{if(r.confirm)void this.run(async()=>{const id=await createBank(r.content||''),banks=await listBanks();await controller!.open(id);this.setData({banks,bankIndex:banks.findIndex(b=>b.id===id),tab:'edit'})})}})},

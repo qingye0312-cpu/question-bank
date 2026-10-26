@@ -4,10 +4,10 @@ import {prepareUpload,verifyReceipt} from '../core/upload';
 import {passwordMeetsPolicy,registrationFields,type MaintainerForm,type MaintainerRegistrationForm} from './maintainer-application';
 
 type Bank={bank_id:string;name:string};
-type Session={openid:string;token:string;refreshToken:string;origin:string;expiresAt:number;banks:Bank[];uploadsEnabled:boolean;status?:string;phone?:string;nickname?:string;authType:'password'};
+type Session={openid:string;token:string;refreshToken:string;origin:string;expiresAt:number;banks:Bank[];permissions:string[];pendingPermissions:string[];uploadsEnabled:boolean;status?:string;phone?:string;nickname?:string;authType:'password'};
 type Response={status:number;body:unknown};
 type Transport=(origin:string,path:string,method:'GET'|'POST',body:unknown,token?:string)=>Promise<Response>;
-export type CloudAccess={openid?:string;phone?:string;authType?:'password';status?:string;configured:boolean;loggedIn:boolean;banks:Bank[];uploadsEnabled:boolean};
+export type CloudAccess={openid?:string;phone?:string;authType?:'password';status?:string;configured:boolean;loggedIn:boolean;banks:Bank[];permissions:string[];pendingPermissions:string[];uploadsEnabled:boolean};
 const UUID=/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 function object(value:unknown):Record<string,unknown>{
   if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('云端响应无效，请稍后重试');
@@ -30,6 +30,9 @@ const messages:Record<string,string>={
   PHONE_IN_USE:'此手机号已登记，请直接登录或联系管理员核实',
   PHONE_CHANGE_REQUIRES_ADMIN:'已授权账号修改手机号需联系管理员核实',
   BANKS_REQUIRED:'请选择有效的云端题库；私人本地题库不能申请云端权限',
+  PERMISSIONS_INVALID:'权限申请无效，请刷新客户端后重试',
+  APPLICATION_EMPTY:'请至少申请一个题库维护权限或 Word 导出权限',
+  ALREADY_PERMISSION:'已经获得或正在申请所选权限',
   IDENTITY_REQUIRED:'请填写 1 至 500 字的身份说明，方便管理员核实',
   PASSWORD_INVALID:'密码至少 8 位，且需包含大写字母、小写字母和数字',
   CREDENTIALS_INVALID:'手机号或密码不正确',
@@ -68,7 +71,7 @@ export function createCloudClient(deps:{origin:()=>string;request:Transport;now?
   }
   function active(){if(session&&session.origin!==deps.origin())session=undefined;return session;}
   function state():CloudAccess {const current=active();return {openid:current?.openid,phone:current?.phone,authType:current?.authType,status:current?.status,configured:!!deps.origin(),loggedIn:!!current,
-    banks:current?current.banks.map(b=>({...b})):[],uploadsEnabled:current?.uploadsEnabled||false};}
+    banks:current?current.banks.map(b=>({...b})):[],permissions:current?[...current.permissions]:[],pendingPermissions:current?[...current.pendingPermissions]:[],uploadsEnabled:current?.uploadsEnabled||false};}
   function clear(current=session,removeStored=true){generation++;if(!current||session===current)session=undefined;pending=undefined;refreshing=undefined;
     if(removeStored&&current?.origin)try{wx.removeStorageSync(refreshStorageKey(current.origin));}catch{/* Keep offline search available if local storage is unavailable. */}
   }
@@ -93,7 +96,8 @@ export function createCloudClient(deps:{origin:()=>string;request:Transport;now?
   function removeRefreshToken(base:string){try{wx.removeStorageSync(refreshStorageKey(base));}catch{/* No local credential remains accessible to this session. */}}
   function applyAccess(current:Session,me:Record<string,unknown>){
     if(typeof me.openid!=='string'||me.openid!==current.openid||!Array.isArray(me.permissions)||typeof me.uploads_enabled!=='boolean')throw new Error('云端身份或权限校验失败，请重新登录');
-    current.banks=readBanks(me.banks);current.uploadsEnabled=me.uploads_enabled;
+    if(me.permissions.some(permission=>typeof permission!=='string')||me.pending_permissions!==undefined&&(!Array.isArray(me.pending_permissions)||me.pending_permissions.some(permission=>typeof permission!=='string')))throw new Error('云端权限响应无效，请重新登录');
+    current.banks=readBanks(me.banks);current.permissions=[...new Set(me.permissions as string[])];current.pendingPermissions=[...new Set((me.pending_permissions||[]) as string[])];current.uploadsEnabled=me.uploads_enabled;
     current.status=typeof me.account_status==='string'?me.account_status:current.status;
     current.phone=typeof me.phone==='string'?me.phone:current.phone;
   }
@@ -141,7 +145,7 @@ export function createCloudClient(deps:{origin:()=>string;request:Transport;now?
       const nextToken=typeof result.refresh_token==='string'&&/^r1\.[A-Za-z0-9_-]{43}$/.test(result.refresh_token)?result.refresh_token:token;
       if(nextToken!==token)saveRefreshToken(base,nextToken);
       const current:Session={openid:typeof result.openid==='string'?result.openid:'',token:result.access_token,refreshToken:nextToken,origin:base,
-        expiresAt:now()+Number(result.expires_in)*1000,banks:readBanks(result.banks),uploadsEnabled:false,status:typeof result.status==='string'?result.status:undefined,
+        expiresAt:now()+Number(result.expires_in)*1000,banks:readBanks(result.banks),permissions:[],pendingPermissions:[],uploadsEnabled:false,status:typeof result.status==='string'?result.status:undefined,
         phone:typeof result.phone==='string'?result.phone:undefined,authType:'password'};
       const me=object((await rawCall('/v1/me','GET',undefined,current)).body);applyAccess(current,me);
       if(base!==deps.origin())throw new Error('登录状态已改变，请重试');
@@ -168,7 +172,7 @@ export function createCloudClient(deps:{origin:()=>string;request:Transport;now?
         throw new Error('云端登录响应无效，请重试');
       saveRefreshToken(base,result.refresh_token);
       const current:Session={openid:typeof result.openid==='string'?result.openid:'',token:result.access_token,refreshToken:result.refresh_token,origin:base,
-        expiresAt:started+Number(result.expires_in)*1000,banks:readBanks(result.banks),uploadsEnabled:false,status:typeof result.status==='string'?result.status:undefined,
+        expiresAt:started+Number(result.expires_in)*1000,banks:readBanks(result.banks),permissions:[],pendingPermissions:[],uploadsEnabled:false,status:typeof result.status==='string'?result.status:undefined,
         phone:typeof result.phone==='string'?result.phone:undefined,authType:'password'};
       const me=object((await rawCall('/v1/me','GET',undefined,current)).body);applyAccess(current,me);
       if(epoch!==generation||base!==deps.origin())throw new Error('登录已取消，请重新登录');
@@ -176,11 +180,13 @@ export function createCloudClient(deps:{origin:()=>string;request:Transport;now?
     })();
     pending=run;void run.finally(()=>{if(pending===run)pending=undefined}).catch(()=>{});return run;
   }
-  async function registerMaintainer(bankIds:string|string[],form:MaintainerRegistrationForm){
+  async function registerMaintainer(bankIds:string|string[],form:MaintainerRegistrationForm,permissions:string[]=[]){
     const fields=registrationFields(form);
     const selectedBankIds=[...new Set(Array.isArray(bankIds)?bankIds:[bankIds])];
-    if(!selectedBankIds.length)throw new Error('至少选择一个要申请维护的云端题库');
-    const result=object((await call('/v1/auth/register','POST',{...fields,bank_ids:selectedBankIds})).body);
+    const requested=[...new Set(permissions)];
+    if(!selectedBankIds.length&&!requested.length)throw new Error('至少申请一个题库维护权限或 Word 导出权限');
+    if(requested.some(permission=>permission!=='export'))throw new Error(messages.PERMISSIONS_INVALID);
+    const result=object((await call('/v1/auth/register','POST',{...fields,bank_ids:selectedBankIds,permissions:requested})).body);
     if(!result.account||!result.application)throw new Error('注册响应无效，请稍后重试');
     return result.application as {id:string;status:string;phone:string;real_name:string;nickname:string;identity_description:string;bank_ids:string[]};
   }
@@ -198,12 +204,19 @@ export function createCloudClient(deps:{origin:()=>string;request:Transport;now?
     const current=active();if(!current)throw new UploadError('请先使用手机号和密码登录',403,'LOGIN_REQUIRED');
     return submitApplication(bankId,{bank_ids:[bankId]},current);
   }
-  async function submitApplication(bankId:string,body:Record<string,unknown>,current:Session){
+  async function applyPermissions(permissions:string[]){
+    const current=active();if(!current)throw new UploadError('请先使用手机号和密码登录',403,'LOGIN_REQUIRED');
+    const requested=[...new Set(permissions)];if(!requested.length||requested.some(permission=>permission!=='export'))throw new UploadError(messages.PERMISSIONS_INVALID,422,'PERMISSIONS_INVALID');
+    const result=await submitApplication(undefined,{bank_ids:[],permissions:requested},current);
+    const me=object((await call('/v1/me','GET',undefined,current)).body);applyAccess(current,me);
+    return result;
+  }
+  async function submitApplication(bankId:string|undefined,body:Record<string,unknown>,current:Session){
     if(active()!==current)throw new Error('登录已失效，请重试');
     let result:Record<string,unknown>;
     try { result=object((await call('/v1/maintainer-applications','POST',body,current)).body); }
     catch(error){
-      if(error instanceof UploadError&&error.code==='ALREADY_MAINTAINER'&&current.banks.some(bank=>bank.bank_id===bankId))return {id:'',status:'approved',bank_ids:[bankId]};
+      if(error instanceof UploadError&&error.code==='ALREADY_MAINTAINER'&&bankId&&current.banks.some(bank=>bank.bank_id===bankId))return {id:'',status:'approved',bank_ids:[bankId]};
       throw error;
     }
     if(!result.application)throw new Error('申请响应无效');
@@ -228,7 +241,7 @@ export function createCloudClient(deps:{origin:()=>string;request:Transport;now?
     return {receipt:verifyReceipt(body.receipt,expected),duplicate:body.duplicate as boolean};
   }
   async function health(){return object((await call('/health','GET',undefined)).body)}
-  return {state,restoreSession,loginPassword,registerMaintainer,resetMaintainerPassword,applyMaintainer,logout,authorize,upload,health};
+  return {state,restoreSession,loginPassword,registerMaintainer,resetMaintainerPassword,applyMaintainer,applyPermissions,logout,authorize,upload,health};
 }
 
 const request:Transport=(origin,path,method,body,token)=>new Promise((resolve,reject)=>{

@@ -69,7 +69,7 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
         const client=String(headers['x-forwarded-for']||headers['x-client-address']||'unknown').slice(0,100);
         throttle(`register:${client}`,10);
         const body=jsonBody(event,8192);
-        if(!exact(body,['password','phone','real_name','nickname','identity_description','bank_ids']))fail(422,'REGISTRATION_INVALID','注册信息不完整');
+        if(!exact(body,['password','phone','real_name','nickname','identity_description','bank_ids'])&&!exact(body,['password','phone','real_name','nickname','identity_description','bank_ids','permissions']))fail(422,'REGISTRATION_INVALID','注册信息不完整');
         validatePassword(body.password);
         const phone=access.normalizePhone(body.phone),phoneHash=access.phoneHash(phone);
         const realName=typeof body.real_name==='string'?body.real_name.trim():'';
@@ -79,20 +79,22 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
         if(!nickname||nickname.length>80)fail(422,'NICKNAME_INVALID','请填写昵称，用于记录题目上传者（最多 80 字）');
         const identityDescription=typeof body.identity_description==='string'?body.identity_description.trim():'';
         if(!identityDescription||identityDescription.length>500)fail(422,'IDENTITY_REQUIRED','请填写 1 至 500 字的身份说明，方便管理员核实');
-        if(!Array.isArray(body.bank_ids)||!body.bank_ids.length||body.bank_ids.length>100||body.bank_ids.some(id=>!UUID.test(id)))fail(422,'BANKS_REQUIRED','请选择要申请的题库');
-        const bankIds=[...new Set(body.bank_ids)];
+        if(!Array.isArray(body.bank_ids)||body.bank_ids.length>100||body.bank_ids.some(id=>!UUID.test(id)))fail(422,'BANKS_REQUIRED','请选择有效的云端题库');
+        if(body.permissions!==undefined&&(!Array.isArray(body.permissions)||body.permissions.length>10||body.permissions.some(permission=>permission!=='export')))fail(422,'PERMISSIONS_INVALID','权限申请无效');
+        const bankIds=[...new Set(body.bank_ids)],permissions=[...new Set(body.permissions||[])];
+        if(!bankIds.length&&!permissions.length)fail(422,'APPLICATION_EMPTY','请至少申请一个题库维护权限或 Word 导出权限');
         if(bankIds.some(id=>!config.banks.some(bank=>bank.bank_id===id)))fail(422,'BANKS_REQUIRED','请选择有效的云端题库');
         const passwordHash=await hashPassword(body.password);
         let accountId,applicationId;
         const result=await access.update(registry=>{
           if(registry.password_accounts.some(account=>account.phone_hash===phoneHash&&account.status!=='revoked'))fail(409,'PHONE_TAKEN','此手机号已注册，请直接登录或联系管理员');
           const at=new Date(clock()).toISOString();accountId=randomUUID();applicationId=randomUUID();
-          const account={id:accountId,password_hash:passwordHash,sessions:[],phone,phone_hash:phoneHash,phone_masked:access.maskPhone(phone),phone_source:'self_reported',real_name:realName,nickname,identity_description:identityDescription,grants:{},status:'pending',created_at:at};
-          const application={id:applicationId,auth_type:'password',account_id:accountId,phone,phone_hash:phoneHash,phone_masked:access.maskPhone(phone),phone_source:'self_reported',real_name:realName,nickname,identity_description:identityDescription,bank_ids:bankIds,status:'pending',created_at:at};
+          const account={id:accountId,password_hash:passwordHash,sessions:[],phone,phone_hash:phoneHash,phone_masked:access.maskPhone(phone),phone_source:'self_reported',real_name:realName,nickname,identity_description:identityDescription,grants:{},permissions:[],status:'pending',created_at:at};
+          const application={id:applicationId,auth_type:'password',account_id:accountId,phone,phone_hash:phoneHash,phone_masked:access.maskPhone(phone),phone_source:'self_reported',real_name:realName,nickname,identity_description:identityDescription,bank_ids:bankIds,permissions,status:'pending',created_at:at};
           registry.password_accounts.push(account);registry.maintainer_applications.push(application);
         });
         const application=result.maintainer_applications.find(item=>item.id===applicationId);
-        return respond(201,{account:{id:accountId,phone:access.maskPhone(phone),status:'pending'},application:{id:application.id,status:application.status,phone:application.phone_masked,real_name:application.real_name,nickname:application.nickname,identity_description:application.identity_description,bank_ids:application.bank_ids}});
+        return respond(201,{account:{id:accountId,phone:access.maskPhone(phone),status:'pending'},application:{id:application.id,status:application.status,phone:application.phone_masked,real_name:application.real_name,nickname:application.nickname,identity_description:application.identity_description,bank_ids:application.bank_ids,permissions:application.permissions}});
       }
       if(path==='/v1/auth/password-login'){
         throttle('login:all',100);
@@ -124,7 +126,7 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
         const grants=currentAccount.status==='approved'&&object(currentAccount.grants)?currentAccount.grants:{};
         return respond(200,{access_token:token,refresh_token:refreshToken,expires_in:LIMITS.sessionSeconds,openid:subject,
           phone:currentAccount.phone_masked||access.maskPhone(phone),status:currentAccount.status||'pending',banks:config.banks.filter(bank=>Object.hasOwn(grants,bank.bank_id)),
-          permissions:[...new Set(Object.values(grants).flat())]});
+          permissions:[...new Set([...(currentAccount.permissions||[]),...Object.values(grants).flat()])]});
       }
       if(path==='/v1/auth/refresh'){
         const body=jsonBody(event,2048),refreshToken=body?.refresh_token;
@@ -138,7 +140,7 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
         const grants=account.status==='approved'&&object(account.grants)?account.grants:{};
         return respond(200,{access_token:token,refresh_token:refreshToken,expires_in:LIMITS.sessionSeconds,openid:subject,
           phone:account.phone_masked||'',status:account.status||'pending',banks:config.banks.filter(bank=>Object.hasOwn(grants,bank.bank_id)),
-          permissions:[...new Set(Object.values(grants).flat())]});
+          permissions:[...new Set([...(account.permissions||[]),...Object.values(grants).flat()])]});
       }
       if(path==='/v1/auth/logout'){
         const body=jsonBody(event,2048),refreshToken=body?.refresh_token;
@@ -170,28 +172,31 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
           const valid=target?.status==='password_reset_required'&&timingSafeEqual(Buffer.from(candidate,'hex'),Buffer.from(expected,'hex'))
             &&Number.isSafeInteger(target.password_reset_expires_at)&&target.password_reset_expires_at>clock();
           if(!valid)fail(401,'PASSWORD_RESET_INVALID','重置码无效或已过期，请联系管理员重新发放');
-          target.password_hash=passwordHash;target.status='pending';target.grants={};target.sessions=[];
+          target.password_hash=passwordHash;target.status='pending';target.grants={};target.permissions=[];target.sessions=[];
           delete target.password_reset_sha256;delete target.password_reset_expires_at;delete target.password_reset_issued_at;
         });
         return respond(200,{phone:access.maskPhone(phone),status:'pending'});
       }
       const auth = verify(typeof headers.authorization === 'string' && headers.authorization.startsWith('Bearer ')
         ? headers.authorization.slice(7) : null, config, now, await access.read());
-      if (path === '/v1/me') return respond(200, { openid: auth.openid, auth_type:auth.password_account?'password':auth.desktop?'key':'', phone: auth.phone_masked||'', nickname:auth.nickname||'', account_status:auth.account_status|| (auth.desktop?'desktop':'approved'),
-        banks: config.banks.filter(b => auth.banks.includes(b.bank_id)), permissions: [...new Set(Object.values(auth.grants).flat())], grants:auth.grants, capabilities:auth.capabilities||[], uploads_enabled: config.uploadsEnabled });
+      if (path === '/v1/me') {
+        const pendingApplication=auth.password_account?(await access.read()).maintainer_applications.find(application=>application.status==='pending'&&application.account_id===auth.account_id):undefined;
+        return respond(200, { openid: auth.openid, auth_type:auth.password_account?'password':auth.desktop?'key':'', phone: auth.phone_masked||'', nickname:auth.nickname||'', account_status:auth.account_status|| (auth.desktop?'desktop':'approved'),
+        banks: config.banks.filter(b => auth.banks.includes(b.bank_id)), permissions: [...new Set([...(auth.permissions||[]),...Object.values(auth.grants).flat()])], pending_permissions:pendingApplication?.permissions||[], pending_bank_ids:pendingApplication?.bank_ids||[], grants:auth.grants, capabilities:auth.capabilities||[], uploads_enabled: config.uploadsEnabled });
+      }
       const isAdmin=auth.desktop&&auth.capabilities?.includes('maintainer:manage');
       if(path==='/v1/maintainer-applications'&&method==='GET'){
         if(!isAdmin)fail(403,'ROLE_FORBIDDEN','只有桌面最高权限可以管理维护者申请');
         const registry=await access.read();
         return respond(200,{applications:registry.maintainer_applications.filter(a=>a.status==='pending'&&a.auth_type==='password').map(a=>{
           const account=registry.password_accounts.find(item=>item.id===a.account_id);
-          return {id:a.id,auth_type:'password',phone:a.phone,real_name:a.real_name,phone_source:a.phone_source,nickname:a.nickname,identity_description:a.identity_description,bank_ids:a.bank_ids,created_at:a.created_at,status:a.status,password_reset:!!a.password_reset,password_reset_required:account?.status==='password_reset_required'};
+          return {id:a.id,auth_type:'password',phone:a.phone,real_name:a.real_name,phone_source:a.phone_source,nickname:a.nickname,identity_description:a.identity_description,bank_ids:a.bank_ids||[],permissions:a.permissions||[],created_at:a.created_at,status:a.status,password_reset:!!a.password_reset,password_reset_required:account?.status==='password_reset_required'};
         })});
       }
       if(path==='/v1/maintainer-accounts'&&method==='GET'){
         if(!isAdmin)fail(403,'ROLE_FORBIDDEN','只有桌面最高权限可以管理维护者账号');
         const registry=await access.read();
-        const accounts=registry.password_accounts.map(a=>({id:a.id,auth_type:'password',phone:a.phone,real_name:a.real_name,phone_source:a.phone_source,nickname:a.nickname,identity_description:a.identity_description,openid:`p_${a.id}`,grants:a.grants,status:a.status,created_at:a.created_at,approved_at:a.approved_at||null,revoked_at:a.revoked_at||null}));
+        const accounts=registry.password_accounts.map(a=>({id:a.id,auth_type:'password',phone:a.phone,real_name:a.real_name,phone_source:a.phone_source,nickname:a.nickname,identity_description:a.identity_description,openid:`p_${a.id}`,grants:a.grants,permissions:a.permissions||[],status:a.status,created_at:a.created_at,approved_at:a.approved_at||null,revoked_at:a.revoked_at||null}));
         return respond(200,{accounts});
       }
       const resetMatch=/^\/v1\/maintainer-accounts\/([0-9a-f-]{36})\/password-reset$/.exec(path||'');
@@ -207,22 +212,28 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
           const latest=related.slice().sort((a,b)=>String(b.created_at||'').localeCompare(String(a.created_at||'')))[0];
           const granted=Object.entries(object(account.grants)?account.grants:{}).filter(([,roles])=>Array.isArray(roles)&&roles.includes('upload')).map(([id])=>id);
           const bankIds=[...new Set([...granted,...(pending?.bank_ids||[]),...(latest?.bank_ids||[])])].filter(id=>config.banks.some(bank=>bank.bank_id===id));
-          if(!bankIds.length)fail(409,'APPLICATION_MISSING','账号没有可重新申请的题库，请先创建维护申请');
+          const permissions=[...new Set([...(account.permissions||[]),...(pending?.permissions||[]),...(latest?.permissions||[])])].filter(permission=>permission==='export');
+          if(!bankIds.length&&!permissions.length)fail(409,'APPLICATION_MISSING','账号没有可重新申请的权限，请先创建权限申请');
           const at=new Date(clock()).toISOString();
           const details={auth_type:'password',account_id:account.id,phone:account.phone,phone_hash:account.phone_hash,
             phone_masked:account.phone_masked,phone_source:account.phone_source||'self_reported',real_name:account.real_name,nickname:account.nickname,
-            identity_description:account.identity_description,bank_ids:bankIds,password_reset:true,status:'pending',updated_at:at};
+            identity_description:account.identity_description,bank_ids:bankIds,permissions,password_reset:true,status:'pending',updated_at:at};
           if(pending)Object.assign(pending,details);
           else registry.maintainer_applications.push({id:randomUUID(),...details,created_at:at});
-          account.status='password_reset_required';account.grants={};account.sessions=[];account.password_reset_sha256=sha256(resetToken);
+          account.status='password_reset_required';account.grants={};account.permissions=[];account.sessions=[];account.password_reset_sha256=sha256(resetToken);
           account.password_reset_expires_at=expiresAt;account.password_reset_issued_at=clock();
         });
         return respond(200,{status:'password_reset_required',reset_token:resetToken,expires_at:new Date(expiresAt).toISOString()});
       }
       if(path==='/v1/maintainer-applications'&&method==='POST'){
         if(!auth.password_account)fail(403,'LOGIN_REQUIRED','请先使用手机号和密码登录');
-        const body=jsonBody(event,8192);if(!Array.isArray(body?.bank_ids)||!body.bank_ids.length||body.bank_ids.length>100||body.bank_ids.some(id=>!UUID.test(id)))fail(422,'BANKS_REQUIRED','请选择要维护的题库');
-        if(!exact(body,['bank_ids']))fail(422,'APPLICATION_INVALID','账号资料不可通过申请接口修改');
+        const body=jsonBody(event,8192);
+        if(!exact(body,['bank_ids'])&&!exact(body,['bank_ids','permissions']))fail(422,'APPLICATION_INVALID','账号资料不可通过申请接口修改');
+        const requestedBankIds=body.bank_ids;
+        if(!Array.isArray(requestedBankIds)||requestedBankIds.length>100||requestedBankIds.some(id=>!UUID.test(id)))fail(422,'BANKS_REQUIRED','请选择有效的云端题库');
+        if(body.permissions!==undefined&&(!Array.isArray(body.permissions)||body.permissions.length>10||body.permissions.some(permission=>permission!=='export')))fail(422,'PERMISSIONS_INVALID','权限申请无效');
+        const requestedPermissions=[...new Set(body.permissions||[])];
+        if(!requestedBankIds.length&&!requestedPermissions.length)fail(422,'APPLICATION_EMPTY','请至少申请一个题库维护权限或 Word 导出权限');
         const profileAccount=(await access.read()).password_accounts.find(account=>account.id===auth.account_id);
         if(!profileAccount)fail(403,'MAINTAINER_REVOKED','维护者账号已撤销，请联系管理员');
         const phone=profileAccount.phone,phoneHash=profileAccount.phone_hash;
@@ -231,7 +242,7 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
         const nickname=profileAccount.nickname||'';
         const identityDescription=profileAccount.identity_description||'';
         if(!identityDescription||identityDescription.length>500)fail(422,'IDENTITY_REQUIRED','请填写 1 至 500 字的身份说明，方便管理员核实');
-        const validBanks=[...new Set(body.bank_ids)];if(validBanks.some(id=>!config.banks.some(b=>b.bank_id===id)))fail(422,'BANKS_REQUIRED','请选择有效的云端题库');
+        const validBanks=[...new Set(requestedBankIds)];if(validBanks.some(id=>!config.banks.some(b=>b.bank_id===id)))fail(422,'BANKS_REQUIRED','请选择有效的云端题库');
         let applicationId,created=false;
         const result=await access.update(registry=>{
           const subject=auth.account_id;
@@ -242,16 +253,23 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
           if(phoneOwner)fail(409,'PHONE_IN_USE','此手机号已绑定其他已授权账号，请联系管理员核实');
           if(existing?.status==='revoked')fail(409,'MAINTAINER_REVOKED','此账号已撤销，请联系管理员核实');
           if(existing&&existing.phone_hash!==phoneHash)fail(409,'PHONE_CHANGE_REQUIRES_ADMIN','已授权账号修改手机号需联系管理员核实');
-          const requested=validBanks.filter(id=>!existing?.grants?.[id]?.includes('upload'));
-          if(!requested.length)fail(409,'ALREADY_MAINTAINER','已经获得所选题库的维护权限');
           const pending=registry.maintainer_applications.find(a=>a.status==='pending'&&a.auth_type==='password'&&a.account_id===subject);
+          const ungrantedBanks=validBanks.filter(id=>!existing?.grants?.[id]?.includes('upload'));
+          const ungrantedPermissions=requestedPermissions.filter(permission=>!(existing?.permissions||[]).includes(permission));
+          const requested=ungrantedBanks.filter(id=>!(pending?.bank_ids||[]).includes(id));
+          const requestedGlobal=ungrantedPermissions.filter(permission=>!(pending?.permissions||[]).includes(permission));
+          if(!requested.length&&!requestedGlobal.length){
+            if(pending&&ungrantedBanks.every(id=>(pending.bank_ids||[]).includes(id))&&ungrantedPermissions.every(permission=>(pending.permissions||[]).includes(permission))){applicationId=pending.id;created=false;return;}
+            const permissionOnly=requestedPermissions.length>0;
+            fail(409,permissionOnly?'ALREADY_PERMISSION':'ALREADY_MAINTAINER',permissionOnly?'已经获得或正在申请所选权限':'已经获得所选题库的维护权限');
+          }
           if(existing.status==='rejected')existing.status='pending';
           const details={phone,phone_hash:phoneHash,phone_masked:access.maskPhone(phone),phone_source:'self_reported',real_name:realName,nickname,identity_description:identityDescription};
-          if(pending){Object.assign(pending,details,{bank_ids:[...new Set([...pending.bank_ids,...requested])],updated_at:new Date(clock()).toISOString()});applicationId=pending.id;created=false;}
-          else {applicationId=randomUUID();created=true;registry.maintainer_applications.push({id:applicationId,auth_type:'password',account_id:subject,...details,bank_ids:requested,status:'pending',created_at:new Date(clock()).toISOString()});}
+          if(pending){Object.assign(pending,details,{bank_ids:[...new Set([...(pending.bank_ids||[]),...requested])],permissions:[...new Set([...(pending.permissions||[]),...requestedGlobal])],updated_at:new Date(clock()).toISOString()});applicationId=pending.id;created=false;}
+          else {applicationId=randomUUID();created=true;registry.maintainer_applications.push({id:applicationId,auth_type:'password',account_id:subject,...details,bank_ids:requested,permissions:requestedGlobal,status:'pending',created_at:new Date(clock()).toISOString()});}
         });
         const application=result.maintainer_applications.find(a=>a.id===applicationId);
-        return respond(created?201:200,{application:{id:application.id,status:application.status,phone:application.phone_masked,real_name:application.real_name,nickname:application.nickname,identity_description:application.identity_description,bank_ids:application.bank_ids}});
+        return respond(created?201:200,{application:{id:application.id,status:application.status,phone:application.phone_masked,real_name:application.real_name,nickname:application.nickname,identity_description:application.identity_description,bank_ids:application.bank_ids||[],permissions:application.permissions||[]}});
       }
       const decisionMatch=/^\/v1\/maintainer-applications\/([0-9a-f-]{36})\/decision$/.exec(path||'');
       if(decisionMatch&&method==='POST'){
@@ -265,8 +283,9 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
           if(resetAccount?.status==='password_reset_required')fail(409,'PASSWORD_RESET_REQUIRED','申请人尚未完成密码重置，暂不能处理申请');
           const at=new Date(clock()).toISOString();application.status=body.decision==='approve'?'approved':'rejected';application.decided_at=at;application.decided_by=auth.maintainer_id;application.note=typeof body.note==='string'?body.note.slice(0,1000):'';
           if(body.decision==='approve'){
-            const requested=new Set(application.bank_ids),grants=object(body.grants)?body.grants:{};
+            const requested=new Set(application.bank_ids||[]),grants=object(body.grants)?body.grants:{};
             const selected={};for(const id of requested){const roles=Array.isArray(grants[id])?grants[id]:['upload'];if(!roles.length||roles.some(r=>r!=='upload'))fail(422,'GRANTS_INVALID','手机号维护者只能授予上传权限');selected[id]=['upload'];}
+            const permissions=[...new Set(application.permissions||[])];if(permissions.some(permission=>permission!=='export'))fail(422,'PERMISSIONS_INVALID','申请包含无效权限');
             const existing=registry.password_accounts.find(a=>a.id===application.account_id);
             if(!existing)fail(409,'ACCOUNT_MISSING','手机号对应的维护者记录不存在');
             if(existing.status==='password_reset_required')fail(409,'PASSWORD_RESET_REQUIRED','申请人尚未完成密码重置，暂不能重新授权');
@@ -274,12 +293,12 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
             if(other)fail(409,'PHONE_IN_USE','此手机号已绑定其他已授权记录，请核实后再审批');
             if(existing?.status==='revoked')fail(409,'MAINTAINER_REVOKED','此账号已撤销，请核实后重新分配');
             if(existing&&existing.phone_hash!==application.phone_hash)fail(409,'PHONE_CHANGE_REQUIRES_ADMIN','此账号手机号已改变，请核实后重新申请');
-            const details={phone:application.phone,phone_hash:application.phone_hash,phone_masked:application.phone_masked,phone_source:'self_reported',real_name:application.real_name,nickname:application.nickname,identity_description:application.identity_description,grants:{...existing?.grants,...selected},status:'approved',approved_at:at,approved_by:auth.maintainer_id};
+            const details={phone:application.phone,phone_hash:application.phone_hash,phone_masked:application.phone_masked,phone_source:'self_reported',real_name:application.real_name,nickname:application.nickname,identity_description:application.identity_description,grants:{...existing?.grants,...selected},permissions:[...new Set([...(existing.permissions||[]),...permissions])],status:'approved',approved_at:at,approved_by:auth.maintainer_id};
             Object.assign(existing,details);delete existing.password_reset_sha256;delete existing.password_reset_expires_at;delete existing.password_reset_issued_at;
           }
           else if(application.auth_type==='password'){
             const existing=registry.password_accounts.find(a=>a.id===application.account_id);
-            if(existing&&existing.status!=='approved'&&existing.status!=='revoked'){existing.status='rejected';existing.grants={};delete existing.password_reset_sha256;delete existing.password_reset_expires_at;delete existing.password_reset_issued_at;}
+            if(existing&&existing.status!=='approved'&&existing.status!=='revoked'){existing.status='rejected';existing.grants={};existing.permissions=[];delete existing.password_reset_sha256;delete existing.password_reset_expires_at;delete existing.password_reset_issued_at;}
           }
         });
         const app=result.maintainer_applications.find(a=>a.id===decisionMatch[1]);return respond(200,{id:app.id,status:app.status});
@@ -287,7 +306,7 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
       const revokeMatch=/^\/v1\/maintainer-accounts\/([0-9a-f-]{36})\/revoke$/.exec(path||'');
       if(revokeMatch&&method==='POST'){
         if(!isAdmin)fail(403,'ROLE_FORBIDDEN','只有桌面最高权限可以撤销维护者账号');
-        const result=await access.update(registry=>{const account=registry.password_accounts.find(a=>a.id===revokeMatch[1]);if(!account)fail(404,'ACCOUNT_MISSING','手机号维护者记录不存在');if(account.status==='revoked')return;account.status='revoked';account.grants={};account.sessions=[];delete account.password_reset_sha256;delete account.password_reset_expires_at;delete account.password_reset_issued_at;account.revoked_at=new Date(clock()).toISOString();account.revoked_by=auth.maintainer_id;});
+        const result=await access.update(registry=>{const account=registry.password_accounts.find(a=>a.id===revokeMatch[1]);if(!account)fail(404,'ACCOUNT_MISSING','手机号维护者记录不存在');if(account.status==='revoked')return;account.status='revoked';account.grants={};account.permissions=[];account.sessions=[];delete account.password_reset_sha256;delete account.password_reset_expires_at;delete account.password_reset_issued_at;account.revoked_at=new Date(clock()).toISOString();account.revoked_by=auth.maintainer_id;});
         const account=result.password_accounts.find(a=>a.id===revokeMatch[1]);
         return respond(200,{id:revokeMatch[1],status:account.status});
       }

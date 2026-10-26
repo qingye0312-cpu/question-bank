@@ -37,7 +37,8 @@ function verify(token, config, now, registry) {
     const approved=account.status==='approved',grants=approved&&object(account.grants)?account.grants:{};
     return {openid:payload.sub,banks:Object.keys(grants),grants,desktop:false,password_account:true,
       account_id:account.id,phone_masked:account.phone_masked||'',
-      nickname:account.nickname||'',real_name:account.real_name||'',account_status:account.status||'pending'};
+      nickname:account.nickname||'',real_name:account.real_name||'',account_status:account.status||'pending',
+      permissions:approved&&Array.isArray(account.permissions)?account.permissions.filter(permission=>permission==='export'):[]};
   }
 }
 

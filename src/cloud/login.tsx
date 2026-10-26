@@ -2,7 +2,7 @@ import {useState,type FormEvent} from 'react';
 import {invoke} from '@tauri-apps/api/core';
 import {open} from '@tauri-apps/plugin-dialog';
 import {FileKey} from 'lucide-react';
-import {cloudAccess,cloudCall,cloudLogin,cloudLoginPassword,cloudLogout,cloudOrigin,setCloudOrigin,fetchCatalog} from '../cloud-client';
+import {cloudAccess,cloudCall,cloudLogin,cloudLoginPassword,cloudLogout,cloudOrigin,setCloudOrigin,fetchCatalog,refreshAccess} from '../cloud-client';
 import {parseMaintainerCertificate} from './session-service';
 import {maintainerPasswordRules,passwordMeetsPolicy} from '../../miniprogram/miniprogram/services/maintainer-password-policy';
 import {registrationFields} from '../../miniprogram/miniprogram/services/maintainer-application';
@@ -14,7 +14,7 @@ export function CloudLogin({onChange=()=>{},disabled=false}:{onChange?:()=>void;
  const [key,setKey]=useState(''),[password,setPassword]=useState(''),[confirmPassword,setConfirmPassword]=useState('');
  const [phone,setPhone]=useState(''),[realName,setRealName]=useState(''),[nickname,setNickname]=useState(''),[identityDescription,setIdentityDescription]=useState('');
  const [resetToken,setResetToken]=useState(''),[newPassword,setNewPassword]=useState('');
- const [banks,setBanks]=useState<BankChoice[]>([]),[selectedBanks,setSelectedBanks]=useState<string[]>([]),[banksLoading,setBanksLoading]=useState(false);
+ const [banks,setBanks]=useState<BankChoice[]>([]),[selectedBanks,setSelectedBanks]=useState<string[]>([]),[banksLoading,setBanksLoading]=useState(false),[requestExport,setRequestExport]=useState(false);
  const [busy,setBusy]=useState(false),[message,setMessage]=useState(''),[,render]=useState(0);
  const access=cloudAccess();
  const registrationPasswordReady=passwordMeetsPolicy(password)&&password===confirmPassword;
@@ -37,7 +37,7 @@ export function CloudLogin({onChange=()=>{},disabled=false}:{onChange?:()=>void;
   }catch(e){setBanks([]);setSelectedBanks([]);setMessage(`读取云端题库失败：${String(e)}`);}
   finally{setBanksLoading(false);}
  }
- function openRegistration(){setMode('register');setMessage('');setBanks([]);setSelectedBanks([]);void loadBanks();}
+ function openRegistration(){setMode('register');setMessage('');setBanks([]);setSelectedBanks([]);setRequestExport(false);void loadBanks();}
  async function loginKey(){
   if(busy)return;setBusy(true);setMessage('');const secret=key;setKey('');
   try{if(origin!==cloudOrigin())setCloudOrigin(origin);await cloudLogin(secret);setMessage('最高权限登录成功；登录状态已安全保存在本机，退出登录后会清除。');render(n=>n+1);onChange();}
@@ -70,14 +70,20 @@ export function CloudLogin({onChange=()=>{},disabled=false}:{onChange?:()=>void;
   let fields:ReturnType<typeof registrationFields>;
   try{fields=registrationFields({phone,realName,nickname,identity:identityDescription,password,passwordConfirm:confirmPassword});}
   catch(error){setMessage(error instanceof Error?error.message:'注册信息无效');return;}
-  if(!selectedBanks.length){setMessage('至少选择一个申请维护的题库。');return;}
+  if(!selectedBanks.length&&!requestExport){setMessage('至少选择一个申请维护的题库，或勾选申请 Word 导出权限。');return;}
   setBusy(true);setMessage('');
   try{
    if(origin!==cloudOrigin())setCloudOrigin(origin);
-   await cloudCall('/v1/auth/register',{...fields,bank_ids:selectedBanks});
+   const permissions=requestExport?['export']:[];
+   await cloudCall('/v1/auth/register',{...fields,bank_ids:selectedBanks,permissions});
    setPassword('');setConfirmPassword('');setMode('account');
-   setMessage('申请已提交，等待桌面最高权限审批。审批通过后，此账号才可上传所选题库。');
+   setMessage('申请已提交，等待桌面最高权限审批。审批通过后，账号会获得所申请的权限。');
   }catch(e){setMessage(String(e));}finally{setBusy(false);}
+ }
+ async function applyExportPermission(){
+  if(busy)return;setBusy(true);setMessage('');
+  try{await cloudCall('/v1/maintainer-applications',{bank_ids:[],permissions:['export']},true);await refreshAccess();render(n=>n+1);setMessage('Word 导出权限申请已提交，等待桌面最高权限审批。');}
+  catch(e){setMessage(String(e));}finally{setBusy(false);}
  }
  async function resetAccountPassword(event:FormEvent<HTMLFormElement>){
   event.preventDefault();if(busy)return;
@@ -92,7 +98,7 @@ export function CloudLogin({onChange=()=>{},disabled=false}:{onChange?:()=>void;
  }
  const statusLabel=access?.account_status==='approved'?'已授权':access?.account_status==='pending'?'等待管理员审批':access?.account_status==='rejected'?'申请未通过':access?.account_status==='password_reset_required'?'等待重置密码':access?.account_status==='desktop'?'最高权限':'';
  return <div className="cloud-access"><div className="cloud-access-heading"><h3>云端登录与权限</h3><span>{access?'已登录':'选择登录方式'}</span></div><p>日常搜题与本地录题无需登录。维护者账号需由桌面最高权限审批后，才能上传获批题库；手机号用于唯一登记，当前不发送短信验证码。</p>
-  {access?<div className="cloud-session-info"><p>当前身份：{access.auth_type==='password'?`手机号 ${access.phone||''}`:access.auth_type==='key'?'最高权限（密钥／证书）':'维护者'}{statusLabel?` · ${statusLabel}`:''}</p><p>已授权题库：{access.banks.map(b=>b.name).join('、')||'暂无'}</p><div className="cloud-login-actions"><button type="button" disabled={disabled||busy} onClick={()=>{void cloudLogout().then(()=>{setMode('account');setMessage('已退出登录，本机登录凭据已清除。');render(n=>n+1);onChange();}).catch(e=>setMessage(String(e)))}}>退出登录</button></div></div>:<>
+  {access?<div className="cloud-session-info"><p>当前身份：{access.auth_type==='password'?`手机号 ${access.phone||''}`:access.auth_type==='key'?'最高权限（密钥／证书）':'维护者'}{statusLabel?` · ${statusLabel}`:''}</p><p>已授权题库：{access.banks.map(b=>b.name).join('、')||'暂无'}</p><p>已获权限：{[...(access.permissions||[]).includes('export')?['Word 导出']:[],...(access.capabilities?.includes('maintainer:manage')?['最高权限']:[])].join('、')||'当前无 Word 导出权限'}</p>{!access.permissions?.includes('export')&&!access.capabilities?.includes('maintainer:manage')&&(access.pending_permissions||[]).includes('export')?<p>Word 导出权限申请：等待审批</p>:!access.permissions?.includes('export')&&!access.capabilities?.includes('maintainer:manage')?<div className="cloud-login-actions"><button type="button" disabled={disabled||busy} onClick={()=>void applyExportPermission()}>{busy?'正在提交…':'申请 Word 导出权限'}</button></div>:null}<div className="cloud-login-actions"><button type="button" disabled={disabled||busy} onClick={()=>{void cloudLogout().then(()=>{setMode('account');setMessage('已退出登录，本机登录凭据已清除。');render(n=>n+1);onChange();}).catch(e=>setMessage(String(e)))}}>退出登录</button></div></div>:<>
    <div className="cloud-login-mode" role="group" aria-label="登录方式">
     <button type="button" aria-pressed={mode==='account'||mode==='reset'} disabled={disabled||busy} onClick={()=>{setMode('account');setMessage('');}}>登录</button>
     <button type="button" aria-pressed={mode==='register'} disabled={disabled||busy} onClick={openRegistration}>注册</button>
@@ -117,12 +123,13 @@ export function CloudLogin({onChange=()=>{},disabled=false}:{onChange?:()=>void;
      <legend>申请维护的题库</legend>
      {banksLoading?<p>正在读取云端题库…</p>:banks.length?banks.map(bank=><label key={bank.bank_id}><input type="checkbox" checked={selectedBanks.includes(bank.bank_id)} onChange={event=>setSelectedBanks(current=>event.target.checked?[...current,bank.bank_id]:current.filter(id=>id!==bank.bank_id))}/>{bank.name}</label>):<p>暂无可申请题库。<button type="button" disabled={busy} onClick={()=>void loadBanks()}>重新获取</button></p>}
     </fieldset>
+    <label><input type="checkbox" checked={requestExport} disabled={disabled||busy} onChange={event=>setRequestExport(event.target.checked)}/>申请 Word 导出权限</label>
     <label>设置密码<input required type="password" autoComplete="new-password" minLength={8} value={password} disabled={disabled||busy} onChange={e=>setPassword(e.target.value)} placeholder="8–128 个字符，含大小写字母和数字"/>
      <span className="password-rules">{registrationPasswordChecks.map(rule=><small className={rule.valid?'valid':'invalid'} key={rule.key}>{rule.valid?'✓':'○'} {rule.label}</small>)}</span></label>
     <label>确认密码<input required type="password" autoComplete="new-password" minLength={8} value={confirmPassword} disabled={disabled||busy} onChange={e=>setConfirmPassword(e.target.value)}/>{confirmPassword&&<small className={confirmPassword===password?'valid':'invalid'}>{confirmPassword===password?'✓ 密码一致':'○ 两次密码不一致'}</small>}</label>
-    <div className="cloud-login-actions"><button className="primary" type="submit" disabled={disabled||busy||banksLoading||!banks.length||!selectedBanks.length||!registrationPasswordReady}>{busy?'正在提交…':'提交注册申请'}</button><button type="button" disabled={disabled||busy||banksLoading} onClick={()=>void loadBanks()}>刷新题库</button></div>
+    <div className="cloud-login-actions"><button className="primary" type="submit" disabled={disabled||busy||banksLoading||(!selectedBanks.length&&!requestExport)||!registrationPasswordReady}>{busy?'正在提交…':'提交注册申请'}</button><button type="button" disabled={disabled||busy||banksLoading} onClick={()=>void loadBanks()}>刷新题库</button></div>
    </form>:<form className="cloud-registration" onSubmit={event=>void resetAccountPassword(event)}>
-    <p className="callout">一次性重置码由桌面最高权限管理员生成并转交。密码重置后，题库上传权限需要重新审批。</p>
+    <p className="callout">一次性重置码由桌面最高权限管理员生成并转交。密码重置后，题库上传与 Word 导出权限都需要重新审批。</p>
     <label>手机号<input required type="tel" inputMode="tel" autoComplete="tel" value={phone} disabled={disabled||busy} onChange={e=>setPhone(e.target.value)} placeholder="注册时使用的手机号"/></label>
     <label>一次性重置码<input required autoComplete="one-time-code" value={resetToken} disabled={disabled||busy} onChange={e=>setResetToken(e.target.value)}/></label>
     <label>新密码<input required type="password" autoComplete="new-password" minLength={8} value={newPassword} disabled={disabled||busy} onChange={e=>setNewPassword(e.target.value)} placeholder="8–128 个字符，含大小写字母和数字"/>
