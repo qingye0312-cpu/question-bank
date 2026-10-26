@@ -46,9 +46,9 @@ function App(){
  const [banks,setBanks]=useState<Bank[]>([]),[bankId,setBankId]=useState(preferences.bankId),[text,setText]=useState(''),[committed,setCommitted]=useState(''),[kind,setKind]=useState(''),[results,setResults]=useState<Results>({items:[],has_more:false,elapsed_ms:0}),[active,setActive]=useState<Hit|null>(null),[answerOpen,setAnswerOpen]=useState(true),[revision,setRevision]=useState(0);
  const [busy,setBusy]=useState(''),[notice,setNotice]=useState(''),[error,setError]=useState(''),[modal,setModal]=useState(''),[draft,setDraft]=useState<Question|null>(null),[editBank,setEditBank]=useState(''),[exportBank,setExportBank]=useState(''),[exportFormat,setExportFormat]=useState('package'),[history,setHistory]=useState<{question:Question;at:string;reason:string}[]>([]),[info,setInfo]=useState<Record<string,string>>({});
  const startupUpdate=useRef(false);
- const [intakeRecord,setIntakeRecord]=useState(''),[intakeInitial,setIntakeInitial]=useState(''),[intakeManual,setIntakeManual]=useState(false);
+ const [intakeRecord,setIntakeRecord]=useState(''),[intakeInitial,setIntakeInitial]=useState(''),[intakeManual,setIntakeManual]=useState(false),[intakeTab,setIntakeTab]=useState<'edit'|'records'>('edit'),[intakeNotice,setIntakeNotice]=useState('');
  const [dropping,setDropping]=useState(false);
- function openIntake(value='',record='',manual=false){setIntakeRecord(record);setIntakeInitial(value);setIntakeManual(manual);setModal('intake')}
+ function openIntake(value='',record='',manual=false){setIntakeRecord(record);setIntakeInitial(value);setIntakeManual(manual);setIntakeTab('edit');setIntakeNotice('');setModal('intake')}
  const [ocrInitial,setOcrInitial]=useState<OcrInput|null>(null);
  function openOcr(initial:OcrInput|null=null){setOcrInitial(initial);setModal('ocr')}
  const input=useRef<HTMLInputElement>(null),composing=useRef(false);
@@ -99,8 +99,10 @@ function App(){
  })}
  async function importDelta(path:string){
   const result=await invoke<{bank_id:string;name:string;added:number;skipped:number;conflicts:number}>('import_delta',{path});
-  await refresh();switchBank(result.bank_id);setModal('');
-  setNotice(`「${result.name}」新增 ${result.added} 题，跳过 ${result.skipped} 道重复题${result.conflicts?`；${result.conflicts} 道答案或 ID 不一致，已保留现有题目`:''}。`);
+  await refresh();switchBank(result.bank_id);
+  setIntakeRecord('');setIntakeInitial('');setIntakeManual(false);setIntakeTab('records');
+  setIntakeNotice(`「${result.name}」新增 ${result.added} 题，跳过 ${result.skipped} 道重复题${result.conflicts?`；${result.conflicts} 道答案或 ID 不一致，已保留现有题目`:''}。`);
+  setModal('intake');
  }
  dropHandler.current=(paths)=>{
   if(!paths.some(p=>p.toLowerCase().endsWith('.json')))return;
@@ -111,7 +113,7 @@ function App(){
  useEffect(()=>{
   if(!isTauri())return;let disposed=false;let unlisten:(()=>void)|undefined;
   getCurrentWebview().onDragDropEvent(event=>{
-   if(event.payload.type==='drop')dropHandler.current(event.payload.paths);
+   if(event.payload.type==='drop'){setDropping(false);dropHandler.current(event.payload.paths)}
    else if(event.payload.type==='enter')setDropping(event.payload.paths.some(p=>p.toLowerCase().endsWith('.json')));
    else if(event.payload.type==='leave')setDropping(false);
   }).then(fn=>{if(disposed)fn();else unlisten=fn}).catch(()=>setError('JSON 拖放不可用，请在“录题与导入”中选择 JSON 文件。'));
@@ -183,7 +185,7 @@ function App(){
   {dropping&&<div className="delta-drop-overlay">松开即可导入 JSON 增量题库<br/><small>按题库身份合并 · 自动跳过重复题</small></div>}
   {modal==='library'&&<CloudLibrary banks={banks} onClose={()=>setModal('')} onChanged={refresh} onDeleted={bankDeleted} onCreated={switchBank}/>}
   {modal==='intake-hub'&&<IntakeHub busy={!!busy} onAI={()=>openIntake()} onManual={()=>beginManualEntry()} onJSON={()=>void chooseJsonImport()} onClose={()=>setModal('')}/>}
-  {modal==='intake'&&<IntakePanel banks={banks} bankId={bankId||active?.bank_id||''} initial={intakeInitial} initialRecordId={intakeRecord} startManual={intakeManual} onClose={()=>setModal('')} onBusy={value=>setBusy(value?'正在处理录入':'')} onSaved={async id=>{await refresh();switchBank(id)}}/>}
+  {modal==='intake'&&<IntakePanel banks={banks} bankId={bankId||active?.bank_id||''} initial={intakeInitial} initialRecordId={intakeRecord} startManual={intakeManual} initialTab={intakeTab} initialNotice={intakeNotice} onClose={()=>setModal('')} onBusy={value=>setBusy(value?'正在处理录入':'')} onSaved={async id=>{await refresh();switchBank(id)}}/>}
   {modal==='ocr'&&<OcrPanel banks={banks} bankId={bankId||active?.bank_id||''} initial={ocrInitial} onClose={()=>setModal('')} onSearch={(value,id)=>{setModal('');switchBank(id);setText(value);setCommitted(value);input.current?.focus()}}/>}
   {modal&&modal!=='library'&&modal!=='ocr'&&modal!=='intake'&&modal!=='intake-hub'&&<div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget&&!busy){setModal('');setDraft(null)}}}><section className={`modal ${modal==='edit'||modal==='cloud-login'?'large':''} ${modal==='settings'?'settings-modal':''} ${modal==='cloud-login'?'cloud-login-modal':''}`} role="dialog" aria-modal="true" aria-label={modal==='cloud-login'?'云端登录与权限':undefined}><button className="close-modal" aria-label="关闭" disabled={!!busy} onClick={()=>{setModal('');setDraft(null)}}><X size={20}/></button>
    {modal==='cloud-login'&&<CloudLogin/>}

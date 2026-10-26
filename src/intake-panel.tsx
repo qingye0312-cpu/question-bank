@@ -14,10 +14,10 @@ import {useIntake} from './intake/use-intake';
 import {MODEL_PROMPT} from './generated/client-assets';
 import './intake/intake.css';
 const statuses={queued:'等待上传',uploading:'上传中',retry:'等待自动重试',paused:'需要登录',failed:'需要处理',done:'回执已保存'};
-type Props={banks:Bank[];bankId:string;initial?:string;initialRecordId?:string;startManual?:boolean;onClose:()=>void;onSaved:(bankId:string)=>Promise<void>;onBusy:(busy:boolean)=>void};
-export function IntakePanel({banks,bankId,initial='',initialRecordId='',startManual=false,onClose,onSaved,onBusy}:Props){
- const [target,setTarget]=useState(bankId||banks[0]?.id||''),[tab,setTab]=useState('edit'),[query,setQuery]=useState(''),[filter,setFilter]=useState('all');
- const [jobs,setJobs]=useState<UploadJob[]>([]),[preparing,setPreparing]=useState(false),[navigating,setNavigating]=useState(false),[login,setLogin]=useState(false),[notice,setNotice]=useState('');
+type Props={banks:Bank[];bankId:string;initial?:string;initialRecordId?:string;startManual?:boolean;initialTab?:'edit'|'records';initialNotice?:string;onClose:()=>void;onSaved:(bankId:string)=>Promise<void>;onBusy:(busy:boolean)=>void};
+export function IntakePanel({banks,bankId,initial='',initialRecordId='',startManual=false,initialTab='edit',initialNotice='',onClose,onSaved,onBusy}:Props){
+ const [target,setTarget]=useState(bankId||banks[0]?.id||''),[tab,setTab]=useState(initialTab),[query,setQuery]=useState(''),[filter,setFilter]=useState('all');
+ const [jobs,setJobs]=useState<UploadJob[]>([]),[preparing,setPreparing]=useState(false),[navigating,setNavigating]=useState(false),[login,setLogin]=useState(false),[notice,setNotice]=useState(initialNotice);
  const trackedUploads=useRef(new Map<string,number>()),notifiedUploads=useRef(new Set<string>()),previousJobStatus=useRef(new Map<string,string>());
  const composing=useRef(false);
  const model=useIntake(target,initial,initialRecordId,startManual),d=model.current;
@@ -43,8 +43,8 @@ export function IntakePanel({banks,bankId,initial='',initialRecordId='',startMan
  const shown=model.records.filter(r=>awaitingUpload(r)&&(!query||r.reply?.stem.includes(query))&&(filter==='all'||filter==='invalid'&&r.issues.length&&!r.submissionId||filter==='pending'&&!r.submissionId));
  const recoverable=jobs.filter(j=>j.bankId===target&&['failed','paused'].includes(j.status));
  return <section className="intake-workspace" aria-label="录题工作区">
-  <header className="intake-header"><button aria-label="返回题库" disabled={preparing||navigating} onClick={()=>void navigate(async()=>{await flush();await onSaved(target);onClose()})}><ArrowLeft/>返回</button><div><h2>录入新题</h2><small>自动存本机 · 录完后一次上传</small></div><select aria-label="录入题库" value={target} disabled={!model.ready||preparing||navigating} onChange={e=>{const id=e.target.value;void navigate(async()=>{await flush();setTarget(id)})}}>{banks.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select></header>
-  <nav className="intake-tabs" aria-label="录题导航">{[['edit','录题'],['records',`待上传 ${pending.length}`]].map(([id,title])=><button key={id} aria-pressed={tab===id} onClick={()=>void navigate(async()=>{await flush();setTab(id)})}>{title}</button>)}</nav>
+  <header className="intake-header"><button aria-label="返回题库" disabled={preparing||navigating} onClick={()=>void navigate(async()=>{await flush();await onSaved(target);onClose()})}><ArrowLeft/>返回</button><div><h2>{tab==='records'?'待上传列表':'录入新题'}</h2><small>{tab==='records'?'已保存到本机 · 核对后统一上传':'自动存本机 · 录完后一次上传'}</small></div><select aria-label="录入题库" value={target} disabled={!model.ready||preparing||navigating} onChange={e=>{const id=e.target.value;void navigate(async()=>{await flush();setTarget(id)})}}>{banks.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select></header>
+  <nav className="intake-tabs" aria-label="录题导航">{([['edit','录题'],['records',`待上传 ${pending.length}`]] as const).map(([id,title])=><button key={id} aria-pressed={tab===id} onClick={()=>void navigate(async()=>{await flush();setTab(id)})}>{title}</button>)}</nav>
   <div className="intake-body">
    {!model.ready?<p role="status">读取本地记录…</p>:tab==='edit'?<div className="intake-work-columns">
     <aside className="intake-source-pane"><div className="intake-tools"><button onClick={()=>void action(async()=>{await navigator.clipboard.writeText(MODEL_PROMPT);setNotice('提示词已复制')})}>复制提示词</button><button disabled={locked} onClick={()=>void action(async()=>{const c=await invoke<{text?:string}>('ocr_clipboard');if(!c.text)throw Error('剪贴板没有文字');model.paste(c.text)})}><Clipboard/>粘贴题目</button></div><label>题目原文<textarea aria-label="题目原文" spellCheck={false} value={d.raw} disabled={locked} placeholder="粘贴一道题，右侧自动显示可编辑内容" onCompositionStart={()=>{composing.current=true}} onCompositionEnd={e=>{composing.current=false;model.paste(e.currentTarget.value)}} onChange={e=>composing.current?model.change({raw:e.target.value,sourceIssues:[{field:"raw",message:"原文输入中，完成后自动识别"}]}):model.paste(e.target.value)}/></label><small>原文完整保留，识别不完整也会保存。</small><button disabled={locked} onClick={()=>model.change({reply:emptyReply(),sourceIssues:[]})}><Plus/>手工录题</button>
