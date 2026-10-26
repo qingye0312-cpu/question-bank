@@ -117,6 +117,7 @@ pub fn run() {
             commands::library::delete_bank,
             commands::exchange::export_name,
             commands::exchange::export_bank,
+            commands::exchange::count_recorded_questions,
             commands::exchange::export_recorded_questions,
             commands::library::history,
             commands::library::rebuild_index,

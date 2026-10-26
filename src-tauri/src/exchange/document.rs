@@ -182,8 +182,8 @@ pub fn write_recommended_docx(qs: &[Question]) -> Result<Vec<u8>> {
         if let Some(answer) = recommended_answer(&q.answer) {
             body.push_str(&text_paragraph(&format!("答案：{answer}"), false));
         }
-        if !q.explanation.trim().is_empty() {
-            body.push_str(&text_paragraph(&format!("答案解析：{}", q.explanation), false));
+        if let Some(explanation) = clean_export_explanation(&q.explanation) {
+            body.push_str(&text_paragraph(&format!("答案解析：{explanation}"), false));
         }
         if index + 1 < qs.len() {
             body.push_str("<w:p/>");
@@ -211,6 +211,174 @@ fn text_paragraph(text: &str, bold: bool) -> String {
         "<w:p><w:pPr><w:spacing w:before=\"0\" w:after=\"0\"/></w:pPr>{}</w:p>",
         text_run(text, bold)
     )
+}
+
+fn clean_export_explanation(value: &str) -> Option<String> {
+    let normalized = value
+        .replace("&#x20;", " ")
+        .replace("&#X20;", " ")
+        .replace("&#xA0;", " ")
+        .replace("&#xa0;", " ")
+        .replace("&#XA0;", " ")
+        .replace("&#160;", " ")
+        .replace("&nbsp;", " ")
+        .replace("\\\r\n", "\n")
+        .replace("\\\n", "\n")
+        .replace('\u{00a0}', " ")
+        .replace('\u{3000}', " ")
+        .replace('\r', "\n");
+    let mut result = Vec::new();
+    let mut in_references = false;
+
+    for raw_line in normalized.lines() {
+        let mut line = raw_line.trim().trim_end_matches('\\').trim();
+        if line.is_empty() {
+            continue;
+        }
+        if is_reference_heading(line) {
+            in_references = true;
+        }
+        if in_references {
+            continue;
+        }
+
+        // Strip nested labels while preserving an explanation after a prefix
+        // such as "核对答案：正确。解析：...".
+        loop {
+            if let Some(rest) = line.strip_prefix("答案解析：") {
+                line = rest.trim();
+            } else if let Some(rest) = line.strip_prefix("解析：") {
+                line = rest.trim();
+            } else if is_audit_prefix(line) {
+                if let Some(index) = line.find("解析：") {
+                    line = line[index + "解析：".len()..].trim();
+                } else {
+                    line = "";
+                }
+            } else {
+                break;
+            }
+            if line.is_empty() {
+                break;
+            }
+        }
+        if line.is_empty() || is_audit_prefix(line) {
+            continue;
+        }
+        if is_reference_heading(line) {
+            in_references = true;
+            continue;
+        }
+
+        // These phrases report the review process rather than explain the
+        // answer. Keep normal explanatory sentences and remove this boilerplate.
+        if line.contains("题源文字答案")
+            || line.contains("未发现相反依据")
+            || line.contains("复核状态")
+        {
+            continue;
+        }
+
+        if is_reference_line(line) {
+            continue;
+        }
+        let line = strip_export_links(line);
+        let line = line.trim().trim_matches(|character: char| {
+            character.is_whitespace() || matches!(character, '：' | ':' | '、' | '；' | ';' | '-')
+        });
+        if !line.is_empty() {
+            result.push(line.to_string());
+        }
+    }
+
+    let explanation = result.join("\n");
+    (!explanation.is_empty()).then_some(explanation)
+}
+
+fn is_audit_prefix(line: &str) -> bool {
+    [
+        "核对答案：",
+        "答案核对：",
+        "复核状态：",
+        "复核结果：",
+        "核对状态：",
+        "审核状态：",
+        "审校状态：",
+        "核验状态：",
+        "答案状态：",
+    ]
+    .iter()
+    .any(|prefix| line.starts_with(prefix))
+}
+
+fn is_reference_heading(line: &str) -> bool {
+    let heading = line
+        .trim()
+        .trim_end_matches(|character: char| {
+            character.is_whitespace() || matches!(character, '：' | ':' | '。' | '.')
+        })
+        .trim();
+    [
+        "官方核对依据",
+        "官方核验依据",
+        "官方核查依据",
+        "官方依据",
+        "官方资料",
+        "官方参考",
+        "核对依据",
+        "核验依据",
+        "资料依据",
+        "参考资料",
+        "参考来源",
+        "参考链接",
+        "资料来源",
+        "来源链接",
+        "引用来源",
+        "引用依据",
+        "引用链接",
+        "固定资料版本",
+        "OpenHarmony固定资料版本",
+        "Official evidence",
+        "References",
+        "Sources",
+    ]
+    .iter()
+    .any(|prefix| heading.eq_ignore_ascii_case(prefix))
+}
+
+fn is_reference_line(line: &str) -> bool {
+    let contains_url = line.contains("http://") || line.contains("https://");
+    (contains_url
+        && [
+            "简介：",
+            "组件导航",
+            "官方核对依据：",
+            "官方核验依据：",
+            "官方核查依据：",
+            "华为开发者官方资料：",
+            "官方资料：",
+            "参考资料：",
+            "参考来源：",
+            "资料来源：",
+            "来源：",
+            "链接：",
+        ]
+        .iter()
+        .any(|prefix| line.starts_with(prefix)))
+        || line.starts_with("OpenHarmony固定资料版本")
+}
+
+fn strip_export_links(line: &str) -> String {
+    use std::sync::OnceLock;
+
+    static MARKDOWN_LINK: OnceLock<regex::Regex> = OnceLock::new();
+    static URL: OnceLock<regex::Regex> = OnceLock::new();
+    let without_markdown = MARKDOWN_LINK
+        .get_or_init(|| regex::Regex::new(r"!?\[[^\]]*\]\(\s*https?://[^)]+\)").unwrap())
+        .replace_all(line, "");
+    URL.get_or_init(|| regex::Regex::new(r"https?://[^\s)\]>]+").unwrap())
+        .replace_all(&without_markdown, "")
+        .into_owned()
 }
 
 fn text_run(text: &str, bold: bool) -> String {

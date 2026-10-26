@@ -84,7 +84,20 @@ function App(){
  function switchBank(id:string){setBankId(id)}
  function openExport(format='package'){setExportBank(bankId||active?.bank_id||banks[0]?.id||'');setExportFormat(format);setModal('export')}
  async function doExport(){await work('正在制作文件，请稍候',async()=>{const b=banks.find(b=>b.id===exportBank);if(!b)throw Error('请选择题库');const ext=exportFormat==='package'?'qbank.zip':exportFormat.startsWith('docx')?'docx':exportFormat;const path=await save({title:exportFormat==='package'?'制作离线题库包':'导出题库',defaultPath:`${await invoke<string>('export_name',{bankId:exportBank})}.${ext}`,filters:[{name:ext,extensions:exportFormat==='package'?['zip']:[ext]}]});if(!path)return;const count=await invoke<number>('export_bank',{bankId:exportBank,path,format:exportFormat,filter:exportFiltered&&exportFormat!=='package'?{text:committed,kind,bank_id:exportBank}:null});setModal('');setNotice(`已保存 ${count.toLocaleString()} 题：${path}`);})}
- async function doQuestionExport(targetBank:string,startAt:string|null,endBefore:string|null){await work('正在生成 DOCX 题目文件',async()=>{const stamp=new Date().toISOString().slice(0,16).replace(/[-:T]/g,'');const path=await save({title:'导出题目',defaultPath:`题目导出_${stamp}.docx`,filters:[{name:'Word 文档',extensions:['docx']}]});if(!path)return;const count=await invoke<number>('export_recorded_questions',{bankId:targetBank,path,startAt,endBefore});setModal('');setNotice(`已导出 ${count.toLocaleString()} 道题：${path}`);})}
+ async function doQuestionExport(targetBank:string,startAt:string|null,endBefore:string|null){await work('正在准备 DOCX 题目文件',async()=>{
+  const selectedBank=banks.find(item=>item.id===targetBank);if(!selectedBank)throw Error('请选择题库');
+  const count=await invoke<number>('count_recorded_questions',{bankId:targetBank,startAt,endBefore});
+  if(!count)throw Error('所选范围内没有可导出的题目');
+  const now=new Date(),pad=(value:number)=>String(value).padStart(2,'0');
+  const stamp=`${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  const simpleBankName=selectedBank.name.replace(/[\\/:*?"<>|\u0000-\u001f]/g,'_').replace(/\s+/g,'_').replace(/^[_ .-]+|[_ .-]+$/g,'').slice(0,48)||'题库';
+  const scopeLabel=startAt&&endBefore?'部分导出':'全部导出';
+  const defaultPath=`${simpleBankName}_${stamp}_${count}题_${scopeLabel}.docx`;
+  const path=await save({title:'导出题目',defaultPath,filters:[{name:'Word 文档',extensions:['docx']}]});
+  if(!path)return;
+  const exported=await invoke<number>('export_recorded_questions',{bankId:targetBank,path,startAt,endBefore});
+  setModal('');setNotice(`已导出 ${exported.toLocaleString()} 道题：${path}`);
+ })}
  async function clearAndReloadCloudCache(){await work('正在删除本地题库缓存并重新下载',async()=>{
   const cached=await invoke<{bank_id:string;revision:number;sha256:string}[]>('cloud_versions');
   const localIds=[...new Set(cached.map(item=>item.bank_id).filter(id=>banks.some(bank=>bank.id===id&&bank.read_only)))];

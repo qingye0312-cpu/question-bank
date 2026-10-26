@@ -102,13 +102,10 @@ pub fn export_filtered(
     Ok(qs.len())
 }
 
-pub fn export_recorded_questions(
-    store: &Store,
-    id: &str,
-    path: &Path,
-    start_at: Option<String>,
-    end_before: Option<String>,
-) -> Result<usize> {
+fn recorded_question_bounds(
+    start_at: Option<&str>,
+    end_before: Option<&str>,
+) -> Result<Option<(i64, i64)>> {
     if start_at.is_some() != end_before.is_some() {
         return Err("录入时间范围必须同时包含开始和结束时间".into());
     }
@@ -128,12 +125,14 @@ pub fn export_recorded_questions(
         (None, None) => None,
         _ => unreachable!(),
     };
+    Ok(bounds)
+}
 
-    let connection = store.conn()?;
-    connection.execute_batch("BEGIN DEFERRED").map_err(err)?;
-    db::get_bank(&connection, id)?;
-    let questions = db::questions(&connection, id)?;
-    let selected = questions
+fn select_recorded_questions(
+    questions: Vec<Question>,
+    bounds: Option<(i64, i64)>,
+) -> Vec<Question> {
+    questions
         .into_iter()
         .filter(|question| {
             let Some((start, end)) = bounds else {
@@ -148,7 +147,36 @@ pub fn export_recorded_questions(
                     timestamp >= start && timestamp < end
                 })
         })
-        .collect::<Vec<_>>();
+        .collect()
+}
+
+pub fn count_recorded_questions(
+    store: &Store,
+    id: &str,
+    start_at: Option<String>,
+    end_before: Option<String>,
+) -> Result<usize> {
+    let bounds = recorded_question_bounds(start_at.as_deref(), end_before.as_deref())?;
+    let connection = store.conn()?;
+    connection.execute_batch("BEGIN DEFERRED").map_err(err)?;
+    db::get_bank(&connection, id)?;
+    let selected = select_recorded_questions(db::questions(&connection, id)?, bounds);
+    connection.execute_batch("COMMIT").map_err(err)?;
+    Ok(selected.len())
+}
+
+pub fn export_recorded_questions(
+    store: &Store,
+    id: &str,
+    path: &Path,
+    start_at: Option<String>,
+    end_before: Option<String>,
+) -> Result<usize> {
+    let bounds = recorded_question_bounds(start_at.as_deref(), end_before.as_deref())?;
+    let connection = store.conn()?;
+    connection.execute_batch("BEGIN DEFERRED").map_err(err)?;
+    db::get_bank(&connection, id)?;
+    let selected = select_recorded_questions(db::questions(&connection, id)?, bounds);
     let bytes = write_recommended_docx(&selected)?;
     connection.execute_batch("COMMIT").map_err(err)?;
     atomic_write(path, &bytes)?;

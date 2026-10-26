@@ -67,6 +67,20 @@ pub(crate) async fn export_recorded_questions(
 }
 
 #[tauri::command]
+pub(crate) async fn count_recorded_questions(
+    s: State<'_, AppState>,
+    bank_id: String,
+    start_at: Option<String>,
+    end_before: Option<String>,
+) -> Result<usize> {
+    let d = s.store.clone();
+    blocking(move || {
+        crate::exchange::count_recorded_questions(&d, &bank_id, start_at, end_before)
+    })
+    .await
+}
+
+#[tauri::command]
 pub(crate) async fn read_text_file(path: String) -> Result<String> {
     blocking(move || {
         let bytes = crate::exchange::read_file(&PathBuf::from(path))?;
