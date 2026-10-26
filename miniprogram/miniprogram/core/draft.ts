@@ -52,6 +52,19 @@ export function pasteDraft(record:DraftRecord,raw:string):DraftRecord {
  const {reply,issues}=parseModelText(raw);return reviseDraft(record,{raw,original:raw,reply,sourceIssues:issues});
 }
 export function hasDraftContent(record:DraftRecord){return !!(record.raw||record.reply);}
+export function isBlankDraft(record:DraftRecord){
+ const hasText=(value:unknown)=>typeof value==='string'&&value.trim().length>0;
+ if(hasText(record.raw)||hasText(record.original)||record.question)return false;
+ const reply=record.reply;
+ if(reply&&(reply.type!=='single'||hasText(reply.stem)||reply.options.some(option=>hasText(option.content))
+  ||(Array.isArray(reply.answer)?reply.answer.length>0:typeof reply.answer==='boolean')
+  ||hasText(reply.explanation)||reply.warnings.some(hasText)
+  ||(hasText(reply.model.name)&&reply.model.name!=='未知')
+  ||(hasText(reply.model.version)&&reply.model.version!=='未知')))return false;
+ const metadata=record.metadata;
+ return ![metadata.chapter,metadata.applicable_version,metadata.external_id].some(hasText)
+  &&!metadata.tags.some(hasText)&&!metadata.difficulty;
+}
 export function startManual(record:DraftRecord){return reviseDraft(record,{reply:emptyReply(),raw:'',original:'',sourceIssues:[]});}
 
 // Coalesce only writes that have not started. Every completed write advances the
