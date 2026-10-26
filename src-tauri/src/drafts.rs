@@ -251,6 +251,7 @@ pub fn commit_local(store: &Store, bank: &str, expected: Value) -> Result<usize>
     for record in &completed {
         let id = record["id"].as_str().unwrap_or_default();
         let revision = record["revision"].as_u64().unwrap_or_default();
+        let revision_sql = i64::try_from(revision).map_err(err)?;
         let question: Question =
             serde_json::from_value(record["question"].clone()).map_err(err)?;
         question.validate(false)?;
@@ -307,7 +308,7 @@ pub fn commit_local(store: &Store, bank: &str, expected: Value) -> Result<usize>
         let removed = tx
             .execute(
                 "DELETE FROM draft_records WHERE bank_id=?1 AND id=?2 AND revision=?3",
-                params![bank, id, revision],
+                params![bank, id, revision_sql],
             )
             .map_err(err)?;
         if removed != 1 {

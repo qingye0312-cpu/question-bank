@@ -16,3 +16,6 @@
 - 统一使用 `sh mac/scripts/env.sh pnpm tauri build --bundles app`；不要在 `src-tauri/target`、`交付/`、`artifacts/` 或 `.local/` 留存副本或旧包。
 - 普通构建的临时前端与 Rust 构建缓存放在 `build/`，打包后清除；仅保留 `build/题库.app`。`build/` 不放置说明文件。
 - `pnpm release:mac` 是单独的更新发布流程，不作为普通 App 构建出口。
+
+## 代理使用
+- 登录github或其他github的活动 用沙箱机制允许的方式 通过 clash-verge 的7897端口连接github 无需判断代理是否开启 我已经配置了永久打开
