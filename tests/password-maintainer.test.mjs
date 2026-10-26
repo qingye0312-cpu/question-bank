@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {parseDelta,validateStandardQuestion,parseModelReply,sha256} from '../shared/intake.ts';
+import {hasWordExportPermission} from '../shared/export-permission.ts';
 
 const require=createRequire(import.meta.url),{createHandler}=require('../cloud/qbank-auth/service.cjs');
 const bankId='ad50971f-66af-51c2-bb0e-dc798b03b369',key='d'.repeat(64);
@@ -69,4 +70,23 @@ test('registration enforces shared phone/password fields and prevents duplicate 
  assert.equal((await s.register({username:'legacy-user'})).data.error.code,'REGISTRATION_INVALID');
  assert.equal((await s.register()).status,201);
  const duplicate=await s.register();assert.equal(duplicate.status,409);assert.equal(duplicate.data.error.code,'PHONE_TAKEN');
+});
+
+test('Word export permission stays hidden until desktop approval and is revoked with the account',async()=>{
+ const s=setup(),created=await s.register({bank_ids:[],permissions:['export']}),user=await s.login(),admin=await s.admin();
+ assert.equal(created.status,201);
+ const pending=(await s.call('GET','/v1/me',undefined,user.data.access_token)).data;
+ assert.equal(pending.account_status,'pending');
+ assert.equal(hasWordExportPermission(pending),false);
+ const approved=await s.call('POST',`/v1/maintainer-applications/${created.data.application.id}/decision`,{decision:'approve'},admin);
+ assert.equal(approved.status,200);
+ const access=(await s.call('GET','/v1/me',undefined,user.data.access_token)).data;
+ assert.equal(access.account_status,'approved');
+ assert.deepEqual(access.permissions,['export']);
+ assert.equal(hasWordExportPermission(access),true);
+ const revoked=await s.call('POST',`/v1/maintainer-accounts/${created.data.account.id}/revoke`,{},admin);
+ assert.equal(revoked.status,200);
+ const afterRevoke=await s.call('GET','/v1/me',undefined,user.data.access_token);
+ assert.equal(afterRevoke.status,403);
+ assert.equal(hasWordExportPermission(afterRevoke.data),false);
 });

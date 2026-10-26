@@ -31,6 +31,7 @@ import type {Mode} from './preferences';
 import {OcrPanel} from './ocr-panel';
 import {looksLikeQuestion,readImage} from './ocr-client';
 import type {OcrInput} from './ocr-client';
+import {hasWordExportPermission} from '../shared/export-permission';
 
 const kinds:Record<string,string>={single:'单选',multiple:'多选',true_false:'判断',programming:'编程'};
 const blank=():Question=>({schema_version:'1.0',question_id:'',base_revision:1,type:'single',stem:'',options:['A','B','C','D'].map(key=>({key,content:''})),answer:[],external_id:'',bank:'',chapter:'',explanation:'',tags:[],difficulty:'',applicable_version:'',source_note:'',status:'unreviewed',issues:[],sources:[],attachments:[]});
@@ -60,7 +61,7 @@ function App(){
  const searchArea=useRef<HTMLDivElement>(null);
  const benchPending=useRef<null|((r:Results)=>void)>(null);
  const bank=banks.find(b=>b.id===bankId),detailBank=banks.find(b=>b.id===active?.bank_id),total=banks.reduce((n,b)=>n+b.count,0);
- const canWordExport=cloudSessionReady&&(!cloudAccessState||!!cloudAccessState.permissions?.includes('export')||!!cloudAccessState.capabilities?.includes('maintainer:manage'));
+ const canWordExport=cloudSessionReady&&hasWordExportPermission(cloudAccessState);
  async function refresh(){const all=await invoke<Bank[]>('banks');setBanks(all);setRevision(r=>r+1);return all;}
  async function bankDeleted(id:string){if(bankId===id)setBankId('');if(active?.bank_id===id)setActive(null);setResults(r=>({...r,items:r.items.filter(h=>h.bank_id!==id)}));await refresh();}
  async function work<T,>(label:string,fn:()=>Promise<T>):Promise<T|undefined>{setBusy(label);setError('');try{return await fn()}catch(e){setError(String(e));return undefined}finally{setBusy('')}}
