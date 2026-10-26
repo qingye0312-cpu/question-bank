@@ -10,16 +10,17 @@
     :root {
       color-scheme: light dark;
       --bg: #f3f7f5;
-      --surface: #fff;
-      --surface-soft: #e7f1ed;
+      --surface: rgb(255 255 255 / 78%);
+      --surface-soft: rgb(231 241 237 / 82%);
       --text: #20302c;
       --muted: #687a74;
       --line: #d7e5df;
       --accent: #236b57;
       --ambient: #236b57;
       --vector-color: rgba(35, 107, 87, .48);
-      --fish-color: rgba(35, 107, 87, .72);
+      --fish-color: rgba(35, 107, 87, .48);
       --fish-glow: rgba(35, 107, 87, .34);
+      --text-glow: 0 0 8px rgb(0 0 0 / 18%), 0 0 14px rgb(0 0 0 / 8%);
       --shadow: 0 16px 40px rgb(32 48 44 / 6%);
       --heading-start: #000;
       --heading-end: #666;
@@ -35,8 +36,9 @@
         --accent: #236b57;
         --ambient: #98d4bd;
         --vector-color: rgba(152, 212, 189, .54);
-        --fish-color: rgba(152, 212, 189, .78);
+        --fish-color: rgba(152, 212, 189, .54);
         --fish-glow: rgba(152, 212, 189, .46);
+        --text-glow: 0 0 12px rgb(255 255 255 / 28%), 0 0 22px rgb(255 255 255 / 12%);
         --shadow: 0 16px 40px rgb(0 0 0 / 24%);
         --heading-start: #fff;
         --heading-end: #9b9b9b;
@@ -54,6 +56,7 @@
       background: var(--bg);
       color: var(--text);
       font: 400 16px/24px Manrope, "PingFang SC", "Microsoft YaHei", sans-serif;
+      text-shadow: var(--text-glow);
     }
     .ambient-glow {
       position: fixed;
@@ -555,9 +558,9 @@
       const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
       const themeQuery = window.matchMedia("(prefers-color-scheme: dark)");
       const gridSpacing = 72;
-      const maxSpeed = 240;
-      const minSpeed = 86;
-      const maxForce = 112;
+      const maxSpeed = 320;
+      const minSpeed = 102;
+      const maxForce = 148;
       const neighborRadius = 64;
       const separationRadius = 28;
       const cursorRadius = 176;
@@ -622,7 +625,7 @@
 
       function createBoid() {
         const angle = Math.random() * Math.PI * 2;
-        const speed = 84 + Math.random() * 72;
+        const speed = 110 + Math.random() * 80;
         return {
           x: Math.random() * width,
           y: Math.random() * height,
@@ -806,19 +809,19 @@
             const dy = targetY - y;
             const distance = Math.hypot(dx, dy);
             const proximity = Math.max(0, 1 - distance / 260);
-            const length = 4.5 + proximity * 13;
+            const length = 7 + proximity * 20;
             const angle = distance > .1 ? Math.atan2(dy, dx) : 0;
             context.save();
             context.translate(x, y);
             context.rotate(angle);
             context.globalAlpha = .42 + proximity * .58;
-            context.lineWidth = .85 + proximity * .65;
+            context.lineWidth = 1.1 + proximity;
             context.beginPath();
             context.moveTo(-length * .48, 0);
             context.lineTo(length * .48, 0);
-            context.moveTo(length * .16, -length * .25);
+            context.moveTo(length * .12, -length * .32);
             context.lineTo(length * .48, 0);
-            context.lineTo(length * .16, length * .25);
+            context.lineTo(length * .12, length * .32);
             context.stroke();
             context.restore();
           }
