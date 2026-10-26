@@ -1,6 +1,6 @@
 [package]
 name = "question-bank"
-version = "0.2.18"
+version = "0.2.19"
 edition = "2021"
 default-run = "question-bank"
 
