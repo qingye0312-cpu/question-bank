@@ -49,6 +49,29 @@
       color: var(--text);
       font: 400 16px/24px Manrope, "PingFang SC", "Microsoft YaHei", sans-serif;
     }
+    .ambient-glow {
+      position: fixed;
+      z-index: -2;
+      inset: 0;
+      overflow: hidden;
+      pointer-events: none;
+    }
+    .ambient-glow::before {
+      position: absolute;
+      inset: -18vmax;
+      background:
+        radial-gradient(34rem 30rem at 20% 24%, color-mix(in srgb, var(--ambient) 16%, transparent), transparent 72%),
+        radial-gradient(32rem 28rem at 78% 30%, rgb(179 205 119 / 13%), transparent 72%),
+        radial-gradient(38rem 32rem at 54% 84%, rgb(109 176 157 / 12%), transparent 72%);
+      filter: blur(22px);
+      content: "";
+      animation: glow-drift 28s cubic-bezier(.22, 1, .36, 1) infinite alternate;
+      will-change: transform;
+    }
+    @keyframes glow-drift {
+      from { transform: translate3d(-1.5%, -1%, 0) scale(.98) rotate(-1deg); }
+      to { transform: translate3d(1.5%, 1.5%, 0) scale(1.04) rotate(1deg); }
+    }
     .ambient-field {
       position: fixed;
       z-index: -1;
@@ -314,11 +337,13 @@
         animation-iteration-count: 1 !important;
         transition-duration: .01ms !important;
       }
+      .ambient-glow::before { animation: none !important; }
       .ambient-field svg { animation: none !important; opacity: .21; }
     }
   </style>
 </head>
 <body>
+  <div class="ambient-glow" aria-hidden="true"></div>
   <div class="ambient-field" aria-hidden="true">
     <svg viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
       <defs>
