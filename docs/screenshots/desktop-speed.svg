@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
+  <defs><style>
+    text{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;fill:#e7e9ef}
+    .muted{fill:#9aa2af}.subtle{fill:#747e8c}.accent{fill:#c5a9f4}.small{font-size:14px}.body{font-size:17px}.label{font-size:15px;font-weight:600}
+  </style></defs>
+  <rect width="1600" height="1000" fill="#111318"/><rect x="16" y="16" width="1568" height="968" rx="20" fill="#1d2026" stroke="#353944"/>
+  <path d="M36 16h1528a20 20 0 0 1 20 20v34H16V36a20 20 0 0 1 20-20" fill="#191b20"/>
+  <circle cx="40" cy="44" r="8" fill="#ed6a63"/><circle cx="68" cy="44" r="8" fill="#d3a84e"/><circle cx="96" cy="44" r="8" fill="#69b96b"/><text x="126" y="50" font-size="15" class="muted">题库 · 极速浏览</text>
+  <rect x="1310" y="28" width="236" height="30" rx="15" fill="#32303b"/><text x="1428" y="48" text-anchor="middle" class="small accent">演示数据 · 非真实题库</text>
+  <rect x="34" y="92" width="50" height="42" rx="11" fill="#272a32" stroke="#414550"/><text x="59" y="119" text-anchor="middle" class="body muted">⚙</text>
+  <rect x="96" y="92" width="50" height="42" rx="11" fill="#272a32" stroke="#414550"/><text x="121" y="119" text-anchor="middle" class="body muted">↗</text>
+  <rect x="160" y="88" width="970" height="50" rx="13" fill="#22252c" stroke="#574b69"/><circle cx="190" cy="112" r="9" fill="none" stroke="#b6a3d7" stroke-width="2"/><path d="m197 119 7 7" stroke="#b6a3d7" stroke-width="2"/><text x="221" y="119" class="body">团队协作</text><rect x="1090" y="96" width="32" height="34" rx="8" fill="#34323f"/><text x="1106" y="119" text-anchor="middle" class="small accent">⌕</text>
+  <rect x="1152" y="92" width="174" height="42" rx="10" fill="#34323e"/><text x="1239" y="118" text-anchor="middle" class="small accent">详细模式</text>
+  <rect x="1334" y="92" width="170" height="42" rx="10" fill="#493e5a" stroke="#947bc8"/><text x="1419" y="118" text-anchor="middle" class="small">极速模式</text>
+  <text x="44" y="189" class="small muted">当前题库</text><text x="44" y="224" font-size="24" font-weight="700">协作流程示例库</text><rect x="300" y="193" width="132" height="30" rx="15" fill="#2c3038"/><text x="366" y="213" text-anchor="middle" class="small muted">6 道演示样题</text>
+  <rect x="32" y="250" width="1536" height="650" rx="13" fill="#20232a" stroke="#383c46"/>
+  <rect x="32" y="250" width="1536" height="52" rx="13" fill="#252830"/><path d="M32 302h1536" stroke="#3a3e49"/>
+  <text x="60" y="283" class="label muted">类型</text><text x="150" y="283" class="label muted">编号</text><text x="330" y="283" class="label muted">题目摘要</text><text x="1492" y="283" text-anchor="end" class="label muted">答案</text>
+  <path d="M32 412h1536M32 522h1536M32 632h1536M32 742h1536M32 852h1536" stroke="#373b45"/>
+  <rect x="54" y="328" width="64" height="26" rx="7" fill="#293f49"/><text x="86" y="346" text-anchor="middle" class="small">单选</text><text x="150" y="347" class="small muted">DEMO-001</text><text x="330" y="347" class="body">项目交接时，哪种记录方式最便于追踪待办？</text><rect x="1468" y="322" width="56" height="34" rx="9" fill="#393343"/><text x="1496" y="345" text-anchor="middle" class="label accent">C</text>
+  <rect x="54" y="438" width="64" height="26" rx="7" fill="#33464a"/><text x="86" y="456" text-anchor="middle" class="small">多选</text><text x="150" y="457" class="small muted">DEMO-002</text><text x="330" y="457" class="body">共享清单适合包含哪些协作信息？</text><rect x="1468" y="432" width="56" height="34" rx="9" fill="#393343"/><text x="1496" y="455" text-anchor="middle" class="label accent">A · C</text>
+  <rect x="54" y="548" width="64" height="26" rx="7" fill="#344047"/><text x="86" y="566" text-anchor="middle" class="small">判断</text><text x="150" y="567" class="small muted">DEMO-003</text><text x="330" y="567" class="body">完成一项工作后，更新状态有助于团队了解进度。</text><rect x="1468" y="542" width="56" height="34" rx="9" fill="#393343"/><text x="1496" y="565" text-anchor="middle" class="label accent">正确</text>
+  <rect x="54" y="658" width="64" height="26" rx="7" fill="#4a3c32"/><text x="86" y="676" text-anchor="middle" class="small">单选</text><text x="150" y="677" class="small muted">DEMO-004</text><text x="330" y="677" class="body">整理会议结论后，下一步适合补充什么信息？</text><rect x="1468" y="652" width="56" height="34" rx="9" fill="#393343"/><text x="1496" y="675" text-anchor="middle" class="label accent">B</text>
+  <rect x="54" y="768" width="64" height="26" rx="7" fill="#293f49"/><text x="86" y="786" text-anchor="middle" class="small">单选</text><text x="150" y="787" class="small muted">DEMO-005</text><text x="330" y="787" class="body">遇到暂时无法完成的任务，团队可以怎样保持同步？</text><rect x="1468" y="762" width="56" height="34" rx="9" fill="#393343"/><text x="1496" y="785" text-anchor="middle" class="label accent">D</text>
+  <text x="56" y="884" class="small subtle">悬停可预览题目详情　·　答案仅为虚构演示内容</text>
+  <path d="M32 922h1536" stroke="#393d48"/><text x="46" y="958" class="small muted">◉　本地索引已就绪</text><text x="1548" y="958" text-anchor="end" class="small muted">⌘ / Ctrl K 搜索　·　↑ ↓ 切换题目</text>
+</svg>

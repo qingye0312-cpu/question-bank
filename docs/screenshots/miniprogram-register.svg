@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
+  <defs><style>
+    text{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;fill:#e8eaf0}
+    .muted{fill:#9ca4b0}.subtle{fill:#727b88}.accent{fill:#c6a9f2}.small{font-size:14px}.body{font-size:17px}
+  </style></defs>
+  <rect width="1600" height="1000" fill="#111318"/><rect x="16" y="16" width="1568" height="968" rx="20" fill="#1d2026" stroke="#353944"/>
+  <path d="M36 16h1528a20 20 0 0 1 20 20v34H16V36a20 20 0 0 1 20-20" fill="#191b20"/><circle cx="40" cy="44" r="8" fill="#ed6a63"/><circle cx="68" cy="44" r="8" fill="#d3a84e"/><circle cx="96" cy="44" r="8" fill="#69b96b"/><text x="126" y="50" font-size="15" class="muted">题库 · 微信小程序</text>
+  <rect x="1320" y="28" width="226" height="30" rx="15" fill="#32303b"/><text x="1433" y="48" text-anchor="middle" class="small accent">演示注册 · 虚构题库</text>
+  <text x="128" y="246" font-size="31" font-weight="700">微信小程序</text><text x="128" y="286" font-size="23" class="accent">申请维护权限时，选择负责的题库</text>
+  <text x="128" y="342" class="body muted">注册表单会列出可申请的题库。</text><text x="128" y="372" class="body muted">申请人可选择一项或多项，提交后等待管理员审核。</text>
+  <rect x="128" y="420" width="400" height="1" fill="#3b3e48"/><circle cx="149" cy="466" r="5" fill="#c6a9f2"/><text x="170" y="472" class="body">手机号与密码登录</text><circle cx="149" cy="511" r="5" fill="#c6a9f2"/><text x="170" y="517" class="body">按题库申请上传权限</text><circle cx="149" cy="556" r="5" fill="#c6a9f2"/><text x="170" y="562" class="body">草稿保存在本机</text><text x="128" y="910" class="small subtle">该界面仅展示流程，输入项均留空。</text>
+
+  <rect x="642" y="81" width="398" height="850" rx="43" fill="#090a0d" stroke="#454955" stroke-width="2"/>
+  <rect x="658" y="98" width="366" height="816" rx="34" fill="#f4f5f7"/>
+  <path d="M793 99h96v20a18 18 0 0 1-18 18h-60a18 18 0 0 1-18-18z" fill="#090a0d"/>
+  <text x="684" y="146" font-size="12" fill="#222630">9:41</text><text x="989" y="146" text-anchor="end" font-size="12" fill="#222630">●●●　◔</text>
+  <rect x="658" y="161" width="366" height="52" fill="#ffffff"/><path d="M658 213h366" stroke="#e3e5e9"/>
+  <path d="m685 180-8 8 8 8" fill="none" stroke="#353a44" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><text x="841" y="194" text-anchor="middle" font-size="17" font-weight="600" fill="#1c2028">注册维护者</text><text x="1000" y="194" text-anchor="end" font-size="13" fill="#7f8793">完成</text>
+  <text x="685" y="254" font-size="22" font-weight="700" fill="#1b2028">创建维护者申请</text><text x="685" y="280" font-size="13" fill="#737b87">填写信息并选择希望维护的题库</text>
+  <text x="685" y="319" font-size="13" font-weight="600" fill="#434954">手机号</text><rect x="685" y="330" width="312" height="44" rx="8" fill="#ffffff" stroke="#d8dbe1"/><text x="701" y="358" font-size="14" fill="#a2a8b2">请输入手机号</text>
+  <text x="685" y="407" font-size="13" font-weight="600" fill="#434954">真实姓名</text><rect x="685" y="418" width="312" height="44" rx="8" fill="#ffffff" stroke="#d8dbe1"/><text x="701" y="446" font-size="14" fill="#a2a8b2">请输入真实姓名</text>
+  <text x="685" y="495" font-size="13" font-weight="600" fill="#434954">申请说明</text><rect x="685" y="506" width="312" height="55" rx="8" fill="#ffffff" stroke="#d8dbe1"/><text x="701" y="537" font-size="14" fill="#a2a8b2">简单说明维护需求（选填）</text>
+  <text x="685" y="595" font-size="13" font-weight="600" fill="#434954">选择申请维护的题库</text><text x="997" y="595" text-anchor="end" font-size="12" fill="#7c8490">可多选</text>
+  <rect x="685" y="608" width="312" height="57" rx="9" fill="#f0ebf8" stroke="#a68bd2"/><circle cx="708" cy="636" r="10" fill="#8b70ca"/><path d="m703 636 4 4 7-8" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><text x="730" y="633" font-size="14" font-weight="600" fill="#292333">协作流程示例库</text><text x="730" y="652" font-size="11" fill="#77717f">演示题库 · 虚构内容</text>
+  <rect x="685" y="674" width="312" height="57" rx="9" fill="#ffffff" stroke="#d8dbe1"/><circle cx="708" cy="702" r="10" fill="#fff" stroke="#b7bdc6" stroke-width="1.5"/><text x="730" y="699" font-size="14" font-weight="600" fill="#424853">知识便签示例库</text><text x="730" y="718" font-size="11" fill="#888f99">演示题库 · 虚构内容</text>
+  <text x="685" y="761" font-size="11" fill="#7e8590">提交申请后，管理员审核通过才会获得上传权限。</text>
+  <rect x="685" y="785" width="312" height="48" rx="9" fill="#3478e5"/><text x="841" y="815" text-anchor="middle" font-size="15" font-weight="600" fill="#ffffff">提交申请</text>
+  <rect x="785" y="892" width="112" height="5" rx="3" fill="#1d222a"/>
+
+  <rect x="1085" y="390" width="362" height="205" rx="15" fill="#252830" stroke="#3c404b"/><text x="1115" y="434" class="body" font-weight="600">按题库申请权限</text><text x="1115" y="470" class="small muted">管理者逐库审批，申请获得批准后，</text><text x="1115" y="493" class="small muted">账号只能上传已授权的题库。</text><path d="M1115 521h300" stroke="#3c404b"/><text x="1115" y="555" class="small accent">示例选项全部为虚构数据</text>
+</svg>
