@@ -29,7 +29,8 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22.18.0
-          package-manager-cache: false
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -86,14 +87,31 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22.18.0
-          package-manager-cache: false
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
 
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: windows-2025-x86_64-pc-windows-msvc-release
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Build frontend once
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          pnpm build
+          if ($LASTEXITCODE -ne 0) { throw "Frontend build failed ($LASTEXITCODE)." }
+          $skipConfig = Join-Path $env:RUNNER_TEMP 'qbank-skip-frontend-build.json'
+          '{"build":{"beforeBuildCommand":"node -e 0"}}' | Set-Content -LiteralPath $skipConfig -Encoding utf8
+          "QBANK_TAURI_SKIP_FRONTEND_CONFIG=$skipConfig" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Build fixed-name portable edition
         env:
@@ -105,7 +123,7 @@ jobs:
           node tools/desktop-release/validate-version.mjs $env:GITHUB_REF_NAME
           if ($LASTEXITCODE -ne 0) { throw 'Tag and package version must match.' }
           $version = (Get-Content package.json -Raw -Encoding UTF8 | ConvertFrom-Json).version
-          pnpm tauri build --target x86_64-pc-windows-msvc --no-bundle -- --locked
+          pnpm tauri build --target x86_64-pc-windows-msvc --no-bundle --config $env:QBANK_TAURI_SKIP_FRONTEND_CONFIG -- --locked
           if ($LASTEXITCODE -ne 0) { throw "Portable build failed ($LASTEXITCODE)." }
 
           $source = 'src-tauri/target/x86_64-pc-windows-msvc/release/question-bank.exe'
@@ -113,6 +131,20 @@ jobs:
           $output = Join-Path $env:RUNNER_TEMP 'qbank-release/windows'
           New-Item -ItemType Directory -Force -Path $output | Out-Null
           Copy-Item -LiteralPath $source -Destination (Join-Path $output '题库_windows_x64_portable.exe')
+
+      - name: Install NSIS if needed
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not (Get-Command makensis.exe -ErrorAction SilentlyContinue)) {
+            choco install nsis --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { throw 'Could not install NSIS.' }
+            $nsisPath = Join-Path ${env:ProgramFiles(x86)} 'NSIS'
+            if (Test-Path (Join-Path $nsisPath 'makensis.exe')) {
+              $nsisPath | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+            }
+          }
+          if (-not (Get-Command makensis.exe -ErrorAction SilentlyContinue)) { throw 'NSIS makensis.exe is unavailable.' }
 
       - name: Build signed NSIS installer and updater archive
         env:
@@ -127,14 +159,8 @@ jobs:
           $configPath = Join-Path $env:RUNNER_TEMP 'qbank-updater-config.json'
           node tools/desktop-release/write-updater-config.mjs $configPath
           if ($LASTEXITCODE -ne 0) { throw 'Could not write the updater configuration.' }
-          if (-not (Get-Command makensis.exe -ErrorAction SilentlyContinue)) {
-            choco install nsis --yes --no-progress
-            if ($LASTEXITCODE -ne 0) { throw 'Could not install NSIS.' }
-            $nsisPath = Join-Path ${env:ProgramFiles(x86)} 'NSIS'
-            if (Test-Path (Join-Path $nsisPath 'makensis.exe')) { $env:PATH = "$nsisPath;$env:PATH" }
-          }
           if (-not (Get-Command makensis.exe -ErrorAction SilentlyContinue)) { throw 'NSIS makensis.exe is unavailable.' }
-          pnpm tauri build --target x86_64-pc-windows-msvc --config $configPath -- --locked
+          pnpm tauri build --target x86_64-pc-windows-msvc --config $env:QBANK_TAURI_SKIP_FRONTEND_CONFIG --config $configPath -- --locked
           if ($LASTEXITCODE -ne 0) { throw "NSIS build failed ($LASTEXITCODE)." }
 
           $bundle = 'src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis'

@@ -1,0 +1,90 @@
+name: Warm desktop build caches
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/desktop-release.yml'
+      - '.github/workflows/desktop-cache-warm.yml'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'index.html'
+      - 'vite.config.ts'
+      - 'tsconfig.json'
+      - 'src/**'
+      - 'src-tauri/**'
+      - 'shared/**'
+      - 'windows/**'
+      - 'mac/**'
+      - 'public/**'
+      - 'assets/**'
+      - 'templates/**'
+      - 'scripts/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-build-cache-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  warm-macos-pnpm:
+    name: Warm macOS pnpm cache
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.25.0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.18.0
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+  warm-windows-rust:
+    name: Warm Windows Rust release cache
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.25.0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.18.0
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: windows-2025-x86_64-pc-windows-msvc-release
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Windows release binary without bundling
+        env:
+          QBANK_UPDATER_ENDPOINT: ''
+          QBANK_UPDATER_PUBLIC_KEY: ''
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          pnpm tauri build --target x86_64-pc-windows-msvc --no-bundle -- --locked
+          if ($LASTEXITCODE -ne 0) { throw "Windows cache warm build failed ($LASTEXITCODE)." }
