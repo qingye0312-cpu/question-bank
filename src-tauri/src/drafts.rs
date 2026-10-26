@@ -218,6 +218,114 @@ pub fn save(store: &Store, mut record: Value, expected: u64) -> Result<Value> {
     Ok(record)
 }
 
+pub fn commit_local(store: &Store, bank: &str, expected: Value) -> Result<usize> {
+    let mut c = store.conn()?;
+    let tx = c
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .map_err(err)?;
+    let b = db::get_bank(&tx, bank)?;
+    if b.read_only {
+        return Err("云端题库请使用上传；如需本地提交，请先建立可编辑副本".into());
+    }
+
+    let completed: Vec<Value> = records(&tx, bank)?
+        .into_iter()
+        .filter(|r| {
+            r["removed"] != true
+                && r["submissionId"] == ""
+                && r["publishedAt"].as_str().unwrap_or("").is_empty()
+                && r["issues"].as_array().is_some_and(|issues| issues.is_empty())
+        })
+        .collect();
+    let versions: Vec<Value> = completed
+        .iter()
+        .map(|r| json!({"id":r["id"],"revision":r["revision"]}))
+        .collect();
+    if expected != json!(versions) {
+        return Err("待提交列表中的完整题目有变化，请核对最新内容后提交".into());
+    }
+    if completed.is_empty() {
+        return Err("没有完整题目可提交到本地题库".into());
+    }
+
+    for record in &completed {
+        let id = record["id"].as_str().unwrap_or_default();
+        let revision = record["revision"].as_u64().unwrap_or_default();
+        let question: Question =
+            serde_json::from_value(record["question"].clone()).map_err(err)?;
+        question.validate(false)?;
+        if question.question_id != id || question.base_revision != revision {
+            return Err("题目身份或修订版本无效，请重新打开后提交".into());
+        }
+
+        let stored: Option<String> = tx
+            .query_row(
+                "SELECT data FROM questions WHERE bank_id=?1 AND id=?2 AND deleted=0",
+                params![bank, id],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(err)?;
+        let stored: Question = serde_json::from_str(
+            stored
+                .as_deref()
+                .ok_or("本地题目索引已变化，请重新打开后提交")?,
+        )
+        .map_err(err)?;
+        if serde_json::to_value(&stored).map_err(err)?
+            != serde_json::to_value(&question).map_err(err)?
+        {
+            return Err("本地题目内容已变化，请重新打开后提交".into());
+        }
+
+        let has_entry: bool = tx
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM intake_entries WHERE bank_id=?1 AND question_id=?2)",
+                params![bank, id],
+                |r| r.get(0),
+            )
+            .map_err(err)?;
+        if !has_entry {
+            return Err("本地待提交记录已变化，请重新打开后提交".into());
+        }
+
+        tx.execute(
+            "INSERT INTO question_layers(bank_id,question_id,layer) VALUES(?1,?2,'formal') ON CONFLICT(bank_id,question_id) DO UPDATE SET layer='formal'",
+            params![bank, id],
+        )
+        .map_err(err)?;
+        tx.execute(
+            "DELETE FROM intake_entries WHERE bank_id=?1 AND question_id=?2",
+            params![bank, id],
+        )
+        .map_err(err)?;
+        tx.execute(
+            "DELETE FROM intake_originals WHERE bank_id=?1 AND question_id=?2",
+            params![bank, id],
+        )
+        .map_err(err)?;
+        let removed = tx
+            .execute(
+                "DELETE FROM draft_records WHERE bank_id=?1 AND id=?2 AND revision=?3",
+                params![bank, id, revision],
+            )
+            .map_err(err)?;
+        if removed != 1 {
+            return Err("本地待提交记录已变化，请重新打开后提交".into());
+        }
+    }
+
+    tx.execute(
+        "DELETE FROM intake_batches WHERE bank_id=?1 AND NOT EXISTS(SELECT 1 FROM intake_entries e WHERE e.batch_id=intake_batches.id) AND NOT EXISTS(SELECT 1 FROM intake_transfers t WHERE t.batch_id=intake_batches.id)",
+        [bank],
+    )
+    .map_err(err)?;
+    db::touch(&tx, bank)?;
+    let count = completed.len();
+    tx.commit().map_err(err)?;
+    Ok(count)
+}
+
 pub fn enqueue(
     store: &Store,
     bank: &str,
@@ -233,30 +341,29 @@ pub fn enqueue(
         .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
         .map_err(err)?;
     let b = db::get_bank(&tx, bank)?;
-    let pending: Vec<Value> = records(&tx, bank)?
+    let completed: Vec<Value> = records(&tx, bank)?
         .into_iter()
-        .filter(|r| r["removed"] != true && r["submissionId"] == "")
+        .filter(|r| {
+            r["removed"] != true
+                && r["submissionId"] == ""
+                && r["publishedAt"].as_str().unwrap_or("").is_empty()
+                && r["issues"].as_array().is_some_and(|issues| issues.is_empty())
+        })
         .collect();
-    let versions: Vec<Value> = pending
+    let versions: Vec<Value> = completed
         .iter()
         .map(|r| json!({"id":r["id"],"revision":r["revision"]}))
         .collect();
     if expected != json!(versions) {
-        return Err("待上传列表中的题目有变化，请核对最新内容后上传".into());
+        return Err("待上传列表中的完整题目有变化，请核对最新内容后上传".into());
     }
-    if pending.is_empty() {
-        return Err("没有待上传题目".into());
-    }
-    if pending
-        .iter()
-        .any(|r| r["issues"].as_array().is_none_or(|a| !a.is_empty()))
-    {
-        return Err("有题目待补全，已保留全部记录，请修改或移除后上传".into());
+    if completed.is_empty() {
+        return Err("没有完整题目可上传".into());
     }
     let id = uid();
     let at = now();
     let mut payload = String::new();
-    for r in &pending {
+    for r in &completed {
         let q: Question = serde_json::from_value(r["question"].clone()).map_err(err)?;
         q.validate(false)?;
         payload.push_str(&serde_json::to_string(&q).map_err(err)?);
@@ -268,7 +375,7 @@ pub fn enqueue(
         name: b.name,
         batch_id: id.clone(),
         created_at: at.clone(),
-        question_count: pending.len(),
+        question_count: completed.len(),
         sha256: hash(payload.as_bytes()),
         payload,
     })
@@ -292,7 +399,7 @@ pub fn enqueue(
         params![id, raw, endpoint],
     )
     .map_err(err)?;
-    for mut r in pending {
+    for mut r in completed {
         tx.execute(
             "UPDATE intake_entries SET batch_id=?1 WHERE bank_id=?2 AND question_id=?3",
             params![id, bank, r["id"].as_str()],

@@ -58,6 +58,20 @@ pub(crate) async fn draft_submit(
     .await
 }
 #[tauri::command]
+pub(crate) async fn draft_commit_local(
+    s: State<'_, AppState>,
+    bank_id: String,
+    expected: serde_json::Value,
+) -> Result<usize> {
+    let d = s.store.clone();
+    let lock = s.writes.clone();
+    blocking(move || {
+        let _g = lock.lock().map_err(err)?;
+        drafts::commit_local(&d, &bank_id, expected)
+    })
+    .await
+}
+#[tauri::command]
 pub(crate) async fn intake_preview(
     s: State<'_, AppState>,
     bank_id: String,

@@ -131,6 +131,7 @@ pub fn run() {
             commands::intake::draft_export,
             commands::intake::draft_save,
             commands::intake::draft_submit,
+            commands::intake::draft_commit_local,
             commands::cloud::cloud_transfer,
             commands::cloud::cloud_receipt,
             commands::cloud::cloud_versions,

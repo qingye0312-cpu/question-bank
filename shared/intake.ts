@@ -1,7 +1,7 @@
 // Platform-independent single-question intake and additive package protocol.
 export type ModelReply = {
-  format: 'qbank-photo-question-1'; type: 'single' | 'multiple' | 'true_false';
-  stem: string; options: {key: string; content: string}[]; answer: string[] | boolean;
+  format: 'qbank-photo-question-1'; type: 'single' | 'multiple' | 'true_false' | 'programming';
+  stem: string; options: {key: string; content: string}[]; answer: string[] | boolean | null;
   answer_origin: 'inferred'; explanation: string;
   model: {name: string; version: string; version_source: 'platform' | 'user' | 'unknown'};
   warnings: string[];
@@ -83,13 +83,15 @@ export function parseModelReply(input: string): ModelReply {
   if (!object(value)) throw new Error('每次只能粘贴一道题的 JSON 对象');
   fields(value, ['format','type','stem','options','answer','answer_origin','explanation','model','warnings'], '回复');
   if (value.format !== 'qbank-photo-question-1') throw new Error('不是单题输出格式，请使用「大模型输出规范模版」');
-  if (!['single','multiple','true_false'].includes(String(value.type))) throw new Error('题型未确定，仅支持单选、多选、判断');
+  if (!['single','multiple','true_false','programming'].includes(String(value.type))) throw new Error('题型未确定');
   if (typeof value.stem !== 'string' || !value.stem.trim() || typeof value.explanation !== 'string') throw new Error('题干不能为空，解析必须是文字');
   if (!Array.isArray(value.options) || value.options.some((o, i) => !object(o)
     || Object.keys(o).length !== 2 || o.key !== String.fromCharCode(65+i) || typeof o.content !== 'string' || !o.content.trim()))
     throw new Error('选项须从 A 连续编号，每项只能包含 key 和非空 content');
   if (value.type !== 'true_false' && new Set(value.options.map(o=>clean(o.content))).size !== value.options.length) throw new Error('选项内容重复，请核对后修改');
-  if (value.type === 'true_false') {
+  if (value.type === 'programming') {
+    if (value.options.length || value.answer !== null) throw new Error('编程题不应包含选项或标准答案');
+  } else if (value.type === 'true_false') {
     if (value.options.length || typeof value.answer !== 'boolean') throw new Error('判断题选项必须为 []，答案必须为 true 或 false');
   } else {
     const answers = value.answer, options = value.options;
@@ -121,7 +123,7 @@ export function parseDraft(input:string):ModelReply {
  r.type=(typeof v.type==='string'?v.type:'') as ModelReply['type'];
  r.stem=str(v.stem);r.explanation=str(v.explanation);
  r.options=Array.isArray(v.options)?v.options.map((o,i)=>({key:String.fromCharCode(65+i),content:object(o)?str(o.content):str(o)})):r.type==='true_false'?[]:r.options;
- r.answer=r.type==='true_false'?(typeof v.answer==='boolean'?v.answer:[]):Array.isArray(v.answer)?v.answer.filter((a):a is string=>typeof a==='string'):[];
+ r.answer=r.type==='programming'?null:r.type==='true_false'?(typeof v.answer==='boolean'?v.answer:[]):Array.isArray(v.answer)?v.answer.filter((a):a is string=>typeof a==='string'):[];
  // Repair option labels only when their original identity is unambiguous.
  if(r.type!=='true_false'&&Array.isArray(v.options)&&Array.isArray(r.answer)){
   const original=v.options.map((o,i)=>object(o)&&typeof o.key==='string'?o.key:String.fromCharCode(65+i));
@@ -133,6 +135,7 @@ export function parseDraft(input:string):ModelReply {
  return r;
 }
 export function toggleAnswer(reply:ModelReply,key:string|boolean):ModelReply {
+ if(reply.type==='programming')return reply;
  if(reply.type==='true_false')return {...reply,answer:reply.answer===key?[]:typeof key==='boolean'?key:[]};
  if(typeof key!=='string'||!reply.options.some(o=>o.key===key))return reply;
  const selected=Array.isArray(reply.answer)?reply.answer:[];
@@ -170,8 +173,8 @@ export function reorderOptions(reply: ModelReply, order: number[]): ModelReply {
 }
 export function changeQuestionType(reply: ModelReply, type: ModelReply['type']): ModelReply {
   if(type === reply.type)return reply;
-  return {...reply,type,options:type==='true_false'?[]:reply.options.length?reply.options:[{key:'A',content:''},{key:'B',content:''}],
-    answer:[]};
+  return {...reply,type,options:type==='true_false'||type==='programming'?[]:reply.options.length?reply.options:[{key:'A',content:''},{key:'B',content:''}],
+    answer:type==='programming'?null:[]};
 }
 export const MANUAL_REVIEW_NOTE = '录入者已人工修改，请复核答案；模型信息仅记录原始作答来源。';
 export function editedReplyText(reply: ModelReply, original: string): string {
