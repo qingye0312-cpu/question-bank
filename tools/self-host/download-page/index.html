@@ -31,17 +31,64 @@
     }
     * { box-sizing: border-box; }
     body {
+      position: relative;
+      isolation: isolate;
+      overflow-x: hidden;
       min-height: 100vh;
       margin: 0;
       display: grid;
       place-items: center;
       padding: 32px 20px;
-      background: radial-gradient(ellipse at top, var(--accent-soft), transparent 55%), var(--bg);
+      background: var(--bg);
       color: var(--text);
       font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
-    main { width: min(100%, 880px); }
-    .eyebrow { margin: 0 0 10px; color: var(--accent); font-size: 12px; font-weight: 750; letter-spacing: .16em; text-transform: uppercase; }
+    body::before, body::after {
+      position: fixed;
+      z-index: -1;
+      inset: -18vmax;
+      content: "";
+      pointer-events: none;
+    }
+    body::before {
+      background:
+        radial-gradient(34rem 30rem at 20% 24%, color-mix(in srgb, var(--accent) 15%, transparent), transparent 72%),
+        radial-gradient(32rem 28rem at 78% 30%, rgb(179 205 119 / 13%), transparent 72%),
+        radial-gradient(38rem 32rem at 54% 84%, rgb(109 176 157 / 12%), transparent 72%);
+      filter: blur(22px);
+      animation: atmosphere-drift 28s ease-in-out infinite alternate;
+    }
+    body::after {
+      inset: 0;
+      background-image: radial-gradient(color-mix(in srgb, var(--accent) 18%, transparent) .7px, transparent .7px);
+      background-size: 26px 26px;
+      mask-image: linear-gradient(135deg, #000 0%, transparent 55%, #000 100%);
+      opacity: .16;
+      animation: atmosphere-breathe 12s ease-in-out infinite alternate;
+    }
+    @keyframes atmosphere-drift {
+      from { transform: translate3d(-1.5%, -1%, 0) scale(.98) rotate(-1deg); }
+      to { transform: translate3d(1.5%, 1.5%, 0) scale(1.04) rotate(1deg); }
+    }
+    @keyframes atmosphere-breathe { from { opacity: .09; } to { opacity: .2; } }
+    main { position: relative; width: min(100%, 880px); }
+    .hero { display: flex; align-items: center; gap: 18px; margin-bottom: 18px; }
+    .brand-mark {
+      display: grid;
+      width: 64px;
+      height: 64px;
+      flex: 0 0 64px;
+      place-items: center;
+      overflow: hidden;
+      border-radius: 19px;
+      background: #236752;
+      box-shadow: 0 10px 28px rgb(35 103 82 / 22%);
+      animation: mark-float 7s ease-in-out infinite;
+    }
+    .brand-mark svg { display: block; width: 100%; height: 100%; }
+    @keyframes mark-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+    .eyebrow { margin: 0 0 3px; color: var(--accent); font-size: 12px; font-weight: 750; letter-spacing: .16em; text-transform: uppercase; }
+    .brand-name { margin: 0; font-size: 14px; font-weight: 650; letter-spacing: .02em; }
     h1 { margin: 0; font-size: clamp(30px, 6vw, 48px); line-height: 1.12; letter-spacing: -.035em; }
     .intro { max-width: 580px; margin: 14px 0 24px; color: var(--muted); font-size: 17px; }
     .status { min-height: 26px; margin: 0 0 22px; color: var(--muted); font-size: 14px; }
@@ -91,13 +138,28 @@
       .cards { grid-template-columns: 1fr; }
       .card { padding: 20px; }
       .intro { font-size: 16px; }
+      .brand-mark { width: 56px; height: 56px; flex-basis: 56px; border-radius: 16px; }
     }
-    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; } }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+    }
   </style>
 </head>
 <body>
   <main>
-    <p class="eyebrow">Question Bank</p>
+    <header class="hero">
+      <span class="brand-mark">
+        <svg viewBox="0 0 512 512" role="img" aria-label="题库图标" xmlns="http://www.w3.org/2000/svg">
+          <rect x="16" y="16" width="480" height="480" rx="110" fill="#236752"/>
+          <path d="M126 205l130-70 130 70-130 70z" fill="#f4f3dc"/>
+          <path d="M126 264l130 70 130-70M126 322l130 70 130-70" fill="none" stroke="#f4f3dc" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </span>
+      <div>
+        <p class="eyebrow">Question Bank</p>
+        <p class="brand-name">题库 · 离线知识工作台</p>
+      </div>
+    </header>
     <h1>下载题库桌面版</h1>
     <p class="intro">页面会识别你的电脑并推荐对应版本。也可以手动选择其他平台。</p>
     <p class="status" id="status" role="status" aria-live="polite">正在获取最新版本…</p>
