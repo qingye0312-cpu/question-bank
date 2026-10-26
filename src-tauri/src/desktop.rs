@@ -30,17 +30,17 @@ pub fn hide<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
 
 pub fn hide_after_close<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
-    window: &tauri::Window<R>,
+    _window: &tauri::Window<R>,
 ) -> tauri::Result<()> {
     #[cfg(target_os = "macos")]
-    if window.is_fullscreen().unwrap_or(false) {
+    if _window.is_fullscreen().unwrap_or(false) {
         // AppKit's fullscreen animation takes about a second. Tao clears its
         // fullscreen flag as soon as the exit is requested, before that
         // animation ends, so wait for the flag and then allow the transition
         // to finish before hiding the application.
-        window.set_fullscreen(false)?;
+        _window.set_fullscreen(false)?;
         let app = app.clone();
-        let window = window.clone();
+        let window = _window.clone();
         std::thread::spawn(move || {
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
             loop {

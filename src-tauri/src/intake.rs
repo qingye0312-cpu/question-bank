@@ -723,7 +723,6 @@ pub fn import(store: &Store, path: &Path) -> Result<Imported> {
     tx.commit().map_err(err)?;
     Ok(result)
 }
-type SnapshotEntry = (String, String, String, String, String, String);
 // Preserve local additions during a later full release. A publisher can absorb
 // an addition under another UUID; keep its original intake identity and receipt.
 pub fn preserve_additions(
