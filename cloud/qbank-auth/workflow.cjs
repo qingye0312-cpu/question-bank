@@ -19,9 +19,14 @@ function createWorkflow({store,validateStandardQuestion,clock}){
  }
  async function history(b){
   const states=await store.listStates(b.bank_id);
-  return states.map(s=>({revision:s.revision,release_version:s.release_version,updated_at:s.updated_at,merged_at:s.merged_at||null,
+  return states.map(s=>{
+   const merge=(s.merge_history||[]).find(m=>m.revision===s.revision);
+   return {revision:s.revision,release_version:s.release_version,updated_at:s.updated_at,merged_at:s.merged_at||null,
     release_name:s.release_name||null,release_id:s.release_id||null,rollback_at:s.rollback_at||null,
-    rollback_of:s.rollback?.target_revision||null,merge_count:Array.isArray(s.merge_history)?s.merge_history.length:0}));
+    rollback_of:s.rollback?.target_revision||null,merge_count:Array.isArray(s.merge_history)?s.merge_history.length:0,
+    uploader_account_id:merge?.uploader_account_id||null,uploader_nickname:merge?.uploader_nickname||null,
+    uploader_auth_type:merge?.uploader_auth_type||null};
+  });
  }
  function validateQuestion(q,name){
   try{validateStandardQuestion(q,name);}catch{deny(422,'QUESTION_INVALID','请核对题目结构、题库身份、选项和答案');}
@@ -71,9 +76,14 @@ function createWorkflow({store,validateStandardQuestion,clock}){
      }else{formal.push({...q,status:'verified'});added++;resolved.push({id:`${delta.batch_id}/${q.question_id}`,question_id:q.question_id,status:'merged',target_id:q.question_id});}
     }
     const mergedAt=new Date(clock()).toISOString();
+    const uploaderAccountId=record.uploader_account_id||auth.account_id||auth.maintainer_id||auth.openid;
+    const uploaderNickname=record.uploader_nickname||(typeof auth.nickname==='string'&&auth.nickname.trim()
+      ?auth.nickname.trim():auth.maintainer_id?'最高权限维护者 '+auth.maintainer_id:uploaderAccountId);
+    const uploaderAuthType=record.uploader_auth_type||(auth.password_account?'password':'key');
     s.batches=[...(s.batches||[]),record.submission_id];s.resolved=[...(s.resolved||[]),...resolved];
     s.merge_history=[...(s.merge_history||[]),{submission_id:record.submission_id,batch_id:delta.batch_id,merged_at:mergedAt,
-      question_count:qs.length,added_count:added,duplicate_count:duplicates,revision:s.revision+1,release_version:s.release_version,actor:sha256(auth.openid)}];
+      question_count:qs.length,added_count:added,duplicate_count:duplicates,revision:s.revision+1,release_version:s.release_version,
+      actor:sha256(auth.openid),uploader_account_id:uploaderAccountId,uploader_nickname:uploaderNickname,uploader_auth_type:uploaderAuthType}];
     if(added){s.formal=formal;s.release_version++;s.merged_at=mergedAt;s.release_id=sha256(JSON.stringify(formal));
       s.release_name=releaseName(mergedAt,s.name,'合并',s.release_version,s.bank_id,s.release_id);
       s.merge_history.at(-1).release_version=s.release_version;}

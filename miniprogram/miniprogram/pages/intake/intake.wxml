@@ -63,8 +63,8 @@
    <block wx:elif="{{authMode==='register'}}">
     <view class="label identity-label">真实姓名（必填）</view>
     <input maxlength="40" placeholder-class="theme-placeholder" value="{{maintainerRealName}}" bindinput="onMaintainerRealName" placeholder="填写真实姓名" disabled="{{busy || applying}}"/>
-    <view class="label identity-label">昵称（选填）</view>
-    <input maxlength="80" placeholder-class="theme-placeholder" value="{{maintainerNickname}}" bindinput="onMaintainerNickname" placeholder="昵称，可以不填" disabled="{{busy || applying}}"/>
+    <view class="label identity-label">昵称（必填，用于记录上传者）</view>
+    <input maxlength="80" placeholder-class="theme-placeholder" value="{{maintainerNickname}}" bindinput="onMaintainerNickname" placeholder="题目上传后会在版本记录中显示此昵称" disabled="{{busy || applying}}"/>
     <view class="label identity-label">身份说明（必填）</view>
     <textarea class="identity-input" placeholder-class="theme-placeholder" value="{{maintainerIdentity}}" bindinput="onMaintainerIdentity" maxlength="500" auto-height="{{true}}" placeholder="班级/单位或与题库的关系，方便管理员核实" disabled="{{busy || applying}}"/>
     <view class="muted identity-count">{{maintainerIdentity.length}} / 500</view>
@@ -81,7 +81,7 @@
     <input password placeholder-class="theme-placeholder" value="{{maintainerPasswordConfirm}}" bindinput="onMaintainerPasswordConfirm" placeholder="再次输入密码" disabled="{{busy || applying}}"/>
     <view wx:if="{{maintainerPasswordConfirm}}" class="password-check {{maintainerPasswordsMatch?'valid':'invalid'}}">{{maintainerPasswordsMatch?'✓':'○'}} {{maintainerPasswordsMatch?'密码一致':'两次密码不一致'}}</view>
     <view class="muted auth-note">注册信息和登录方式与桌面版一致。上传权限需由桌面管理员审批。</view>
-    <button bindtap="onRegisterMaintainer" loading="{{applying}}" disabled="{{busy || applying || maintainerBanksLoading || !maintainerBankIds.length || !maintainerPasswordValid || !maintainerPasswordsMatch}}">{{applying?'正在提交…':'注册并提交维护申请'}}</button>
+    <button bindtap="onRegisterMaintainer" loading="{{applying}}" disabled="{{busy || applying || !maintainerNickname || maintainerBanksLoading || !maintainerBankIds.length || !maintainerPasswordValid || !maintainerPasswordsMatch}}">{{applying?'正在提交…':'注册并提交维护申请'}}</button>
    </block>
    <block wx:else>
     <view class="label identity-label">密码</view>

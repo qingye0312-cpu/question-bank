@@ -26,7 +26,7 @@ const messages:Record<string,string>={
   LOGIN_REQUIRED:'请先使用手机号和密码登录',
   PHONE_INVALID:'请填写有效的 11 位手机号',
   REAL_NAME_REQUIRED:'请填写 1 至 40 字的真实姓名',
-  NICKNAME_INVALID:'昵称最多 80 字，可以不填',
+  NICKNAME_INVALID:'请填写昵称，用于记录题目上传者（最多 80 字）',
   PHONE_IN_USE:'此手机号已登记，请直接登录或联系管理员核实',
   PHONE_CHANGE_REQUIRES_ADMIN:'已授权账号修改手机号需联系管理员核实',
   BANKS_REQUIRED:'请选择有效的云端题库；私人本地题库不能申请云端权限',

@@ -108,10 +108,10 @@ export function CloudLogin({onChange=()=>{},disabled=false}:{onChange?:()=>void;
     <label>密码<input type="password" autoComplete="current-password" value={password} disabled={disabled||busy} onChange={e=>setPassword(e.target.value)}/></label>
     <div className="cloud-login-actions cloud-account-actions"><button className="primary" type="button" disabled={disabled||busy||!phone||!password} onClick={()=>void loginAccount()}>{busy?'正在登录…':'手机号和密码登录'}</button><button type="button" disabled={disabled||busy} onClick={()=>{setMode('reset');setMessage('请向桌面最高权限管理员申请一次性密码重置码。')}}>重置密码</button></div>
    </>:mode==='register'?<form className="cloud-registration" onSubmit={event=>void registerAccount(event)}>
-   <p className="callout">提交后由桌面最高权限审核。手机号为唯一登记信息，真实姓名必填，昵称选填；请填写身份说明并选择申请维护的题库。</p>
+   <p className="callout">提交后由桌面最高权限审核。手机号为唯一登记信息，真实姓名和昵称必填；昵称会记录为题目上传者并显示在版本历史中。</p>
     <label>手机号<input required type="tel" inputMode="tel" autoComplete="tel" value={phone} disabled={disabled||busy} onChange={e=>setPhone(e.target.value)} placeholder="中国大陆 11 位手机号"/></label>
     <label>真实姓名<input required maxLength={40} autoComplete="name" value={realName} disabled={disabled||busy} onChange={e=>setRealName(e.target.value)}/></label>
-    <label>昵称（选填）<input maxLength={80} value={nickname} disabled={disabled||busy} onChange={e=>setNickname(e.target.value)}/></label>
+    <label>昵称（必填，用于记录上传者）<input required maxLength={80} value={nickname} disabled={disabled||busy} onChange={e=>setNickname(e.target.value)} placeholder="题目上传后会在版本记录中显示此昵称"/></label>
     <label>身份说明<textarea required minLength={1} maxLength={500} rows={3} value={identityDescription} disabled={disabled||busy} onChange={e=>setIdentityDescription(e.target.value)} placeholder="说明你与所申请题库的关系及维护用途"/></label>
     <fieldset className="cloud-bank-picker" disabled={disabled||busy||banksLoading}>
      <legend>申请维护的题库</legend>

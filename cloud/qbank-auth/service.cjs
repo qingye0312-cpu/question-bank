@@ -74,8 +74,9 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
         const phone=access.normalizePhone(body.phone),phoneHash=access.phoneHash(phone);
         const realName=typeof body.real_name==='string'?body.real_name.trim():'';
         if(!realName||realName.length>40)fail(422,'REAL_NAME_REQUIRED','请填写 1 至 40 字的真实姓名');
-        if(typeof body.nickname!=='string'||body.nickname.length>80)fail(422,'NICKNAME_INVALID','昵称最多 80 字，可以不填');
+        if(typeof body.nickname!=='string')fail(422,'NICKNAME_INVALID','请填写昵称，用于记录题目上传者（最多 80 字）');
         const nickname=body.nickname.trim();
+        if(!nickname||nickname.length>80)fail(422,'NICKNAME_INVALID','请填写昵称，用于记录题目上传者（最多 80 字）');
         const identityDescription=typeof body.identity_description==='string'?body.identity_description.trim():'';
         if(!identityDescription||identityDescription.length>500)fail(422,'IDENTITY_REQUIRED','请填写 1 至 500 字的身份说明，方便管理员核实');
         if(!Array.isArray(body.bank_ids)||!body.bank_ids.length||body.bank_ids.length>100||body.bank_ids.some(id=>!UUID.test(id)))fail(422,'BANKS_REQUIRED','请选择要申请的题库');
@@ -312,6 +313,10 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
         question_count: delta.question_count, status:'merging', accepted_at: new Date(clock()).toISOString(),
         submitted_by: sha256(`${config.appId}\0${auth.openid}`), package: envelope };
       record.confirmation={version:1,actor:record.submitted_by,confirmed_at:record.accepted_at,sha256:record.sha256};
+      record.uploader_account_id=auth.account_id||auth.maintainer_id||auth.openid;
+      record.uploader_nickname=typeof auth.nickname==='string'&&auth.nickname.trim()
+        ?auth.nickname.trim():auth.maintainer_id?'最高权限维护者 '+auth.maintainer_id:record.uploader_account_id;
+      record.uploader_auth_type=auth.password_account?'password':'key';
       let accepted;
       try { accepted = await store.createSubmission(key, record); }
       catch { fail(502, 'STORAGE_UNAVAILABLE', '云端保存未确认，请保留本地批次并重试'); }

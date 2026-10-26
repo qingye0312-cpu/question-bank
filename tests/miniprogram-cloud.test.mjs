@@ -86,14 +86,14 @@ test('Mini Program registration validates and submits the shared phone/password 
  await assert.rejects(()=>client.registerMaintainer(bankId,form),/身份说明/);
  await assert.rejects(()=>client.registerMaintainer(bankId,{...form,identity:'字'.repeat(501)}),/身份说明/);
  assert.equal(requests.length,0);
- const application=await client.registerMaintainer(bankId,{...form,nickname:'',identity:'  题库课程助教\n负责勘误  '});
- assert.equal(requests.at(-1).path,'/v1/auth/register');assert.equal(requests.at(-1).body.real_name,'张三');assert.equal(requests.at(-1).body.phone,'13812345678');assert.equal(requests.at(-1).body.nickname,'');
+ const application=await client.registerMaintainer(bankId,{...form,nickname:'小星',identity:'  题库课程助教\n负责勘误  '});
+ assert.equal(requests.at(-1).path,'/v1/auth/register');assert.equal(requests.at(-1).body.real_name,'张三');assert.equal(requests.at(-1).body.phone,'13812345678');assert.equal(requests.at(-1).body.nickname,'小星');
  assert.equal(requests.at(-1).body.password,'StrongPass123');assert.equal(application.status,'pending');assert.equal(requests.at(-1).body.identity_description,'题库课程助教\n负责勘误');
 });
 
 test('manual form validation names the missing field before any login or request',async()=>{
  const {applicationFields}=load('services/maintainer-application.ts');
- const base={phone:'13812345678',realName:'张三',nickname:'',identity:'课程助教'};
+ const base={phone:'13812345678',realName:'张三',nickname:'小星',identity:'课程助教'};
  for(const [patch,message] of [[{phone:''},/手机号/],[{realName:' '},/真实姓名/],[{nickname:'a'.repeat(81)},/昵称/],[{identity:''},/身份说明/]])assert.throws(()=>applicationFields({...base,...patch}),message);
  assert.equal(applicationFields({...base,phone:'+86 13812345678'}).phone,'13812345678');
 });

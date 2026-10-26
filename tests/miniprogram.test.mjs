@@ -513,6 +513,6 @@ test('maintainer registration validates required information, shows progress and
  assert.equal(page.data.applying,true);assert.match(page.data.applicationMessage,/正在创建账号/);await page.onRegisterMaintainer();assert.equal(submits,1);
  resolve();await pending;assert.equal(page.data.applying,false);assert.match(page.data.applicationMessage,/网络中断/);
  emitter({records:[],error:''});assert.match(page.data.applicationMessage,/网络中断/);assert.equal(messages.length,3);
- const markup=await readFile(new URL('pages/intake/intake.wxml',base),'utf8');assert.ok(!markup.includes('getPhoneNumber'));assert.match(markup,/真实姓名（必填）/);assert.match(markup,/昵称（选填）/);
+ const markup=await readFile(new URL('pages/intake/intake.wxml',base),'utf8');assert.ok(!markup.includes('getPhoneNumber'));assert.match(markup,/真实姓名（必填）/);assert.match(markup,/昵称（必填，用于记录上传者）/);
  page.onUnload();
 });

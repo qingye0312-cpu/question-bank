@@ -5,7 +5,7 @@ import {cloudAccess,cloudCall,fetchCatalog,syncDesktop,cloudMutation} from './cl
 import type {CloudManifest} from '../shared/sync';
 import type {Bank,Question} from './types';
 
-type Version={revision:number;release_version:number;updated_at:string;merged_at?:string|null;release_name?:string|null;release_id?:string|null;rollback_at?:string|null;rollback_of?:number|null;merge_count:number};
+type Version={revision:number;release_version:number;updated_at:string;merged_at?:string|null;release_name?:string|null;release_id?:string|null;rollback_at?:string|null;rollback_of?:number|null;merge_count:number;uploader_account_id?:string|null;uploader_nickname?:string|null;uploader_auth_type?:'password'|'key'|null};
 type History={current_revision:number;release_version:number;versions:Version[]};
 
 export function CloudPanel({banks,onChanged,onClose,onBusy,embedded=false}:{banks:Bank[];onChanged:()=>Promise<unknown>;onClose:()=>void;onBusy:(value:boolean)=>void;embedded?:boolean}){
@@ -54,7 +54,7 @@ export function CloudPanel({banks,onChanged,onClose,onBusy,embedded=false}:{bank
     if(!window.confirm('将本机「'+(banks.find(b=>b.id===selected)?.name||'')+'」的 '+questions.length+' 道正式题初始化为云端首版？'))return;
     await cloudMutation('/v1/banks/'+selected+'/seed',{base_revision:history.current_revision,questions});await refreshHistory();await syncDesktop(selected);await onChanged();setMessage('云端正式首版已创建');
    })}>从本机正式题初始化首版</button>}
-   {!!history.versions.length?<section className="cloud-history"><h3>版本历史与回退</h3>{history.versions.map(v=><div className="cloud-bank" key={v.revision}><span><b>修订 {v.revision} · 正式 v{v.release_version}</b><small>{v.release_name||'未发布名称'} · {new Date(v.updated_at).toLocaleString()}{v.rollback_of?' · 回退自修订 '+v.rollback_of:''}</small></span><button disabled={busy||v.revision>=history.current_revision} onClick={()=>void task(async()=>{if(!window.confirm('确认将正式题库回退到修订 '+v.revision+'？当前版本会保留为历史记录。'))return;await cloudMutation('/v1/banks/'+selected+'/rollback',{base_revision:history.current_revision,target_revision:v.revision});await refreshHistory();await syncDesktop(selected);await onChanged();setMessage('已创建回退修订')})}>回退到此版本</button></div>)}</section>:<p className="callout">当前暂无可回退的历史版本。</p>}
+   {!!history.versions.length?<section className="cloud-history"><h3>版本历史与回退</h3>{history.versions.map(v=><div className="cloud-bank" key={v.revision}><span><b>修订 {v.revision} · 正式 v{v.release_version}</b><small title={v.uploader_account_id?'上传账号 ID：'+v.uploader_account_id:undefined}>{v.release_name||'未发布名称'} · {new Date(v.updated_at).toLocaleString()}{v.rollback_of?' · 回退自修订 '+v.rollback_of:''}{v.uploader_nickname?' · 上传者：'+v.uploader_nickname:v.merge_count&&!v.rollback_of?' · 上传者：旧版本仅存匿名标识':''}</small></span><button disabled={busy||v.revision>=history.current_revision} onClick={()=>void task(async()=>{if(!window.confirm('确认将正式题库回退到修订 '+v.revision+'？当前版本会保留为历史记录。'))return;await cloudMutation('/v1/banks/'+selected+'/rollback',{base_revision:history.current_revision,target_revision:v.revision});await refreshHistory();await syncDesktop(selected);await onChanged();setMessage('已创建回退修订')})}>回退到此版本</button></div>)}</section>:<p className="callout">当前暂无可回退的历史版本。</p>}
   </>}
   {selected&&message&&<p className="callout" role="status">{message}</p>}{busy&&<p>正在处理…</p>}
  </section>;
