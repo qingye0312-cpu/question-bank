@@ -264,9 +264,11 @@ jobs:
           host="${QBANK_RELEASE_SSH_HOST:-8.141.124.97}"
           port="${QBANK_RELEASE_SSH_PORT:-8013}"
           version="${GITHUB_REF_NAME#v}"
+          # Keep the current release and one complete rollback release on the host.
+          keep_versions=2
           [[ "$host" =~ ^[A-Za-z0-9.-]+$ ]] || { echo 'Invalid SSH host.' >&2; exit 1; }
           [[ "$port" =~ ^[0-9]+$ ]] || { echo 'Invalid SSH port.' >&2; exit 1; }
           scp -P "$port" -i "$HOME/.ssh/qbank-release" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes \
             release-assets/* "root@${host}:/tmp/"
           ssh -p "$port" -i "$HOME/.ssh/qbank-release" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes \
-            "root@${host}" "QBANK_RELEASE_VERSION='$version' sh -s" < tools/self-host/install-desktop-update-release.sh
+            "root@${host}" "QBANK_RELEASE_VERSION='$version' QBANK_DESKTOP_RELEASES_TO_KEEP='$keep_versions' sh -s" < tools/self-host/install-desktop-update-release.sh

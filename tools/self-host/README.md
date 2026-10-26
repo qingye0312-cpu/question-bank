@@ -65,6 +65,10 @@ sh mac/scripts/env.sh cargo test --manifest-path src-tauri/Cargo.toml --test clo
 
 第二条命令只读访问真实服务，将目录内所有题库应用到隔离临时数据库，核对题数和幂等，不写入日常数据库或远端题库。普通浏览器尚未信任这份私有 CA，小程序使用下述域名公开证书。[Caddy 内部证书说明](https://caddyserver.com/docs/automatic-https#local-https)、[sslh 协议分流说明](https://github.com/yrutschle/sslh)。
 
+## 桌面更新包留存
+
+GitHub `desktop-release` 工作流在小主机部署新版并通过 HTTPS 清单及更新包检查后，保留当前版和上一版两个完整版本，删除更旧的版本目录、兼容下载文件及旧 `latest.json` 备份。若主机侧 HTTPS 校验未完成、当前版或可回滚版本资产不完整，或没有有效的旧清单，清理会跳过以保留现有回滚文件。
+
 ## 小程序域名共用 8013
 
 客户端统一配置 `https://qbank.creart.top:8013`，微信 `request` 合法域名需填写相同地址。目录、版本检查、快照下载、手机号密码注册／登录、维护者申请和压缩上传均使用该入口。认证不依赖微信 AppID、AppSecret 或旧微信登录接口；旧身份仅保留为不可登录的归档数据。两端按完整云目录缓存所有题库，相同修订与摘要不重复下载，离线保留本地缓存。

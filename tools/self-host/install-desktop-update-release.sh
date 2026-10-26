@@ -22,6 +22,7 @@ WINDOWS_IN="/tmp/$WINDOWS_NAME"
 MANIFEST_IN=/tmp/latest.json
 BACKUPS=/var/backups/qbank-desktop-updates
 DOMAIN_CONFIG=/etc/caddy/qbank-domain.caddy
+DESKTOP_RELEASES_TO_KEEP="${QBANK_DESKTOP_RELEASES_TO_KEEP:-2}"
 
 for file in "$MAC_IN" "$MAC_IN.sig" "$MAC_DMG_IN" "$WINDOWS_IN" "$WINDOWS_IN.sig" \
   "/tmp/$PORTABLE_NAME" "/tmp/$SETUP_NAME" "$MANIFEST_IN"; do
@@ -106,6 +107,7 @@ restore_latest() {
   fi
 }
 
+HOST_UPDATE_VERIFIED=0
 if command -v curl >/dev/null 2>&1; then
   verified=0
   attempt=0
@@ -133,8 +135,140 @@ if command -v curl >/dev/null 2>&1; then
     echo 'Caddy served a different update manifest; restored the previous latest.json.' >&2
     exit 1
   fi
+  HOST_UPDATE_VERIFIED=1
 else
   echo 'curl unavailable; host-side HTTPS fetch was skipped.'
+fi
+
+# Prune only after the new manifest and both updater archives pass host-side HTTPS checks.
+if [ "$HOST_UPDATE_VERIFIED" -eq 1 ] && [ -n "$PREVIOUS_LATEST" ]; then
+  node - "$RELEASES" "$BACKUPS" "$VERSION" "$DESKTOP_RELEASES_TO_KEEP" "$PREVIOUS_LATEST" <<'NODE'
+const fs = require('node:fs');
+const path = require('node:path');
+
+const cleanup = () => {
+const [releaseRoot, backupsRoot, currentVersion, keepRaw, previousLatest] = process.argv.slice(2);
+const versionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+const parseVersion = version => {
+  const match = versionPattern.exec(version);
+  return match ? match.slice(1).map(BigInt) : null;
+};
+const compareVersions = (left, right) => {
+  const a = parseVersion(left);
+  const b = parseVersion(right);
+  for (let i = 0; i < 3; i++) {
+    if (a[i] < b[i]) return -1;
+    if (a[i] > b[i]) return 1;
+  }
+  return 0;
+};
+const keepCount = Number(keepRaw);
+if (!parseVersion(currentVersion)) throw new Error('Cleanup received an invalid current version.');
+if (!Number.isSafeInteger(keepCount) || keepCount < 1 || keepCount > 20) {
+  throw new Error('Desktop release retention must be an integer from 1 to 20.');
+}
+
+const hasCompleteRelease = version => {
+  const files = [
+    path.join(releaseRoot, version, 'SHA256SUMS'),
+    path.join(releaseRoot, version, `qbank-macos-arm64-${version}.app.tar.gz`),
+    path.join(releaseRoot, version, `qbank-macos-arm64-${version}.app.tar.gz.sig`),
+    path.join(releaseRoot, 'macos', version, `题库_${version}_macOS_arm64.dmg`),
+    path.join(releaseRoot, 'windows', version, `qbank-windows-x64-${version}.nsis.zip`),
+    path.join(releaseRoot, 'windows', version, `qbank-windows-x64-${version}.nsis.zip.sig`),
+    path.join(releaseRoot, 'windows', version, '题库_windows_x64_setup.exe'),
+    path.join(releaseRoot, 'windows', version, '题库_windows_x64_portable.exe'),
+  ];
+  return files.every(file => {
+    try {
+      const stat = fs.statSync(file);
+      return stat.isFile() && stat.size > 0;
+    } catch {
+      return false;
+    }
+  });
+};
+
+if (!hasCompleteRelease(currentVersion)) {
+  console.log('Cleanup skipped: the current release assets are incomplete.');
+  return;
+}
+
+const backupPattern = /^\d{8}T\d{6}Z-desktop-latest\.json$/;
+const previousName = path.basename(previousLatest);
+const backupsRootPath = path.resolve(backupsRoot);
+if (path.dirname(path.resolve(previousLatest)) !== backupsRootPath || !backupPattern.test(previousName)) {
+  console.log('Cleanup skipped: the previous manifest path is outside the backup directory.');
+  return;
+}
+const backups = fs.readdirSync(backupsRoot)
+  .filter(name => backupPattern.test(name))
+  .sort()
+  .reverse();
+if (!backups.includes(previousName)) {
+  console.log('Cleanup skipped: the previous manifest backup is missing.');
+  return;
+}
+
+const candidateBackups = [previousName, ...backups.filter(name => name !== previousName)];
+const retainedVersions = new Set([currentVersion]);
+const retainedBackups = new Set();
+for (const name of candidateBackups) {
+  if (retainedVersions.size >= keepCount) break;
+  let manifest;
+  try {
+    manifest = JSON.parse(fs.readFileSync(path.join(backupsRoot, name), 'utf8'));
+  } catch {
+    continue;
+  }
+  const version = typeof manifest.version === 'string' ? manifest.version : '';
+  if (!parseVersion(version) || retainedVersions.has(version) || !hasCompleteRelease(version)) continue;
+  retainedVersions.add(version);
+  retainedBackups.add(name);
+}
+
+if (retainedVersions.size < keepCount) {
+  console.log(`Cleanup skipped: only ${retainedVersions.size} complete release version(s) are available; preserving prior assets.`);
+  return;
+}
+
+const directories = new Set();
+for (const parent of [releaseRoot, path.join(releaseRoot, 'macos'), path.join(releaseRoot, 'windows')]) {
+  for (const entry of fs.readdirSync(parent, { withFileTypes: true })) {
+    if (entry.isDirectory() && parseVersion(entry.name)) directories.add(entry.name);
+  }
+}
+const compatibilityArchivePattern = /^qbank-macos-arm64-(\d+(?:\.\d+){2})\.app\.tar\.gz(?:\.sig)?$/;
+for (const name of fs.readdirSync(releaseRoot)) {
+  const match = compatibilityArchivePattern.exec(name);
+  if (match && parseVersion(match[1])) directories.add(match[1]);
+}
+
+const obsoleteVersions = [...directories].filter(version => !retainedVersions.has(version)).sort(compareVersions);
+for (const version of obsoleteVersions) {
+  for (const target of [
+    path.join(releaseRoot, version),
+    path.join(releaseRoot, 'macos', version),
+    path.join(releaseRoot, 'windows', version),
+    path.join(releaseRoot, `qbank-macos-arm64-${version}.app.tar.gz`),
+    path.join(releaseRoot, `qbank-macos-arm64-${version}.app.tar.gz.sig`),
+  ]) {
+    fs.rmSync(target, { recursive: true, force: true });
+  }
+  console.log(`Removed expired desktop release ${version}.`);
+}
+
+for (const name of backups) {
+  if (retainedBackups.has(name)) continue;
+  fs.rmSync(path.join(backupsRoot, name), { force: true });
+  console.log(`Removed expired latest.json backup ${name}.`);
+}
+console.log(`Retained desktop releases: ${[...retainedVersions].join(', ')}.`);
+};
+cleanup();
+NODE
+else
+  echo 'Host verification or previous latest.json backup unavailable; cleanup skipped to preserve existing release assets.'
 fi
 
 echo "Desktop release $VERSION published at $RELEASE"
