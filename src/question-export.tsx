@@ -1,5 +1,5 @@
 import React, {useState} from 'react';
-import {CalendarDays, Download, FileText, X} from 'lucide-react';
+import {CalendarDays, Clock3, Download, FileText, X} from 'lucide-react';
 import type {Bank} from './types';
 
 type ExportScope='all'|'range';
@@ -13,8 +13,10 @@ export function QuestionExport({banks,defaultBankId,busy,onClose,onExport}:{
 }){
  const [bankId,setBankId]=useState(defaultBankId);
  const [scope,setScope]=useState<ExportScope>('all');
- const [start,setStart]=useState('');
- const [end,setEnd]=useState('');
+ const [startDate,setStartDate]=useState('');
+ const [startTime,setStartTime]=useState('00:00');
+ const [endDate,setEndDate]=useState('');
+ const [endTime,setEndTime]=useState('23:59');
  const [confirming,setConfirming]=useState(false);
  const [validation,setValidation]=useState('');
  const selected=banks.find(bank=>bank.id===bankId);
@@ -23,8 +25,8 @@ export function QuestionExport({banks,defaultBankId,busy,onClose,onExport}:{
   setValidation('');
   if(!selected){setValidation('请先选择题库。');return}
   if(scope==='range'){
-   if(!start||!end){setValidation('请选择完整的录入时间范围。');return}
-   const from=new Date(start),through=new Date(end);
+   if(!startDate||!startTime||!endDate||!endTime){setValidation('请完整选择开始和结束的日期、时间。');return}
+   const from=new Date(`${startDate}T${startTime}`),through=new Date(`${endDate}T${endTime}`);
    if(!Number.isFinite(from.getTime())||!Number.isFinite(through.getTime())){setValidation('录入时间格式无效。');return}
    if(from>through){setValidation('开始时间不能晚于结束时间。');return}
   }
@@ -35,9 +37,8 @@ export function QuestionExport({banks,defaultBankId,busy,onClose,onExport}:{
   if(!selected)return;
   setConfirming(false);
   if(scope==='all'){onExport(bankId,null,null);return}
-  const from=new Date(start),through=new Date(end);
-  // datetime-local is minute-granular; adding one minute makes the displayed
-  // end minute inclusive while the backend can use a half-open interval.
+  const from=new Date(`${startDate}T${startTime}`),through=new Date(`${endDate}T${endTime}`);
+  // The selected end minute is inclusive; the backend uses a half-open interval.
   const endExclusive=new Date(through.getTime()+60_000);
   onExport(bankId,from.toISOString(),endExclusive.toISOString());
  }
@@ -68,8 +69,20 @@ export function QuestionExport({banks,defaultBankId,busy,onClose,onExport}:{
    {scope==='range'&&<div className="question-export-dates">
     <div className="question-export-dates-heading"><CalendarDays/><span><b>录入时间范围</b><small>开始和结束时间均包含在导出范围内</small></span></div>
     <div className="question-export-date-fields">
-     <label>开始时间<input aria-label="开始时间（包含）" type="datetime-local" value={start} onChange={event=>setStart(event.target.value)} disabled={busy}/></label>
-     <label>结束时间<input aria-label="结束时间（包含）" type="datetime-local" value={end} onChange={event=>setEnd(event.target.value)} disabled={busy}/></label>
+     <section className="question-export-date-card" aria-label="开始时间">
+      <b className="question-export-date-card-title">开始</b>
+      <div className="question-export-date-controls">
+       <label><span>日期</span><span className="question-export-input-icon"><CalendarDays/><input aria-label="开始日期" type="date" value={startDate} onChange={event=>setStartDate(event.target.value)} disabled={busy}/></span></label>
+       <label><span>时间</span><span className="question-export-input-icon"><Clock3/><input aria-label="开始时间" type="time" step="60" value={startTime} onChange={event=>setStartTime(event.target.value)} disabled={busy}/></span></label>
+      </div>
+     </section>
+     <section className="question-export-date-card" aria-label="结束时间">
+      <b className="question-export-date-card-title">结束</b>
+      <div className="question-export-date-controls">
+       <label><span>日期</span><span className="question-export-input-icon"><CalendarDays/><input aria-label="结束日期" type="date" value={endDate} onChange={event=>setEndDate(event.target.value)} disabled={busy}/></span></label>
+       <label><span>时间</span><span className="question-export-input-icon"><Clock3/><input aria-label="结束时间" type="time" step="60" value={endTime} onChange={event=>setEndTime(event.target.value)} disabled={busy}/></span></label>
+      </div>
+     </section>
     </div>
     <small className="question-export-dates-note">没有录入时间的题目不会包含在时间范围导出中。</small>
    </div>}
@@ -79,7 +92,7 @@ export function QuestionExport({banks,defaultBankId,busy,onClose,onExport}:{
    {confirming&&<div className="question-export-confirm-layer">
     <section className="question-export-confirm" role="alertdialog" aria-modal="true" aria-labelledby="question-export-confirm-title" aria-describedby="question-export-confirm-copy">
      <h3 id="question-export-confirm-title">确认导出题库？</h3>
-     <p id="question-export-confirm-copy">当前题库：<b>{selected?.release_name||selected?.name}</b><br/>{scope==='all'?'将导出该题库的全部题目。':`将导出 ${start.replace('T',' ')} 至 ${end.replace('T',' ')}（按录入时间筛选）。`}文件仅包含题目、选项、答案和答案解析。</p>
+     <p id="question-export-confirm-copy">当前题库：<b>{selected?.name}</b><br/>{scope==='all'?'将导出该题库的全部题目。':`将导出 ${startDate} ${startTime} 至 ${endDate} ${endTime}（按录入时间筛选）。`}文件仅包含题目、选项、答案和答案解析。</p>
      <div className="question-export-confirm-actions"><button disabled={busy} onClick={()=>setConfirming(false)}>取消</button><button className="primary" disabled={busy} onClick={confirmExport}>确认</button></div>
     </section>
    </div>}

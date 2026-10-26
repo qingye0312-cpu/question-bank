@@ -1150,9 +1150,14 @@ mark[data-term="11"] { background:var(--highlight-11); }
 .question-export-dates-heading b { color:var(--ink); font-size:.96rem; }
 .question-export-dates-heading small,.question-export-dates-note { color:var(--muted); font-size:.8rem; line-height:1.5; }
 .question-export-date-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem; }
-.question-export-date-fields label { display:grid!important; gap:.48rem!important; min-width:0; margin:.55rem 0 .15rem!important; color:var(--secondary); font-size:.88rem!important; font-weight:620; }
-.question-export-panel .question-export-date-fields input[type="datetime-local"] { width:100%; min-width:0; min-height:3.35rem; margin:0!important; padding:.72rem .8rem; border-radius:.68rem; font-size:.96rem; font-variant-numeric:tabular-nums; }
-.question-export-panel input[type="datetime-local"]::-webkit-calendar-picker-indicator { cursor:pointer; opacity:.72; transform:scale(1.1); }
+.question-export-date-card { min-width:0; padding:.9rem; border:1px solid var(--line); border-radius:.75rem; background:var(--surface); }
+.question-export-date-card-title { display:block; margin-bottom:.65rem; color:var(--ink); font-size:.95rem; }
+.question-export-date-controls { display:grid; grid-template-columns:minmax(0,1.25fr) minmax(7rem,.75fr); gap:.7rem; }
+.question-export-date-controls label { display:grid!important; gap:.42rem!important; min-width:0; margin:0!important; color:var(--secondary); font-size:.8rem!important; font-weight:620; }
+.question-export-input-icon { display:flex; align-items:center; gap:.45rem; min-width:0; min-height:3.1rem; padding:0 .6rem; border:1px solid var(--border); border-radius:.62rem; background:var(--surface); color:var(--accent); }
+.question-export-input-icon > svg { flex:0 0 auto; width:1rem; height:1rem; }
+.question-export-panel .question-export-date-controls input[type="date"],.question-export-panel .question-export-date-controls input[type="time"] { width:100%; min-width:0; height:3rem; margin:0!important; padding:.45rem .1rem; border:0; border-radius:.4rem; background:transparent; color:var(--ink); box-shadow:none; font-size:.85rem; font-variant-numeric:tabular-nums; }
+.question-export-panel .question-export-date-controls input[type="date"]::-webkit-calendar-picker-indicator,.question-export-panel .question-export-date-controls input[type="time"]::-webkit-calendar-picker-indicator { cursor:pointer; opacity:.72; }
 .question-export-dates-note { margin:.15rem 0 0; }
 .question-export-omissions { margin:1rem 0; padding:.85rem 1rem; line-height:1.65; }
 .question-export-panel > .primary.wide { min-height:3.2rem; margin-top:.2rem; border-radius:.7rem; font-size:.98rem; font-weight:650; }
@@ -1201,6 +1206,9 @@ input,select,textarea,fieldset { min-width:0; }
  .question-export-scope,.question-export-date-fields { grid-template-columns:1fr; }
  .question-export-scope { gap:.55rem; padding:.7rem; }
  .question-export-dates { padding:.9rem; }
+}
+@media(max-width:420px) {
+ .question-export-date-controls { grid-template-columns:1fr; }
 }
 
 /* Each day/night mode edits its matching saved palette. */
