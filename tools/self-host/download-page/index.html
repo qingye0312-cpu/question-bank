@@ -16,6 +16,7 @@
       --muted: #687a74;
       --line: #d7e5df;
       --accent: #236b57;
+      --ambient: #236b57;
       --shadow: 0 16px 40px rgb(32 48 44 / 6%);
       --heading-start: #000;
       --heading-end: #666;
@@ -29,6 +30,7 @@
         --muted: #b3b3b3;
         --line: #313131;
         --accent: #236b57;
+        --ambient: #98d4bd;
         --shadow: 0 16px 40px rgb(0 0 0 / 24%);
         --heading-start: #fff;
         --heading-end: #9b9b9b;
@@ -36,6 +38,8 @@
     }
     * { box-sizing: border-box; }
     body {
+      position: relative;
+      isolation: isolate;
       min-height: 100vh;
       margin: 0;
       display: grid;
@@ -44,6 +48,27 @@
       background: var(--bg);
       color: var(--text);
       font: 400 16px/24px Manrope, "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    .ambient-field {
+      position: fixed;
+      z-index: -1;
+      inset: 0;
+      overflow: hidden;
+      color: var(--ambient);
+      pointer-events: none;
+    }
+    .ambient-field svg {
+      position: absolute;
+      inset: -40px;
+      width: calc(100% + 80px);
+      height: calc(100% + 80px);
+      opacity: .2;
+      animation: ambient-drift 36s cubic-bezier(.22, 1, .36, 1) infinite alternate;
+      will-change: transform, opacity;
+    }
+    @keyframes ambient-drift {
+      from { opacity: .14; transform: translate3d(-10px, 6px, 0) scale(1); }
+      to { opacity: .28; transform: translate3d(10px, -6px, 0) scale(1.015); }
     }
     main { width: min(100%, 1040px); }
     .masthead {
@@ -289,10 +314,38 @@
         animation-iteration-count: 1 !important;
         transition-duration: .01ms !important;
       }
+      .ambient-field svg { animation: none !important; opacity: .21; }
     }
   </style>
 </head>
 <body>
+  <div class="ambient-field" aria-hidden="true">
+    <svg viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <pattern id="ambient-dots" width="64" height="64" patternUnits="userSpaceOnUse">
+          <circle cx="2" cy="2" r="1" fill="currentColor" opacity=".72"/>
+          <path d="M32 0v6M0 32h6" fill="none" stroke="currentColor" stroke-opacity=".2" stroke-width="1"/>
+        </pattern>
+        <pattern id="ambient-grid" width="192" height="192" patternUnits="userSpaceOnUse">
+          <path d="M192 0H0V192" fill="none" stroke="currentColor" stroke-opacity=".13" stroke-width="1"/>
+        </pattern>
+      </defs>
+      <rect width="1440" height="900" fill="url(#ambient-grid)"/>
+      <rect width="1440" height="900" fill="url(#ambient-dots)"/>
+      <g fill="none" stroke="currentColor" stroke-opacity=".24" stroke-width="1">
+        <circle cx="1190" cy="172" r="100"/>
+        <circle cx="1190" cy="172" r="148"/>
+        <circle cx="1190" cy="172" r="196"/>
+        <path d="M994 172h392M1190 -24v392" stroke-dasharray="2 10"/>
+      </g>
+      <g fill="currentColor" opacity=".52">
+        <circle cx="1090" cy="172" r="3"/>
+        <circle cx="1190" cy="24" r="3"/>
+        <circle cx="1386" cy="172" r="3"/>
+        <circle cx="1190" cy="368" r="3"/>
+      </g>
+    </svg>
+  </div>
   <main>
     <header class="masthead">
       <span class="brand-mark">
