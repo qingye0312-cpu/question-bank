@@ -36,7 +36,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build signed macOS app and updater archive
+      - name: Build macOS app, DMG, and signed updater archive
         env:
           QBANK_UPDATER_ENDPOINT: https://qbank.creart.top:8013/v1/desktop/latest.json
           QBANK_UPDATER_PUBLIC_KEY: ${{ vars.QBANK_UPDATER_PUBLIC_KEY }}
@@ -47,7 +47,7 @@ jobs:
           node tools/desktop-release/validate-version.mjs "$GITHUB_REF_NAME"
           version="${GITHUB_REF_NAME#v}"
           node tools/desktop-release/write-updater-config.mjs "$RUNNER_TEMP/qbank-updater-config.json"
-          pnpm tauri build --config "$RUNNER_TEMP/qbank-updater-config.json" -- --locked
+          pnpm tauri build --bundles app,dmg --config "$RUNNER_TEMP/qbank-updater-config.json" -- --locked
 
           output="$RUNNER_TEMP/qbank-release/macos"
           mkdir -p "$output"
@@ -60,6 +60,9 @@ jobs:
           name="qbank-macos-arm64-${version}.app.tar.gz"
           cp "$built" "$output/$name"
           cp "$built.sig" "$output/$name.sig"
+          dmg="$(find src-tauri/target/release/bundle/dmg -maxdepth 1 -type f -name '*.dmg' -print -quit)"
+          [ -n "$dmg" ] && [ -s "$dmg" ] || { echo 'macOS DMG missing' >&2; exit 1; }
+          cp "$dmg" "$output/题库_${version}_macOS_arm64.dmg"
 
       - uses: actions/upload-artifact@v7
         with:

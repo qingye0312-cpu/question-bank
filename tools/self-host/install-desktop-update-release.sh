@@ -9,18 +9,21 @@ printf '%s\n' "$VERSION" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9]
 ROOT=/var/lib/qbank-desktop-updates
 RELEASES="$ROOT/releases"
 RELEASE="$RELEASES/$VERSION"
+MACOS_RELEASE="$RELEASES/macos/$VERSION"
 WINDOWS_RELEASE="$RELEASES/windows/$VERSION"
 MAC_NAME="qbank-macos-arm64-$VERSION.app.tar.gz"
+MAC_DMG_NAME="题库_${VERSION}_macOS_arm64.dmg"
 WINDOWS_NAME="qbank-windows-x64-$VERSION.nsis.zip"
 PORTABLE_NAME='题库_windows_x64_portable.exe'
 SETUP_NAME='题库_windows_x64_setup.exe'
 MAC_IN="/tmp/$MAC_NAME"
+MAC_DMG_IN="/tmp/$MAC_DMG_NAME"
 WINDOWS_IN="/tmp/$WINDOWS_NAME"
 MANIFEST_IN=/tmp/latest.json
 BACKUPS=/var/backups/qbank-desktop-updates
 DOMAIN_CONFIG=/etc/caddy/qbank-domain.caddy
 
-for file in "$MAC_IN" "$MAC_IN.sig" "$WINDOWS_IN" "$WINDOWS_IN.sig" \
+for file in "$MAC_IN" "$MAC_IN.sig" "$MAC_DMG_IN" "$WINDOWS_IN" "$WINDOWS_IN.sig" \
   "/tmp/$PORTABLE_NAME" "/tmp/$SETUP_NAME" "$MANIFEST_IN"; do
   [ -s "$file" ] || { echo "missing staged release file: $file" >&2; exit 1; }
 done
@@ -40,9 +43,9 @@ if (mac.signature !== fs.readFileSync(`/tmp/${macName}.sig`, 'utf8').trim()) thr
 if (windows.signature !== fs.readFileSync(`/tmp/${windowsName}.sig`, 'utf8').trim()) throw new Error('Windows signature differs from manifest');
 NODE
 
-mkdir -p "$RELEASE" "$WINDOWS_RELEASE" "$BACKUPS"
-chown root:caddy "$ROOT" "$RELEASES" "$RELEASE" "$RELEASES/windows" "$WINDOWS_RELEASE" 2>/dev/null || true
-chmod 0750 "$ROOT" "$RELEASES" "$RELEASE" "$RELEASES/windows" "$WINDOWS_RELEASE"
+mkdir -p "$RELEASE" "$MACOS_RELEASE" "$WINDOWS_RELEASE" "$BACKUPS"
+chown root:caddy "$ROOT" "$RELEASES" "$RELEASE" "$RELEASES/macos" "$MACOS_RELEASE" "$RELEASES/windows" "$WINDOWS_RELEASE" 2>/dev/null || true
+chmod 0750 "$ROOT" "$RELEASES" "$RELEASE" "$RELEASES/macos" "$MACOS_RELEASE" "$RELEASES/windows" "$WINDOWS_RELEASE"
 
 install_immutable() {
   source=$1
@@ -57,6 +60,7 @@ install_immutable() {
 
 install_immutable "$MAC_IN" "$RELEASE/$MAC_NAME" 0640
 install_immutable "$MAC_IN.sig" "$RELEASE/$MAC_NAME.sig" 0640
+install_immutable "$MAC_DMG_IN" "$MACOS_RELEASE/$MAC_DMG_NAME" 0640
 install_immutable "$WINDOWS_IN" "$WINDOWS_RELEASE/$WINDOWS_NAME" 0640
 install_immutable "$WINDOWS_IN.sig" "$WINDOWS_RELEASE/$WINDOWS_NAME.sig" 0640
 install_immutable "/tmp/$SETUP_NAME" "$WINDOWS_RELEASE/$SETUP_NAME" 0640
@@ -72,6 +76,7 @@ for name in "$MAC_NAME" "$MAC_NAME.sig"; do
 done
 
 (cd "$RELEASE" && sha256sum "$MAC_NAME" "$MAC_NAME.sig" \
+  "../macos/$VERSION/$MAC_DMG_NAME" \
   "../windows/$VERSION/$WINDOWS_NAME" "../windows/$VERSION/$WINDOWS_NAME.sig" \
   "../windows/$VERSION/$SETUP_NAME" "../windows/$VERSION/$PORTABLE_NAME" > SHA256SUMS)
 chown root:caddy "$RELEASE/SHA256SUMS"
