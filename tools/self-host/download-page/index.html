@@ -822,23 +822,14 @@
             context.translate(x, y);
             context.rotate(angle);
             context.globalAlpha = .42 + proximity * .58;
-            context.lineWidth = .55 + proximity * .32;
+            context.lineWidth = .55 + proximity * .25;
             context.beginPath();
             context.moveTo(-length * .48, 0);
-            context.lineTo(length * .12, 0);
+            context.lineTo(length * .48, 0);
+            context.moveTo(length * .16, -length * .25);
+            context.lineTo(length * .48, 0);
+            context.lineTo(length * .16, length * .25);
             context.stroke();
-            const tip = length * .48;
-            const base = length * .12;
-            const headWidth = length * .18;
-            context.fillStyle = colors.vector;
-            context.beginPath();
-            context.moveTo(tip, 0);
-            context.quadraticCurveTo(tip - length * .08, -headWidth * .55, base, -headWidth);
-            context.quadraticCurveTo(base + length * .18, -headWidth * .22, base + length * .08, 0);
-            context.quadraticCurveTo(base + length * .18, headWidth * .22, base, headWidth);
-            context.quadraticCurveTo(tip - length * .08, headWidth * .55, tip, 0);
-            context.closePath();
-            context.fill();
             context.restore();
           }
         }
