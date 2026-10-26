@@ -44,7 +44,7 @@
       margin: 0;
       display: grid;
       place-items: center;
-      padding: 48px 24px;
+      padding: 32px 24px 72px;
       background: var(--bg);
       color: var(--text);
       font: 400 16px/24px Manrope, "PingFang SC", "Microsoft YaHei", sans-serif;
@@ -88,6 +88,25 @@
       opacity: .2;
       animation: ambient-drift 36s cubic-bezier(.22, 1, .36, 1) infinite alternate;
       will-change: transform, opacity;
+    }
+    .ambient-field .orbit-highlight,
+    .ambient-field .orbit-spark {
+      transform-box: view-box;
+      transform-origin: 82.64% 19.11%;
+      animation: orbit-sweep 20s cubic-bezier(.22, 1, .36, 1) infinite alternate;
+      will-change: transform, opacity;
+    }
+    .ambient-field .orbit-highlight {
+      filter: drop-shadow(0 0 8px color-mix(in srgb, var(--ambient) 65%, transparent));
+    }
+    .ambient-field .orbit-spark--outer {
+      animation-duration: 27s;
+      animation-delay: -9s;
+      animation-direction: alternate-reverse;
+    }
+    @keyframes orbit-sweep {
+      from { opacity: .22; transform: rotate(-36deg); }
+      to { opacity: .92; transform: rotate(36deg); }
     }
     @keyframes ambient-drift {
       from { opacity: .14; transform: translate3d(-10px, 6px, 0) scale(1); }
@@ -339,6 +358,8 @@
       }
       .ambient-glow::before { animation: none !important; }
       .ambient-field svg { animation: none !important; opacity: .21; }
+      .ambient-field .orbit-highlight,
+      .ambient-field .orbit-spark { animation: none !important; opacity: .48; }
     }
   </style>
 </head>
@@ -368,6 +389,15 @@
         <circle cx="1190" cy="24" r="3"/>
         <circle cx="1386" cy="172" r="3"/>
         <circle cx="1190" cy="368" r="3"/>
+      </g>
+      <g class="orbit-highlight" fill="none" stroke="currentColor" stroke-linecap="round">
+        <circle cx="1190" cy="172" r="148" stroke-width="2" stroke-opacity=".82" stroke-dasharray="44 886"/>
+        <circle cx="1338" cy="172" r="4" fill="currentColor" stroke="none"/>
+        <circle cx="1338" cy="172" r="10" stroke-width="1" stroke-opacity=".58"/>
+      </g>
+      <g class="orbit-spark orbit-spark--outer" fill="currentColor" stroke="currentColor">
+        <circle cx="1386" cy="172" r="3" stroke="none"/>
+        <circle cx="1386" cy="172" r="9" fill="none" stroke-opacity=".52" stroke-width="1"/>
       </g>
     </svg>
   </div>
