@@ -15,8 +15,13 @@ pub mod promotion;
 pub mod updater;
 use db::{Query, Results, Store};
 use model::*;
-use std::{path::PathBuf, sync::{Arc, Mutex}};
-use tauri::{Manager, State};
+use std::{
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
+use tauri::{Manager, PhysicalSize, State};
+
+const MAIN_WINDOW_ASPECT_RATIO: f64 = 4.0 / 3.0;
 
 struct AppState {
     store: Store,
@@ -27,24 +32,63 @@ async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T> + Send + 'sta
 }
 
 pub fn run() {
+    let resize_tracker = Arc::new(Mutex::new(None::<PhysicalSize<u32>>));
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             desktop::focus(app)
         }))
-        .on_window_event(|w, event| {
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                if w.label() == "main" && w.app_handle()
-                    .try_state::<desktop::Features>()
-                    .is_some_and(|f| f.tray)
-                {
-                    api.prevent_close();
-                    if let Err(error) = desktop::hide_after_close(w.app_handle(), w) {
-                        eprintln!("Could not hide main window: {error}");
+        .on_window_event({
+            let resize_tracker = Arc::clone(&resize_tracker);
+            move |w, event| {
+                if w.label() == "main" {
+                    if let tauri::WindowEvent::Resized(size) = event {
+                        let size = *size;
+                        if let Ok(mut previous_size) = resize_tracker.lock() {
+                            let previous = previous_size.replace(size);
+                            if size.width > 0
+                                && size.height > 0
+                                && !w.is_maximized().unwrap_or(false)
+                                && !w.is_fullscreen().unwrap_or(false)
+                            {
+                                if let Some(previous) = previous {
+                                    let width_change = size.width.abs_diff(previous.width);
+                                    let height_change = size.height.abs_diff(previous.height);
+                                    let constrained = if width_change >= height_change {
+                                        PhysicalSize::new(
+                                            size.width,
+                                            (size.width as f64 / MAIN_WINDOW_ASPECT_RATIO).round() as u32,
+                                        )
+                                    } else {
+                                        PhysicalSize::new(
+                                            (size.height as f64 * MAIN_WINDOW_ASPECT_RATIO).round() as u32,
+                                            size.height,
+                                        )
+                                    };
+                                    if constrained != size {
+                                        *previous_size = Some(constrained);
+                                        if let Err(error) = w.set_size(constrained) {
+                                            eprintln!("Could not preserve main window aspect ratio: {error}");
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
-            }
-            if let tauri::WindowEvent::ThemeChanged(_) = event {
-                tray_style::refresh_system_style(w.app_handle());
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    if w.label() == "main" && w.app_handle()
+                        .try_state::<desktop::Features>()
+                        .is_some_and(|f| f.tray)
+                    {
+                        api.prevent_close();
+                        if let Err(error) = desktop::hide_after_close(w.app_handle(), w) {
+                            eprintln!("Could not hide main window: {error}");
+                        }
+                    }
+                }
+                if let tauri::WindowEvent::ThemeChanged(_) = event {
+                    tray_style::refresh_system_style(w.app_handle());
+                }
             }
         })
         .plugin(tauri_plugin_dialog::init())

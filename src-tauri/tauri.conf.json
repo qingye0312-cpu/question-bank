@@ -13,10 +13,10 @@
     "windows": [
       {
         "title": "题库 · 离线知识工作台",
-        "width": 1320,
-        "height": 850,
-        "minWidth": 1050,
-        "minHeight": 680
+        "width": 1200,
+        "height": 900,
+        "minWidth": 1056,
+        "minHeight": 792
       }
     ],
     "security": {
