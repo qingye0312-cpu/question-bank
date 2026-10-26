@@ -1,5 +1,5 @@
 import React, {useState} from 'react';
-import {Download, FileText, X} from 'lucide-react';
+import {CalendarDays, Download, FileText, X} from 'lucide-react';
 import type {Bank} from './types';
 
 type ExportScope='all'|'range';
@@ -47,22 +47,31 @@ export function QuestionExport({banks,defaultBankId,busy,onClose,onExport}:{
    <button className="close-modal" aria-label="关闭题目导出" disabled={busy} onClick={onClose}><X/></button>
    <div className="modal-icon"><FileText/></div>
    <h2 id="question-export-title">导出题目</h2>
-   <p>按推荐格式导出 DOCX。文件只写入题目、选项、答案和答案解析。</p>
-   <label>选择题库
-    <select value={bankId} onChange={event=>setBankId(event.target.value)} disabled={busy}>
+   <p className="question-export-intro">按推荐格式导出 DOCX。文件只写入题目、选项、答案和答案解析。</p>
+   <label className="question-export-bank-label">选择题库
+    <select className="question-export-bank-select" value={bankId} onChange={event=>setBankId(event.target.value)} disabled={busy}>
      <option value="" disabled>请选择题库</option>
-     {banks.map(bank=><option key={bank.id} value={bank.id}>{bank.release_name||bank.name} · {bank.count.toLocaleString()} 题</option>)}
+     {banks.map(bank=><option key={bank.id} value={bank.id}>{bank.name} · {bank.count.toLocaleString()} 题</option>)}
     </select>
    </label>
    <fieldset className="question-export-scope">
-    <legend>录入时间</legend>
-    <label><input type="radio" name="question-export-scope" checked={scope==='all'} onChange={()=>setScope('all')}/>全部导出</label>
-    <label><input type="radio" name="question-export-scope" checked={scope==='range'} onChange={()=>setScope('range')}/>按时间范围导出</label>
+    <legend>导出范围</legend>
+    <label className={`question-export-mode ${scope==='all'?'selected':''}`}>
+     <input type="radio" name="question-export-scope" checked={scope==='all'} onChange={()=>setScope('all')}/>
+     <span className="question-export-mode-copy"><b>全部导出</b><small>导出所选题库的全部题目</small></span>
+    </label>
+    <label className={`question-export-mode ${scope==='range'?'selected':''}`}>
+     <input type="radio" name="question-export-scope" checked={scope==='range'} onChange={()=>setScope('range')}/>
+     <span className="question-export-mode-copy"><b>按时间范围</b><small>仅导出所选录入时段内的题目</small></span>
+    </label>
    </fieldset>
    {scope==='range'&&<div className="question-export-dates">
-    <label>开始时间（包含）<input type="datetime-local" value={start} onChange={event=>setStart(event.target.value)} disabled={busy}/></label>
-    <label>结束时间（包含）<input type="datetime-local" value={end} onChange={event=>setEnd(event.target.value)} disabled={busy}/></label>
-    <small>没有录入时间的题目不会包含在时间范围导出中。</small>
+    <div className="question-export-dates-heading"><CalendarDays/><span><b>录入时间范围</b><small>开始和结束时间均包含在导出范围内</small></span></div>
+    <div className="question-export-date-fields">
+     <label>开始时间<input aria-label="开始时间（包含）" type="datetime-local" value={start} onChange={event=>setStart(event.target.value)} disabled={busy}/></label>
+     <label>结束时间<input aria-label="结束时间（包含）" type="datetime-local" value={end} onChange={event=>setEnd(event.target.value)} disabled={busy}/></label>
+    </div>
+    <small className="question-export-dates-note">没有录入时间的题目不会包含在时间范围导出中。</small>
    </div>}
    <div className="callout question-export-omissions">不导出题库名称、题号、章节、标签、难度、来源、录入时间等题库信息。选项按模板逐行排列，不在选项间插入空行。</div>
    {validation&&<p className="question-export-error" role="alert">{validation}</p>}
