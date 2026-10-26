@@ -18,6 +18,23 @@ pnpm self-host:deploy
 
 生成 `artifacts/self-host/qbank-auth-0.2.8.tar.gz`。部署脚本通过 SSH/SCP 将服务包放到 `/opt/qbank-auth/releases/`，解压到带时间戳的目录，再原子切换 `/opt/qbank-auth/current`，不会覆盖正在运行的目录。
 
+## WebRTC 快速下载实验
+
+实验下载页独立使用 `https://qbank.creart.top:8013/fastdowmload`。原 `/download` 页面、静态文件和部署脚本保持独立，不会被此功能覆盖。
+
+用户明确点击直连按钮后，浏览器经 HTTPS 把 WebRTC offer 发给小主机；小主机从现有 Caddy 本机 HTTPS 文件路由读取当前安装包，再通过 DataChannel 尝试直传。Caddy／FRP 只承载页面、协商信息和普通 HTTPS 回退流量。网页将收到的文件按 SHA-256 校验后保存；直连失败时用户仍可选择普通 HTTPS 下载。
+
+此功能要求自托管主机使用 Node.js 22 或更新版本。WebRTC 直连需要两端网络允许 UDP 和 NAT 打洞；当前实验使用 Cloudflare 公共 STUN，不部署 TURN。遇到严格 CGNAT、UDP 被阻断或 STUN 不可达时，应使用页面里的普通 HTTPS 下载。
+
+首次准备独立 WebRTC 运行依赖并生成包：
+
+```sh
+pnpm --dir tools/self-host/fastdownload-server install --ignore-workspace
+pnpm build:fastdownload
+```
+
+部署实验入口需明确运行 `pnpm self-host:fastdownload-deploy`。可通过 `QBANK_SSH_HOST`、`QBANK_FASTDOWNLOAD_HOSTNAME`、`QBANK_FASTDOWNLOAD_PUBLIC_ORIGIN` 和 `QBANK_FASTDOWNLOAD_STUN_URLS` 指定远端、Caddy 域名、网页公网来源和 STUN 列表。安装脚本只增加 `/fastdowmload` 的 Caddy 路由、单独启动本机 `127.0.0.1:8090` 服务，并在本机 HTTPS 检查失败时恢复 Caddy 配置。
+
 ## 环境变量
 
 将受限的环境文件放在 `/etc/qbank-auth/qbank-auth.env`，权限 `0600`，可从 [cloud/qbank-auth/.env.example](../../cloud/qbank-auth/.env.example) 复制模板。至少配置会话密钥、题库目录、桌面维护者和最高权限账号，并增加：

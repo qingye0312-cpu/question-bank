@@ -1,0 +1,12 @@
+#!/sbin/openrc-run
+name="qbank-fastdownload"
+description="Experimental WebRTC desktop release downloads"
+command="/usr/bin/node"
+command_args="/opt/qbank-fastdownload/current/server/server.mjs"
+command_user="qbank:qbank"
+directory="/opt/qbank-fastdownload/current/server"
+pidfile="/run/${RC_SVCNAME}.pid"
+command_background="yes"
+output_log="/var/log/qbank-fastdownload.log"
+error_log="/var/log/qbank-fastdownload.err"
+depend() { need net; after firewall caddy; }

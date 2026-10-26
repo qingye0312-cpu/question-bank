@@ -10,6 +10,16 @@ https://qbank.creart.top:8443 {
 		header Cache-Control "no-cache"
 		file_server
 	}
+	handle /fastdowmload/api* {
+		reverse_proxy 127.0.0.1:8090
+	}
+	handle /fastdowmload* {
+		root * /var/lib/qbank-fastdownload/site
+		@fastdownloadIndex path /fastdowmload /fastdowmload/
+		rewrite @fastdownloadIndex /fastdowmload/index.html
+		header Cache-Control "no-cache"
+		file_server
+	}
 	handle_path /v1/desktop/releases/* {
 		root * /var/lib/qbank-desktop-updates/releases
 		file_server

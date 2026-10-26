@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#236b57">
+  <title>题库 · 快速下载实验</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f3f7f5;
+      --surface: #fff;
+      --text: #20302c;
+      --muted: #687a74;
+      --line: #d7e5df;
+      --accent: #236b57;
+      --accent-soft: #e7f1ed;
+      --shadow: 0 18px 50px rgb(32 48 44 / 8%);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #171c1b;
+        --surface: #202725;
+        --text: #edf4f1;
+        --muted: #aab9b3;
+        --line: #3a4944;
+        --accent: #98d4bd;
+        --accent-soft: #293c35;
+        --shadow: 0 18px 50px rgb(0 0 0 / 22%);
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      min-height: 100vh;
+      margin: 0;
+      display: grid;
+      place-items: center;
+      padding: 32px 20px;
+      background: var(--bg);
+      color: var(--text);
+      font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    main { width: min(100%, 880px); }
+    .eyebrow { margin: 0 0 4px; color: var(--accent); font-size: 12px; font-weight: 750; letter-spacing: .16em; text-transform: uppercase; }
+    h1 { margin: 0; font-size: clamp(30px, 6vw, 46px); line-height: 1.15; letter-spacing: -.035em; }
+    .intro { max-width: 700px; margin: 14px 0 12px; color: var(--muted); font-size: 16px; }
+    .status { min-height: 28px; margin: 0 0 22px; color: var(--muted); font-size: 14px; }
+    .status.error { color: #b13e3e; }
+    .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+    .card { min-width: 0; padding: 22px; border: 1px solid var(--line); border-radius: 20px; background: var(--surface); box-shadow: var(--shadow); }
+    .card.recommended { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent), var(--shadow); }
+    .card-head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+    .icon { display: grid; width: 44px; height: 44px; flex: 0 0 44px; place-items: center; border-radius: 13px; background: var(--accent-soft); color: var(--accent); font-size: 23px; font-weight: 750; }
+    h2 { margin: 0; font-size: 20px; }
+    .subtitle { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+    .actions { display: grid; gap: 9px; }
+    button, a.button {
+      display: flex;
+      min-height: 46px;
+      align-items: center;
+      justify-content: center;
+      padding: 10px 14px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: transparent;
+      color: var(--text);
+      font: inherit;
+      font-size: 14px;
+      font-weight: 700;
+      text-align: center;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    button.primary { border-color: var(--accent); background: var(--accent); color: #fff; }
+    @media (prefers-color-scheme: dark) { button.primary { color: #14221d; } }
+    button:disabled { opacity: .48; cursor: not-allowed; }
+    a.button:hover:not([aria-disabled="true"]) { border-color: var(--accent); background: var(--accent-soft); }
+    a.button[aria-disabled="true"] { opacity: .48; pointer-events: none; }
+    .detail { margin: 12px 0 0; color: var(--muted); font-size: 12px; }
+    .footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; margin-top: 20px; color: var(--muted); font-size: 13px; }
+    .footer a { color: var(--accent); text-underline-offset: 3px; }
+    progress { width: 100%; height: 8px; margin-top: 12px; accent-color: var(--accent); }
+    @media (max-width: 620px) {
+      body { place-items: start center; padding: 32px 16px 24px; }
+      .cards { grid-template-columns: 1fr; }
+      .card { padding: 19px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="eyebrow">Question Bank · Experimental</p>
+    <h1>快速下载实验</h1>
+    <p class="intro">点击“尝试直连”后，页面会先和小主机协商，再尝试通过 WebRTC 直接传输安装包。直连失败时，可以改用普通 HTTPS 下载；建立直连后，双方会看到对方的公网出口 IP。</p>
+    <p class="status" id="status" role="status" aria-live="polite">正在获取版本和直连配置…</p>
+
+    <section class="cards" aria-label="选择桌面版本">
+      <article class="card" id="mac-card">
+        <div class="card-head"><span class="icon" aria-hidden="true">⌘</span><div><h2>macOS</h2><p class="subtitle">Apple 芯片 · DMG 安装包</p></div></div>
+        <div class="actions">
+          <button class="primary direct" data-artifact="macos" disabled>尝试直连下载</button>
+          <a class="button fallback" id="mac-fallback" href="#" aria-disabled="true">普通 HTTPS 下载</a>
+        </div>
+        <p class="detail">直连包会校验 SHA-256；连接失败时可用普通下载。</p>
+        <progress id="mac-progress" max="100" value="0" hidden></progress>
+      </article>
+
+      <article class="card" id="windows-card">
+        <div class="card-head"><span class="icon" aria-hidden="true">⊞</span><div><h2>Windows</h2><p class="subtitle">Windows 10 / 11 · x64</p></div></div>
+        <div class="actions">
+          <button class="primary direct" data-artifact="windows-setup" disabled>尝试直连安装版</button>
+          <a class="button fallback" id="windows-setup-fallback" href="#" aria-disabled="true">普通 HTTPS 安装版</a>
+          <button class="direct" data-artifact="windows-portable" disabled>尝试直连便携版</button>
+          <a class="button fallback" id="windows-portable-fallback" href="#" aria-disabled="true">普通 HTTPS 便携版</a>
+        </div>
+        <p class="detail">安装版支持自动更新；便携版无需安装。</p>
+        <progress id="windows-progress" max="100" value="0" hidden></progress>
+      </article>
+    </section>
+
+    <footer class="footer">
+      <span id="release-version">题库桌面版</span>
+      <a href="https://github.com/qingye0312-cpu/question-bank/releases/latest" target="_blank" rel="noreferrer">在 GitHub 查看所有版本</a>
+    </footer>
+  </main>
+  <script>
+    const statusNode = document.querySelector('#status');
+    const versionNode = document.querySelector('#release-version');
+    const platform = String(navigator.userAgentData?.platform || navigator.platform || navigator.userAgent || '').toLowerCase();
+    const detected = platform.includes('win') ? 'windows' : platform.includes('mac') ? 'mac' : '';
+    if (detected) document.querySelector(`#${detected}-card`).classList.add('recommended');
+
+    const config = { version: '', iceServers: [], artifacts: {} };
+    const definitions = {
+      macos: { filename: version => `题库_${version}_macOS_arm64.dmg`, path: version => `../macos/${version}/题库_${version}_macOS_arm64.dmg`, fallback: 'mac-fallback', progress: 'mac-progress' },
+      'windows-setup': { filename: () => '题库_windows_x64_setup.exe', path: version => `../windows/${version}/题库_windows_x64_setup.exe`, fallback: 'windows-setup-fallback', progress: 'windows-progress' },
+      'windows-portable': { filename: () => '题库_windows_x64_portable.exe', path: version => `../windows/${version}/题库_windows_x64_portable.exe`, fallback: 'windows-portable-fallback', progress: 'windows-progress' },
+    };
+
+    function setFallback(id, url) {
+      const link = document.getElementById(id);
+      link.href = url;
+      link.removeAttribute('aria-disabled');
+    }
+
+    function parseChecksums(text) {
+      const values = new Map();
+      for (const line of text.split(/\r?\n/)) {
+        const match = line.match(/^([a-f0-9]{64})\s+(.+)$/i);
+        if (match) values.set(match[2], match[1].toLowerCase());
+      }
+      return values;
+    }
+
+    function waitForGathering(peer, timeoutMs) {
+      if (peer.iceGatheringState === 'complete') return Promise.resolve();
+      return new Promise(resolve => {
+        const timeout = setTimeout(finish, timeoutMs);
+        function finish() {
+          clearTimeout(timeout);
+          peer.removeEventListener('icegatheringstatechange', onChange);
+          resolve();
+        }
+        function onChange() { if (peer.iceGatheringState === 'complete') finish(); }
+        peer.addEventListener('icegatheringstatechange', onChange);
+      });
+    }
+
+    function waitForDigest(worker) {
+      return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('SHA-256 校验超时')), 30_000);
+        const onMessage = event => {
+          if (event.data?.type !== 'digest') return;
+          clearTimeout(timeout);
+          worker.removeEventListener('message', onMessage);
+          resolve(event.data.hex);
+        };
+        worker.addEventListener('message', onMessage);
+        worker.postMessage({ type: 'finish' });
+      });
+    }
+
+    function waitForHashAck(worker, received) {
+      return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('SHA-256 校验进度超时')), 30_000);
+        const onMessage = event => {
+          if (event.data?.type !== 'ack' || event.data.received !== received) return;
+          clearTimeout(timeout);
+          worker.removeEventListener('message', onMessage);
+          resolve();
+        };
+        worker.addEventListener('message', onMessage);
+        worker.postMessage({ type: 'ack', received });
+      });
+    }
+
+    async function directDownload(key, button) {
+      const expected = config.artifacts[key];
+      const definition = definitions[key];
+      const progress = document.getElementById(definition.progress);
+      const fallback = document.getElementById(definition.fallback);
+      let writable;
+      let writer;
+      let peer;
+      let worker;
+      let completed = false;
+      let received = 0;
+      let acknowledged = 0;
+      let metadata;
+      const chunks = [];
+      let writeChain = Promise.resolve();
+      button.disabled = true;
+      statusNode.classList.remove('error');
+      progress.hidden = false;
+      progress.value = 0;
+      try {
+        if (typeof window.showSaveFilePicker === 'function') {
+          const handle = await window.showSaveFilePicker({ suggestedName: expected.filename });
+          writable = await handle.createWritable();
+        }
+
+        worker = new Worker('/fastdowmload/sha256-worker.js', { type: 'module' });
+        peer = new RTCPeerConnection({ iceServers: config.iceServers });
+        const channel = peer.createDataChannel('fastdownload', { ordered: true });
+        channel.binaryType = 'arraybuffer';
+
+        const transfer = new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error('等待直连或文件传输超时')), 120_000);
+          const fail = error => { clearTimeout(timeout); reject(error); };
+          peer.addEventListener('connectionstatechange', () => {
+            if (peer.connectionState === 'failed' || peer.connectionState === 'closed') fail(new Error('两端网络无法建立直连'));
+          });
+          channel.addEventListener('close', () => { if (!completed) fail(new Error('直连通道中断')); });
+          channel.addEventListener('error', () => fail(new Error('直连通道发生错误')));
+          channel.addEventListener('message', event => {
+            if (typeof event.data !== 'string') {
+              if (!metadata) return fail(new Error('收到文件数据前没有文件信息'));
+              const bytes = new Uint8Array(event.data);
+              received += bytes.byteLength;
+              if (received > metadata.size) return fail(new Error('收到的文件长度异常'));
+              const hashCopy = bytes.slice();
+              worker.postMessage({ type: 'chunk', bytes: hashCopy.buffer }, [hashCopy.buffer]);
+              if (writable) writeChain = writeChain.then(() => writable.write(bytes));
+              else chunks.push(bytes);
+              progress.value = Math.min(99, Math.floor(received / metadata.size * 100));
+              statusNode.textContent = `WebRTC 直连传输中：${(received / 1024 / 1024).toFixed(1)} / ${(metadata.size / 1024 / 1024).toFixed(1)} MB`;
+              if (received - acknowledged >= 1024 * 1024 || received === metadata.size) {
+                const upto = received;
+                const writes = writeChain;
+                const hashed = waitForHashAck(worker, upto);
+                void Promise.all([writes, hashed]).then(() => {
+                  acknowledged = upto;
+                  if (channel.readyState === 'open') channel.send(JSON.stringify({ type: 'ack', received: upto }));
+                }).catch(fail);
+              }
+              return;
+            }
+            let message;
+            try { message = JSON.parse(event.data); } catch { return fail(new Error('收到无法识别的传输消息')); }
+            if (message.type === 'metadata') {
+              if (message.version !== config.version || message.filename !== expected.filename || message.sha256 !== expected.sha256 || !Number.isSafeInteger(message.size) || message.size <= 0) {
+                return fail(new Error('服务端文件信息与 HTTPS 校验清单不一致'));
+              }
+              if (!writable && message.size > 256 * 1024 * 1024) return fail(new Error('当前浏览器不支持大文件直写，请使用普通 HTTPS 下载'));
+              metadata = message;
+              channel.send(JSON.stringify({ type: 'ready' }));
+              statusNode.textContent = '已协商传输参数，正在尝试 WebRTC 直连…';
+              return;
+            }
+            if (message.type === 'error') return fail(new Error(message.message || '发送端读取文件失败'));
+            if (message.type === 'complete') {
+              if (!metadata || received !== metadata.size || message.size !== metadata.size || message.sha256 !== metadata.sha256) {
+                return fail(new Error('文件长度或服务器校验值不匹配'));
+              }
+              completed = true;
+              clearTimeout(timeout);
+              resolve();
+            }
+          });
+        });
+        void transfer.catch(() => {});
+
+        await peer.setLocalDescription(await peer.createOffer());
+        await waitForGathering(peer, 15_000);
+        if (!peer.localDescription?.sdp) throw new Error('无法生成 WebRTC 网络候选');
+        statusNode.textContent = '正在通过 HTTPS 协商服务器联系小主机…';
+        const response = await fetch('/fastdowmload/api/offer', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ artifact: key, offer: peer.localDescription }),
+          cache: 'no-store',
+          signal: AbortSignal.timeout(35_000),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result.answer) throw new Error(result.error || `协商服务返回 HTTP ${response.status}`);
+        await peer.setRemoteDescription(result.answer);
+        await transfer;
+        await writeChain;
+        const digest = await waitForDigest(worker);
+        if (digest !== expected.sha256) throw new Error('SHA-256 校验失败，文件未保存');
+
+        if (writable) {
+          await writable.close();
+          writable = null;
+        } else {
+          const blob = new Blob(chunks, { type: 'application/octet-stream' });
+          const url = URL.createObjectURL(blob);
+          const anchor = document.createElement('a');
+          anchor.href = url;
+          anchor.download = expected.filename;
+          anchor.click();
+          setTimeout(() => URL.revokeObjectURL(url), 60_000);
+        }
+        if (channel.readyState === 'open') channel.send(JSON.stringify({ type: 'done' }));
+        progress.value = 100;
+        statusNode.textContent = `直连下载完成并通过 SHA-256 校验：${expected.filename}`;
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          statusNode.textContent = '已取消保存位置选择。';
+          return;
+        }
+        if (writable) await writable.abort().catch(() => {});
+        if (worker) worker.terminate();
+        if (peer) await peer.close().catch(() => {});
+        const message = error instanceof Error ? error.message : String(error);
+        statusNode.textContent = `直连未完成（${message}）。可以选择下面的普通 HTTPS 下载。`;
+        statusNode.classList.add('error');
+        fallback.focus();
+      } finally {
+        if (worker) worker.terminate();
+        if (peer && peer.connectionState !== 'closed') await peer.close().catch(() => {});
+        button.disabled = false;
+      }
+    }
+
+    async function loadRelease() {
+      try {
+        const response = await fetch('/v1/desktop/latest.json', { cache: 'no-store' });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const manifest = await response.json();
+        const version = String(manifest.version || '');
+        if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error('版本清单格式无效');
+        config.version = version;
+        const releaseRoot = '/v1/desktop/releases';
+        for (const [key, definition] of Object.entries(definitions)) {
+          const filename = definition.filename(version);
+          const fallbackPath = key === 'macos'
+            ? `${releaseRoot}/macos/${version}/${encodeURIComponent(filename)}`
+            : `${releaseRoot}/windows/${version}/${encodeURIComponent(filename)}`;
+          setFallback(definition.fallback, fallbackPath);
+          config.artifacts[key] = { filename, fallbackPath };
+        }
+        versionNode.textContent = `当前版本 v${version}`;
+
+        const checksumsResponse = await fetch(`/v1/desktop/releases/${version}/SHA256SUMS`, { cache: 'no-store' });
+        if (!checksumsResponse.ok) throw new Error('安装包校验清单暂不可用');
+        const checksums = parseChecksums(await checksumsResponse.text());
+        for (const [key, definition] of Object.entries(definitions)) {
+          const checksum = checksums.get(definition.path(version));
+          if (!checksum) throw new Error(`缺少 ${config.artifacts[key].filename} 的 SHA-256 记录`);
+          config.artifacts[key].sha256 = checksum;
+        }
+
+        const configResponse = await fetch('/fastdowmload/api/config', { cache: 'no-store' });
+        if (!configResponse.ok) throw new Error('直连服务暂不可用');
+        const serverConfig = await configResponse.json();
+        if (!Array.isArray(serverConfig.iceServers)) throw new Error('直连配置格式无效');
+        config.iceServers = serverConfig.iceServers;
+        document.querySelectorAll('button.direct').forEach(button => {
+          button.disabled = false;
+          button.addEventListener('click', () => void directDownload(button.dataset.artifact, button));
+        });
+        statusNode.classList.remove('error');
+        statusNode.textContent = detected
+          ? `已识别为 ${detected === 'mac' ? 'macOS' : 'Windows'}；直连失败时可切换普通 HTTPS 下载。`
+          : '请选择平台；直连失败时可切换普通 HTTPS 下载。';
+      } catch (error) {
+        statusNode.textContent = error instanceof Error ? `${error.message}；如普通下载链接已显示，仍可使用中继下载。` : '快速下载服务暂不可用。';
+        statusNode.classList.add('error');
+      }
+    }
+    void loadRelease();
+  </script>
+</body>
+</html>
