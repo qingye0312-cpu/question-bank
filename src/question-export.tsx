@@ -46,26 +46,32 @@ export function QuestionExport({banks,defaultBankId,busy,onClose,onExport}:{
  return <div className="modal-backdrop intake-hub-backdrop" onMouseDown={event=>{if(event.target===event.currentTarget&&!busy&&!confirming)onClose()}}>
   <section className="modal question-export-panel" role="dialog" aria-modal="true" aria-labelledby="question-export-title">
    <button className="close-modal" aria-label="关闭题目导出" disabled={busy} onClick={onClose}><X/></button>
-   <div className="modal-icon"><FileText/></div>
-   <h2 id="question-export-title">导出题目</h2>
-   <p className="question-export-intro">按推荐格式导出 DOCX。文件只写入题目、选项、答案和答案解析。</p>
-   <label className="question-export-bank-label">选择题库
-    <select className="question-export-bank-select" value={bankId} onChange={event=>setBankId(event.target.value)} disabled={busy}>
-     <option value="" disabled>请选择题库</option>
-     {banks.map(bank=><option key={bank.id} value={bank.id}>{bank.name} · {bank.count.toLocaleString()} 题</option>)}
-    </select>
-   </label>
-   <fieldset className="question-export-scope">
-    <legend>导出范围</legend>
-    <label className={`question-export-mode ${scope==='all'?'selected':''}`}>
-     <input type="radio" name="question-export-scope" checked={scope==='all'} onChange={()=>setScope('all')}/>
-     <span className="question-export-mode-copy"><b>全部导出</b><small>导出所选题库的全部题目</small></span>
+   <header className="question-export-heading">
+    <div className="modal-icon"><FileText/></div>
+    <div className="question-export-heading-copy">
+     <h2 id="question-export-title">导出题目</h2>
+     <p>按推荐格式导出 DOCX。文件只写入题目、选项、答案和答案解析。</p>
+    </div>
+   </header>
+   <div className="question-export-selection-row">
+    <label className="question-export-bank-label">选择题库
+     <select className="question-export-bank-select" value={bankId} onChange={event=>setBankId(event.target.value)} disabled={busy}>
+      <option value="" disabled>请选择题库</option>
+      {banks.map(bank=><option key={bank.id} value={bank.id}>{bank.name} · {bank.count.toLocaleString()} 题</option>)}
+     </select>
     </label>
-    <label className={`question-export-mode ${scope==='range'?'selected':''}`}>
-     <input type="radio" name="question-export-scope" checked={scope==='range'} onChange={()=>setScope('range')}/>
-     <span className="question-export-mode-copy"><b>按时间范围</b><small>仅导出所选录入时段内的题目</small></span>
-    </label>
-   </fieldset>
+    <fieldset className="question-export-scope">
+     <legend>导出范围</legend>
+     <label className={`question-export-mode ${scope==='all'?'selected':''}`}>
+      <input type="radio" name="question-export-scope" checked={scope==='all'} onChange={()=>setScope('all')}/>
+      <span className="question-export-mode-copy"><b>全部导出</b><small>导出该题库全部题目</small></span>
+     </label>
+     <label className={`question-export-mode ${scope==='range'?'selected':''}`}>
+      <input type="radio" name="question-export-scope" checked={scope==='range'} onChange={()=>setScope('range')}/>
+      <span className="question-export-mode-copy"><b>按时间范围</b><small>筛选录入时段</small></span>
+     </label>
+    </fieldset>
+   </div>
    {scope==='range'&&<div className="question-export-dates">
     <div className="question-export-dates-heading"><CalendarDays/><span><b>录入时间范围</b><small>开始和结束时间均包含在导出范围内</small></span></div>
     <div className="question-export-date-fields">
