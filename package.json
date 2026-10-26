@@ -15,7 +15,7 @@
     "build:windows:portable": "powershell -NoProfile -ExecutionPolicy Bypass -File windows/scripts/build-portable.ps1",
     "test:platforms": "node --test tests/platform-build.test.mjs",
     "test:desktop": "node --test tests/desktop-cloud.test.mjs tests/draft-codec.test.mjs",
-    "test:ui": "node --test tests/search-presentation.test.mjs tests/ocr-client.test.mjs tests/appearance.test.mjs tests/variable-rows.test.mjs",
+    "test:ui": "node --test tests/search-presentation.test.mjs tests/ocr-client.test.mjs tests/appearance.test.mjs tests/variable-rows.test.mjs tests/date-time.test.mjs",
     "prepare:miniprogram": "node scripts/sync-client-assets.mjs && node scripts/build-miniprogram-vendor.mjs && node tools/mobile-index/build.mjs",
     "serve:miniprogram": "node tools/mobile-index/server.mjs",
     "check:miniprogram": "node scripts/sync-client-assets.mjs --check && node scripts/build-miniprogram-vendor.mjs --check && node tools/mobile-index/build.mjs --check && tsc --noEmit -p miniprogram/tsconfig.json",

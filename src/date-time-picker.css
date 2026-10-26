@@ -1,0 +1,39 @@
+.date-time-field { min-width:0; display:grid; gap:.55rem; }
+.date-time-label { color:var(--secondary); font-size:.8rem; font-weight:600; }
+.date-time-trigger { width:100%; min-height:3rem; padding:.6rem .75rem; gap:.55rem; border:1px solid var(--border); border-radius:.6rem; background:var(--surface); text-align:left; }
+.date-time-trigger > svg { width:1rem; height:1rem; color:var(--accent); }
+.date-time-trigger > svg:last-child { color:var(--muted); width:.85rem; }
+.date-time-trigger > span { flex:1; min-width:0; font-size:.85rem; font-weight:500; font-variant-numeric:tabular-nums; display:flex; flex-wrap:wrap; gap:.3rem .55rem; }
+.date-time-value-time { color:var(--secondary); }
+.date-time-placeholder { color:var(--muted); }
+.date-time-trigger[aria-expanded=true] { border-color:var(--accent); background:var(--tint); }
+.date-time-popover { position:fixed; z-index:80; visibility:hidden; width:19rem; max-width:calc(100vw - 24px); max-height:calc(100dvh - 24px); overflow:auto; overscroll-behavior:contain; padding:.85rem; border:1px solid var(--border); border-radius:.9rem; background:var(--surface); box-shadow:0 .6rem 2.5rem var(--shadow); }
+.date-time-popover-header { display:flex; align-items:center; justify-content:space-between; padding:0 .15rem .6rem; color:var(--muted); font-size:.78rem; }
+.date-time-popover .date-time-today { padding:.2rem .5rem; color:var(--accent); font-size:.75rem; background:var(--tint); border:0; border-radius:.35rem; }
+.date-time-month-nav { display:flex; align-items:center; justify-content:space-between; margin-bottom:.5rem; }
+.date-time-month-nav strong { font-size:.96rem; font-weight:600; }
+.date-time-month-nav button { padding:.35rem; border:0; width:1.9rem; height:1.9rem; color:var(--secondary); background:transparent; }
+.date-time-month-nav button:hover { background:var(--tint); }
+.date-time-weekdays,.date-time-days { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:.15rem; }
+.date-time-weekdays span { text-align:center; padding:.35rem 0; color:var(--muted); font-size:.72rem; }
+.date-time-days button { min-width:0; height:2rem; padding:0; border:1px solid transparent; border-radius:.4rem; font-size:.82rem; font-variant-numeric:tabular-nums; background:transparent; }
+.date-time-days button.outside-month { color:var(--muted); opacity:.5; }
+.date-time-days button.today { border-color:var(--accent-border); }
+.date-time-days button:hover { background:var(--tint); color:var(--accent); opacity:1; }
+.date-time-days button[aria-pressed=true] { color:var(--on-accent); border-color:var(--accent); background:var(--accent); opacity:1; }
+.date-time-days button:focus-visible { outline-offset:0; }
+.date-time-clock { display:flex; align-items:center; justify-content:space-between; gap:.75rem; border-top:1px solid var(--line); margin-top:.75rem; padding-top:.75rem; }
+.date-time-clock > span { display:flex; align-items:center; gap:.4rem; color:var(--secondary); font-size:.8rem; }
+.date-time-clock > span svg { width:1rem; height:1rem; color:var(--accent); }
+.date-time-steppers { display:flex; align-items:center; gap:.4rem; color:var(--muted); }
+.date-time-stepper { display:flex; overflow:hidden; border:1px solid var(--border); border-radius:.45rem; height:2.25rem; }
+.date-time-stepper input { border:0; border-radius:0; width:2.3rem; padding:.3rem; text-align:center; font-size:.9rem; font-variant-numeric:tabular-nums; background:var(--surface); }
+.date-time-stepper input:focus-visible { outline-offset:-2px; }
+.date-time-stepper > div { display:flex; flex-direction:column; border-left:1px solid var(--line); }
+.date-time-stepper button { flex:1; padding:0 .2rem; width:1.15rem; border:0; border-radius:0; background:var(--surface-soft); color:var(--secondary); }
+.date-time-stepper button:hover { background:var(--tint); color:var(--accent); }
+.date-time-stepper button svg { width:.8rem; height:.8rem; }
+.date-time-popover-actions { display:flex; justify-content:flex-end; gap:.5rem; margin-top:.8rem; }
+.date-time-popover-actions button { padding:.45rem .85rem; font-size:.8rem; border-radius:.45rem; }
+.date-time-popover-actions .primary { min-width:4.3rem; }
+.date-time-error { font-size:.72rem; color:var(--danger); margin:.6rem 0 0; line-height:1.5; }
