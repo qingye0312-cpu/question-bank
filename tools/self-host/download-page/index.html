@@ -3,151 +3,298 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#236b57">
-  <title>题库 · 选择下载版本</title>
+  <meta name="theme-color" content="#f3f7f5">
+  <meta name="description" content="下载题库桌面版，获取适用于 macOS Apple 芯片与 Windows x64 的最新正式版本。">
+  <title>题库桌面版 · 正式发布</title>
   <style>
     :root {
       color-scheme: light dark;
       --bg: #f3f7f5;
       --surface: #fff;
+      --surface-soft: #e7f1ed;
       --text: #20302c;
       --muted: #687a74;
       --line: #d7e5df;
       --accent: #236b57;
-      --accent-soft: #e7f1ed;
-      --shadow: 0 18px 50px rgb(32 48 44 / 8%);
+      --shadow: 0 16px 40px rgb(32 48 44 / 6%);
+      --heading-start: #000;
+      --heading-end: #666;
     }
     @media (prefers-color-scheme: dark) {
       :root {
-        --bg: #171c1b;
-        --surface: #202725;
-        --text: #edf4f1;
-        --muted: #aab9b3;
-        --line: #3a4944;
-        --accent: #98d4bd;
-        --accent-soft: #293c35;
-        --shadow: 0 18px 50px rgb(0 0 0 / 22%);
+        --bg: #181818;
+        --surface: #1f1f1f;
+        --surface-soft: #272727;
+        --text: #f2f2f2;
+        --muted: #b3b3b3;
+        --line: #313131;
+        --accent: #236b57;
+        --shadow: 0 16px 40px rgb(0 0 0 / 24%);
+        --heading-start: #fff;
+        --heading-end: #9b9b9b;
       }
     }
     * { box-sizing: border-box; }
     body {
-      position: relative;
-      isolation: isolate;
-      overflow-x: hidden;
       min-height: 100vh;
       margin: 0;
       display: grid;
       place-items: center;
-      padding: 32px 20px;
+      padding: 48px 24px;
       background: var(--bg);
       color: var(--text);
-      font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font: 400 16px/24px Manrope, "PingFang SC", "Microsoft YaHei", sans-serif;
     }
-    body::before, body::after {
-      position: fixed;
-      z-index: -1;
-      inset: -18vmax;
-      content: "";
-      pointer-events: none;
+    main { width: min(100%, 1040px); }
+    .masthead {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 64px;
     }
-    body::before {
-      background:
-        radial-gradient(34rem 30rem at 20% 24%, color-mix(in srgb, var(--accent) 15%, transparent), transparent 72%),
-        radial-gradient(32rem 28rem at 78% 30%, rgb(179 205 119 / 13%), transparent 72%),
-        radial-gradient(38rem 32rem at 54% 84%, rgb(109 176 157 / 12%), transparent 72%);
-      filter: blur(22px);
-      animation: atmosphere-drift 28s ease-in-out infinite alternate;
-    }
-    body::after {
-      inset: 0;
-      background-image: radial-gradient(color-mix(in srgb, var(--accent) 18%, transparent) .7px, transparent .7px);
-      background-size: 26px 26px;
-      mask-image: linear-gradient(135deg, #000 0%, transparent 55%, #000 100%);
-      opacity: .16;
-      animation: atmosphere-breathe 12s ease-in-out infinite alternate;
-    }
-    @keyframes atmosphere-drift {
-      from { transform: translate3d(-1.5%, -1%, 0) scale(.98) rotate(-1deg); }
-      to { transform: translate3d(1.5%, 1.5%, 0) scale(1.04) rotate(1deg); }
-    }
-    @keyframes atmosphere-breathe { from { opacity: .09; } to { opacity: .2; } }
-    main { position: relative; width: min(100%, 880px); }
-    .hero { display: flex; align-items: center; gap: 18px; margin-bottom: 18px; }
     .brand-mark {
       display: grid;
-      width: 64px;
-      height: 64px;
-      flex: 0 0 64px;
+      width: 48px;
+      height: 48px;
+      flex: 0 0 48px;
       place-items: center;
       overflow: hidden;
-      border-radius: 19px;
+      border-radius: 16px;
       background: #236752;
-      box-shadow: 0 10px 28px rgb(35 103 82 / 22%);
-      animation: mark-float 7s ease-in-out infinite;
     }
     .brand-mark svg { display: block; width: 100%; height: 100%; }
-    @keyframes mark-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
-    .eyebrow { margin: 0 0 3px; color: var(--accent); font-size: 12px; font-weight: 750; letter-spacing: .16em; text-transform: uppercase; }
-    .brand-name { margin: 0; font-size: 14px; font-weight: 650; letter-spacing: .02em; }
-    h1 { margin: 0; font-size: clamp(30px, 6vw, 48px); line-height: 1.12; letter-spacing: -.035em; }
-    .intro { max-width: 580px; margin: 14px 0 24px; color: var(--muted); font-size: 17px; }
-    .status { min-height: 26px; margin: 0 0 22px; color: var(--muted); font-size: 14px; }
-    .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-    .card {
-      position: relative;
-      min-width: 0;
-      padding: 24px;
-      border: 1px solid var(--line);
-      border-radius: 20px;
-      background: var(--surface);
-      box-shadow: var(--shadow);
-      transition: border-color .18s ease, transform .18s ease;
+    .brand-copy { display: grid; gap: 2px; }
+    .eyebrow {
+      margin: 0;
+      color: var(--accent);
+      font-size: 12px;
+      line-height: 16px;
+      font-weight: 700;
+      letter-spacing: .12em;
+      text-transform: uppercase;
     }
-    .card.recommended { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent), var(--shadow); }
-    .card:hover { transform: translateY(-2px); }
-    .card-head { display: flex; align-items: center; gap: 14px; margin-bottom: 20px; }
-    .icon { display: grid; width: 48px; height: 48px; flex: 0 0 48px; place-items: center; border-radius: 14px; background: var(--accent-soft); color: var(--accent); font-size: 25px; font-weight: 750; }
-    h2 { margin: 0; font-size: 21px; }
-    .subtitle { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
-    .actions { display: grid; gap: 10px; }
+    .brand-name { margin: 0; font-size: 14px; line-height: 20px; font-weight: 600; }
+    .release-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-left: auto;
+      padding: 8px 12px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 20px;
+      font-weight: 600;
+    }
+    .release-badge::before {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent);
+      content: "";
+    }
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(240px, .58fr);
+      align-items: end;
+      gap: 48px;
+      margin-bottom: 40px;
+    }
+    .hero-copy { max-width: 680px; }
+    .hero-copy .eyebrow { margin-bottom: 12px; }
+    h1 {
+      max-width: 680px;
+      margin: 0;
+      background: linear-gradient(90deg, var(--heading-start), var(--heading-end));
+      background-clip: text;
+      color: transparent;
+      font-size: clamp(36px, 5vw, 48px);
+      line-height: 1;
+      font-weight: 700;
+      letter-spacing: -.04em;
+      text-wrap: balance;
+      -webkit-background-clip: text;
+    }
+    .intro {
+      max-width: 580px;
+      margin: 16px 0 0;
+      color: var(--muted);
+      font-size: 18px;
+      line-height: 28px;
+      text-wrap: pretty;
+    }
+    .release-panel {
+      padding: 16px 0 4px 24px;
+      border-left: 1px solid var(--line);
+    }
+    .release-label {
+      margin: 0 0 8px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 20px;
+      font-weight: 600;
+    }
+    .release-version {
+      margin: 0;
+      font-size: 24px;
+      line-height: 32px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+    .status {
+      position: relative;
+      margin: 8px 0 0;
+      padding-left: 16px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 20px;
+      text-wrap: pretty;
+    }
+    .status::before {
+      position: absolute;
+      top: 6px;
+      left: 0;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent);
+      content: "";
+    }
+    .status[data-state="loading"]::before { animation: status-pulse 1.5s cubic-bezier(.22, 1, .36, 1) infinite alternate; }
+    @keyframes status-pulse { to { opacity: .35; } }
+    .status.error { color: #a43d3d; }
+    .status.error::before { background: #a43d3d; }
+    .cards {
+      display: grid;
+      grid-template-columns: minmax(0, .92fr) minmax(0, 1.08fr);
+      align-items: stretch;
+      gap: 16px;
+    }
+    .card {
+      min-width: 0;
+      padding: 32px;
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      background: var(--surface);
+      transition: border-color 300ms cubic-bezier(.22, 1, .36, 1), transform 300ms cubic-bezier(.22, 1, .36, 1), box-shadow 300ms cubic-bezier(.22, 1, .36, 1);
+    }
+    .card:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
+    .card.recommended { border-color: var(--accent); }
+    .card-head {
+      display: flex;
+      min-height: 64px;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .icon {
+      display: grid;
+      width: 48px;
+      height: 48px;
+      flex: 0 0 48px;
+      place-items: center;
+      border-radius: 12px;
+      background: var(--surface-soft);
+      color: var(--accent);
+    }
+    .icon svg { display: block; width: 24px; height: 24px; }
+    .platform-copy { min-width: 0; }
+    h2 { margin: 0; font-size: 24px; line-height: 32px; font-weight: 700; }
+    .subtitle { margin: 2px 0 0; color: var(--muted); font-size: 14px; line-height: 20px; }
+    .recommendation {
+      display: none;
+      margin-left: auto;
+      padding: 4px 8px;
+      border-radius: 8px;
+      background: var(--surface-soft);
+      color: var(--accent);
+      font-size: 12px;
+      line-height: 16px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .card.recommended .recommendation { display: inline-flex; }
+    .actions { display: grid; gap: 8px; }
     a.button {
       display: flex;
       min-height: 48px;
       align-items: center;
       justify-content: center;
       gap: 8px;
-      padding: 10px 14px;
+      padding: 12px 16px;
       border: 1px solid var(--line);
       border-radius: 12px;
       color: var(--text);
-      font-weight: 700;
+      font-size: 16px;
+      line-height: 24px;
+      font-weight: 600;
       text-align: center;
       text-decoration: none;
-      transition: background .15s ease, border-color .15s ease;
+      transition: background-color 300ms cubic-bezier(.22, 1, .36, 1), border-color 300ms cubic-bezier(.22, 1, .36, 1), color 300ms cubic-bezier(.22, 1, .36, 1), transform 300ms cubic-bezier(.22, 1, .36, 1);
     }
-    a.button:hover { border-color: var(--accent); background: var(--accent-soft); }
+    a.button:hover { border-color: var(--accent); background: var(--surface-soft); }
+    a.button:active { transform: translateY(1px) scale(.98); }
     a.button.primary { border-color: var(--accent); background: var(--accent); color: #fff; }
-    @media (prefers-color-scheme: dark) { a.button.primary { color: #14221d; } }
-    a.button[aria-disabled="true"] { opacity: .48; pointer-events: none; }
-    .detail { margin: 13px 0 0; color: var(--muted); font-size: 12px; }
-    .footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; margin-top: 20px; color: var(--muted); font-size: 13px; }
-    .footer a { color: var(--accent); text-underline-offset: 3px; }
-    .error { color: #a43d3d; }
-    @media (max-width: 620px) {
-      body { place-items: start center; padding: 36px 16px 24px; }
+    a.button.primary:hover { background: #1c5948; }
+    a.button[aria-disabled="true"] { opacity: .52; cursor: wait; }
+    a.button:focus-visible {
+      outline: 3px solid color-mix(in srgb, var(--accent) 32%, transparent);
+      outline-offset: 4px;
+    }
+    .button svg { width: 18px; height: 18px; flex: 0 0 18px; }
+    .detail {
+      margin: 16px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 20px;
+      text-wrap: pretty;
+    }
+    .footer {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 24px;
+      padding-top: 16px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 20px;
+    }
+    .footer a { color: var(--accent); font-weight: 600; text-underline-offset: 4px; }
+    .footer a:focus-visible {
+      outline: 3px solid color-mix(in srgb, var(--accent) 32%, transparent);
+      outline-offset: 4px;
+      border-radius: 2px;
+    }
+    @media (max-width: 720px) {
+      body { place-items: start center; padding: 32px 16px 24px; }
+      .masthead { margin-bottom: 48px; }
+      .hero { grid-template-columns: 1fr; gap: 24px; margin-bottom: 32px; }
+      .release-panel { padding: 16px 0 0; border-top: 1px solid var(--line); border-left: 0; }
       .cards { grid-template-columns: 1fr; }
-      .card { padding: 20px; }
-      .intro { font-size: 16px; }
-      .brand-mark { width: 56px; height: 56px; flex-basis: 56px; border-radius: 16px; }
+      .card { padding: 24px; }
+      .intro { font-size: 16px; line-height: 24px; }
+    }
+    @media (max-width: 420px) {
+      .release-badge { padding: 4px 8px; font-size: 12px; line-height: 16px; }
+      .card { padding: 24px 16px; }
+      .recommendation { padding: 4px; }
     }
     @media (prefers-reduced-motion: reduce) {
-      *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+      *, *::before, *::after {
+        scroll-behavior: auto !important;
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .01ms !important;
+      }
     }
   </style>
 </head>
 <body>
   <main>
-    <header class="hero">
+    <header class="masthead">
       <span class="brand-mark">
         <svg viewBox="0 0 512 512" role="img" aria-label="题库图标" xmlns="http://www.w3.org/2000/svg">
           <rect x="16" y="16" width="480" height="480" rx="110" fill="#236752"/>
@@ -155,83 +302,126 @@
           <path d="M126 264l130 70 130-70M126 322l130 70 130-70" fill="none" stroke="#f4f3dc" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
       </span>
-      <div>
-        <p class="eyebrow">Question Bank</p>
-        <p class="brand-name">题库 · 离线知识工作台</p>
+      <div class="brand-copy">
+        <p class="eyebrow">题库桌面版</p>
+        <p class="brand-name">离线知识工作台</p>
       </div>
+      <span class="release-badge">正式发布</span>
     </header>
-    <h1>下载题库桌面版</h1>
-    <p class="intro">页面会识别你的电脑并推荐对应版本。也可以手动选择其他平台。</p>
-    <p class="status" id="status" role="status" aria-live="polite">正在获取最新版本…</p>
+
+    <section class="hero" aria-labelledby="page-title">
+      <div class="hero-copy">
+        <p class="eyebrow">DESKTOP APP</p>
+        <h1 id="page-title">下载题库桌面版</h1>
+        <p class="intro">选择适用于 macOS 或 Windows 的安装包，获取最新正式版本。</p>
+      </div>
+      <aside class="release-panel" aria-label="最新版本信息">
+        <p class="release-label">最新稳定版本</p>
+        <p class="release-version" id="release-version">版本信息读取中</p>
+        <p class="status" id="status" data-state="loading" role="status" aria-live="polite">正在获取最新版本…</p>
+      </aside>
+    </section>
 
     <section class="cards" aria-label="选择操作系统">
-      <article class="card" id="mac-card">
+      <article class="card" id="mac-card" aria-labelledby="mac-title">
         <div class="card-head">
-          <span class="icon" aria-hidden="true">⌘</span>
-          <div><h2>macOS</h2><p class="subtitle">Apple 芯片 · DMG 安装包</p></div>
+          <span class="icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect x="4" y="3.5" width="16" height="13" rx="1.5" stroke="currentColor" stroke-width="1.7"/>
+              <path d="M2.75 20h18.5l-1.6-2H4.35l-1.6 2Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
+            </svg>
+          </span>
+          <div class="platform-copy">
+            <h2 id="mac-title">macOS</h2>
+            <p class="subtitle">Apple 芯片 · DMG 安装包</p>
+          </div>
+          <span class="recommendation">推荐系统</span>
         </div>
         <div class="actions">
-          <a class="button primary download" id="mac-download" href="#" aria-disabled="true">下载 macOS 版</a>
+          <a class="button primary download" id="mac-download" aria-disabled="true" tabindex="-1">
+            <span>下载 macOS 版</span>
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+              <path d="M5 12h14m-6-6 6 6-6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </a>
         </div>
         <p class="detail">适用于 Apple Silicon（M 系列）Mac。</p>
       </article>
 
-      <article class="card" id="windows-card">
+      <article class="card" id="windows-card" aria-labelledby="windows-title">
         <div class="card-head">
-          <span class="icon" aria-hidden="true">⊞</span>
-          <div><h2>Windows</h2><p class="subtitle">Windows 10 / 11 · x64</p></div>
+          <span class="icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+              <path d="M3 5.2 10.7 4v7H3V5.2Zm8.7-1.35L21 2.4V11h-9.3V3.85ZM3 12.7h7.7v7L3 18.5v-5.8Zm8.7.3H21v8.6l-9.3-1.45V13Z"/>
+            </svg>
+          </span>
+          <div class="platform-copy">
+            <h2 id="windows-title">Windows</h2>
+            <p class="subtitle">Windows 10 / 11 · x64</p>
+          </div>
+          <span class="recommendation">推荐系统</span>
         </div>
         <div class="actions">
-          <a class="button primary download" id="windows-setup" href="#" aria-disabled="true">下载安装版</a>
-          <a class="button download" id="windows-portable" href="#" aria-disabled="true">下载便携版</a>
+          <a class="button primary download" id="windows-setup" aria-disabled="true" tabindex="-1">
+            <span>下载安装版</span>
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+              <path d="M5 12h14m-6-6 6 6-6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </a>
+          <a class="button download" id="windows-portable" aria-disabled="true" tabindex="-1">
+            <span>下载便携版</span>
+          </a>
         </div>
         <p class="detail">安装版支持自动更新；便携版无需安装，下载后直接运行。</p>
       </article>
     </section>
 
     <footer class="footer">
-      <span id="release-version">题库桌面版</span>
+      <span>macOS Apple 芯片 · Windows x64</span>
       <a href="https://github.com/qingye0312-cpu/question-bank/releases/latest" target="_blank" rel="noreferrer">在 GitHub 查看所有版本</a>
     </footer>
   </main>
   <script>
-    const statusNode = document.querySelector('#status');
-    const versionNode = document.querySelector('#release-version');
+    const statusNode = document.querySelector("#status");
+    const versionNode = document.querySelector("#release-version");
     const cards = {
-      mac: document.querySelector('#mac-card'),
-      windows: document.querySelector('#windows-card'),
+      mac: document.querySelector("#mac-card"),
+      windows: document.querySelector("#windows-card"),
     };
-    const platform = String(navigator.userAgentData?.platform || navigator.platform || navigator.userAgent || '').toLowerCase();
-    const detected = platform.includes('win') ? 'windows' : platform.includes('mac') ? 'mac' : '';
-    if (detected) cards[detected].classList.add('recommended');
+    const platform = String(navigator.userAgentData?.platform || navigator.platform || navigator.userAgent || "").toLowerCase();
+    const detected = platform.includes("win") ? "windows" : platform.includes("mac") ? "mac" : "";
+    if (detected) cards[detected].classList.add("recommended");
 
     const setDownload = (id, url) => {
-      const link = document.querySelector(`#${id}`);
+      const link = document.querySelector("#" + id);
       link.href = url;
-      link.removeAttribute('aria-disabled');
-      link.setAttribute('download', '');
+      link.removeAttribute("aria-disabled");
+      link.removeAttribute("tabindex");
+      link.setAttribute("download", "");
     };
 
     async function loadRelease() {
       try {
-        const response = await fetch('/v1/desktop/latest.json', { cache: 'no-store' });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const response = await fetch("/v1/desktop/latest.json", { cache: "no-store" });
+        if (!response.ok) throw new Error("HTTP " + response.status);
         const manifest = await response.json();
-        const version = String(manifest.version || '');
-        if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error('版本清单格式无效');
-        const root = `/v1/desktop/releases`;
-        const macName = `题库_${version}_macOS_arm64.dmg`;
-        setDownload('mac-download', `${root}/macos/${version}/${encodeURIComponent(macName)}`);
-        setDownload('windows-setup', `${root}/windows/${version}/题库_windows_x64_setup.exe`);
-        setDownload('windows-portable', `${root}/windows/${version}/题库_windows_x64_portable.exe`);
-        versionNode.textContent = `当前版本 v${version}`;
+        const version = String(manifest.version || "");
+        if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error("版本清单格式无效");
+        const root = "/v1/desktop/releases";
+        const macName = "题库_" + version + "_macOS_arm64.dmg";
+        setDownload("mac-download", root + "/macos/" + version + "/" + encodeURIComponent(macName));
+        setDownload("windows-setup", root + "/windows/" + version + "/题库_windows_x64_setup.exe");
+        setDownload("windows-portable", root + "/windows/" + version + "/题库_windows_x64_portable.exe");
+        versionNode.textContent = "当前版本 v" + version;
+        statusNode.dataset.state = "ready";
         statusNode.textContent = detected
-          ? `已识别为 ${detected === 'mac' ? 'macOS' : 'Windows'}，已为你标出推荐版本。`
-          : '未能自动识别操作系统，请手动选择。';
+          ? "已识别为 " + (detected === "mac" ? "macOS" : "Windows") + "，已为你标出推荐版本。"
+          : "未能自动识别操作系统，请手动选择。";
       } catch (error) {
-        statusNode.textContent = '暂时无法获取最新版本，请稍后重试或从 GitHub 版本页下载。';
-        statusNode.classList.add('error');
-        versionNode.textContent = error instanceof Error ? `版本信息暂不可用（${error.message}）` : '版本信息暂不可用';
+        statusNode.dataset.state = "error";
+        statusNode.textContent = "暂时无法获取最新版本，请稍后重试或从 GitHub 版本页下载。";
+        statusNode.classList.add("error");
+        versionNode.textContent = error instanceof Error ? "版本信息暂不可用（" + error.message + "）" : "版本信息暂不可用";
       }
     }
     void loadRelease();
