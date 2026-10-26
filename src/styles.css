@@ -1131,6 +1131,21 @@ mark[data-term="11"] { background:var(--highlight-11); }
 .intake-hub-actions .template-card { margin-top:0; }
 .intake-hub-drop { display:flex; flex-direction:column; gap:.15rem; margin-bottom:.6rem; }
 .close-hub { width:100%; }
+.question-export-panel { width:min(42rem,calc(100vw - 2rem)); }
+.question-export-panel > label,.question-export-dates > label { display:grid; gap:.35rem; margin:.8rem 0; color:var(--secondary); }
+.question-export-panel select,.question-export-dates input { width:100%; }
+.question-export-scope { display:flex; flex-wrap:wrap; gap:1rem; border:1px solid var(--line); border-radius:.6rem; margin:.9rem 0; padding:.7rem .9rem; }
+.question-export-scope legend { padding:0 .3rem; color:var(--secondary); }
+.question-export-scope label { display:flex; align-items:center; gap:.4rem; }
+.question-export-dates { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.25rem .8rem; }
+.question-export-dates small { grid-column:1/-1; color:var(--muted); }
+.question-export-omissions { margin:.9rem 0; }
+.question-export-error { color:var(--danger); margin:.5rem 0; }
+.question-export-confirm-layer { position:fixed; inset:0; z-index:40; display:grid; place-items:center; padding:2rem; background:var(--overlay); backdrop-filter:blur(.25rem); }
+.question-export-confirm { width:min(29rem,100%); padding:1.4rem; border:1px solid var(--line); border-radius:.9rem; background:var(--surface); box-shadow:0 1rem 3rem var(--shadow); }
+.question-export-confirm h3 { margin:.1rem 0 .7rem; }
+.question-export-confirm p { color:var(--secondary); line-height:1.7; overflow-wrap:anywhere; }
+.question-export-confirm-actions { display:flex; justify-content:flex-end; gap:.6rem; margin-top:1.1rem; }
 .cloud-admin-panel .cloud-admin-tabs { display:flex; gap:.55rem; margin:0 0 1rem; border-bottom:1px solid var(--line); }
 .cloud-admin-tabs button { display:inline-flex; align-items:center; gap:.45rem; border:0; background:transparent; color:var(--muted); padding:.7rem .85rem; border-bottom:2px solid transparent; }
 .cloud-admin-tabs button.active { color:var(--accent); border-bottom-color:var(--accent); }
@@ -1166,6 +1181,8 @@ input,select,textarea,fieldset { min-width:0; }
 @media(max-width:700px) {
  .sidebar-shell { --sidebar-width:min(12rem, 28vw); }
  .form-grid { grid-template-columns:1fr; }
+ .question-export-dates { grid-template-columns:1fr; }
+ .question-export-dates small { grid-column:auto; }
 }
 
 /* Each day/night mode edits its matching saved palette. */

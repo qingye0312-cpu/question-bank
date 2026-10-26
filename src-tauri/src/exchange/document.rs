@@ -155,8 +155,93 @@ pub fn write_print_docx(name: &str, qs: &[Question], mode: &str) -> Result<Vec<u
     }
     docx_body(&body)
 }
+
+/// Build a compact, template-shaped question document without bank metadata.
+pub fn write_recommended_docx(qs: &[Question]) -> Result<Vec<u8>> {
+    let mut body = String::new();
+    for (index, q) in qs.iter().enumerate() {
+        let kind = match q.kind.as_str() {
+            "single" => "单选题",
+            "multiple" => "多选题",
+            "true_false" => "判断题",
+            "programming" => "编程题",
+            _ => "题目",
+        };
+        body.push_str("<w:p><w:pPr><w:spacing w:before=\"0\" w:after=\"0\"/></w:pPr>");
+        body.push_str(&text_run(&format!("{}.", index + 1), false));
+        body.push_str(&text_run(&format!("【{kind}】"), true));
+        body.push_str(&text_run(&q.stem, false));
+        body.push_str("</w:p>");
+
+        if matches!(q.kind.as_str(), "single" | "multiple") {
+            for option in &q.options {
+                body.push_str(&text_paragraph(&format!("{}.{}", option.key, option.content), false));
+            }
+        }
+
+        if let Some(answer) = recommended_answer(&q.answer) {
+            body.push_str(&text_paragraph(&format!("答案：{answer}"), false));
+        }
+        if !q.explanation.trim().is_empty() {
+            body.push_str(&text_paragraph(&format!("答案解析：{}", q.explanation), false));
+        }
+        if index + 1 < qs.len() {
+            body.push_str("<w:p/>");
+        }
+    }
+    docx_body_with_margins(&body, 1440, 1440, 1800, 1800)
+}
+
+fn recommended_answer(answer: &Value) -> Option<String> {
+    match answer {
+        Value::Null => None,
+        Value::Bool(value) => Some(if *value { "正确" } else { "错误" }.into()),
+        Value::Array(values) => {
+            let items = values.iter().filter_map(Value::as_str).collect::<Vec<_>>();
+            (!items.is_empty()).then(|| items.join("，"))
+        }
+        Value::String(value) => (!value.trim().is_empty()).then(|| value.clone()),
+        Value::Number(value) => Some(value.to_string()),
+        Value::Object(_) => None,
+    }
+}
+
+fn text_paragraph(text: &str, bold: bool) -> String {
+    format!(
+        "<w:p><w:pPr><w:spacing w:before=\"0\" w:after=\"0\"/></w:pPr>{}</w:p>",
+        text_run(text, bold)
+    )
+}
+
+fn text_run(text: &str, bold: bool) -> String {
+    let value = text
+        .chars()
+        .filter(|c| *c == '\t' || *c == '\n' || *c == '\r' || (*c >= '\u{20}' && *c != '\u{fffe}' && *c != '\u{ffff}'))
+        .collect::<String>()
+        .replace("\r\n", "\n")
+        .replace('\r', "\n");
+    let content = value
+        .split('\n')
+        .enumerate()
+        .map(|(index, line)| {
+            format!(
+                "{}<w:t xml:space=\"preserve\">{}</w:t>",
+                if index == 0 { "" } else { "<w:br/>" },
+                escape(line)
+            )
+        })
+        .collect::<String>();
+    format!(
+        "<w:r><w:rPr><w:rFonts w:ascii=\"Times New Roman\" w:hAnsi=\"Times New Roman\" w:eastAsia=\"Times New Roman\"/><w:sz w:val=\"24\"/>{}</w:rPr>{content}</w:r>",
+        if bold { "<w:b/>" } else { "" }
+    )
+}
+
 fn docx_body(body: &str) -> Result<Vec<u8>> {
-    let doc=format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?><w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:body>{body}<w:sectPr><w:pgSz w:w=\"11906\" w:h=\"16838\"/><w:pgMar w:top=\"1000\" w:right=\"1000\" w:bottom=\"1000\" w:left=\"1000\"/></w:sectPr></w:body></w:document>");
+    docx_body_with_margins(body, 1000, 1000, 1000, 1000)
+}
+fn docx_body_with_margins(body: &str, top: u32, bottom: u32, left: u32, right: u32) -> Result<Vec<u8>> {
+    let doc=format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?><w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:body>{body}<w:sectPr><w:pgSz w:w=\"11906\" w:h=\"16838\"/><w:pgMar w:top=\"{top}\" w:right=\"{right}\" w:bottom=\"{bottom}\" w:left=\"{left}\"/></w:sectPr></w:body></w:document>");
     let mut z = ZipWriter::new(Cursor::new(Vec::new()));
     for (n,s) in [("[Content_Types].xml","<?xml version=\"1.0\"?><Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/><Override PartName=\"/word/document.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml\"/></Types>"),("_rels/.rels","<?xml version=\"1.0\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"word/document.xml\"/></Relationships>"),("word/document.xml",doc.as_str())]{z.start_file(n,SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated)).map_err(err)?;z.write_all(s.as_bytes()).map_err(err)?;}
     Ok(z.finish().map_err(err)?.into_inner())

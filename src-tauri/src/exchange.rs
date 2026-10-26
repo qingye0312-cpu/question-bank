@@ -2,7 +2,7 @@ mod document;
 mod jsonl;
 mod package;
 use crate::{db::{self, Store}, model::*};
-pub use document::{write_docx, write_print_docx, write_xlsx};
+pub use document::{write_docx, write_print_docx, write_recommended_docx, write_xlsx};
 pub(crate) use jsonl::jsonl;
 pub use package::{export_name, package_bytes};
 use std::{io::Write, path::Path};
@@ -100,4 +100,57 @@ pub fn export_filtered(
     c.execute_batch("COMMIT").map_err(err)?;
     atomic_write(path, &bytes)?;
     Ok(qs.len())
+}
+
+pub fn export_recorded_questions(
+    store: &Store,
+    id: &str,
+    path: &Path,
+    start_at: Option<String>,
+    end_before: Option<String>,
+) -> Result<usize> {
+    if start_at.is_some() != end_before.is_some() {
+        return Err("录入时间范围必须同时包含开始和结束时间".into());
+    }
+    let bounds = match (start_at.as_deref(), end_before.as_deref()) {
+        (Some(start), Some(end)) => {
+            let start = chrono::DateTime::parse_from_rfc3339(start)
+                .map_err(|_| "开始时间格式无效")?
+                .timestamp_millis();
+            let end = chrono::DateTime::parse_from_rfc3339(end)
+                .map_err(|_| "结束时间格式无效")?
+                .timestamp_millis();
+            if start >= end {
+                return Err("录入时间范围无效".into());
+            }
+            Some((start, end))
+        }
+        (None, None) => None,
+        _ => unreachable!(),
+    };
+
+    let connection = store.conn()?;
+    connection.execute_batch("BEGIN DEFERRED").map_err(err)?;
+    db::get_bank(&connection, id)?;
+    let questions = db::questions(&connection, id)?;
+    let selected = questions
+        .into_iter()
+        .filter(|question| {
+            let Some((start, end)) = bounds else {
+                return true;
+            };
+            question
+                .recorded_at
+                .as_deref()
+                .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+                .is_some_and(|recorded| {
+                    let timestamp = recorded.timestamp_millis();
+                    timestamp >= start && timestamp < end
+                })
+        })
+        .collect::<Vec<_>>();
+    let bytes = write_recommended_docx(&selected)?;
+    connection.execute_batch("COMMIT").map_err(err)?;
+    atomic_write(path, &bytes)?;
+    Ok(selected.len())
 }
