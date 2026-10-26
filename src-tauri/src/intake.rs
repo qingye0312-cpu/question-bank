@@ -100,8 +100,12 @@ pub fn parse_reply(text: &str) -> Result<Question> {
     if r.format != "qbank-photo-question-1" {
         return Err("请使用大模型单题输出规范".into());
     }
-    if r.answer_origin != "inferred" || r.answer.is_null() {
+    let programming = r.kind.as_deref() == Some("programming");
+    if r.answer_origin != "inferred" || (!programming && r.answer.is_null()) {
         return Err("模型尚未给出答案，请核对后再录入".into());
+    }
+    if programming && (!r.options.is_empty() || !r.answer.is_null()) {
+        return Err("编程题不应包含选项或标准答案".into());
     }
     if r.model.name.trim().is_empty()
         || r.model.version.trim().is_empty()
