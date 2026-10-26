@@ -4,7 +4,7 @@ import {save} from '@tauri-apps/plugin-dialog';
 import {ArrowLeft,Clipboard,Plus,Upload} from 'lucide-react';
 import type {Bank} from './types';
 import {displayTime,emptyReply,type IntakeMetadata} from '../shared/intake';
-import type {DraftRecord} from '../shared/draft';
+import {isBlankDraft,type DraftRecord} from '../shared/draft';
 import type {UploadJob} from '../shared/queue';
 import {ModelEditor} from './model-editor';
 import {dismissActionMenus} from './dismissible-menus';
@@ -30,7 +30,8 @@ export function IntakePanel({banks,bankId,initial='',initialRecordId='',startMan
  const refreshJobs=async()=>{const latest=await desktopJobs();setJobs(latest);for(const job of latest){const count=trackedUploads.current.get(job.id);if(count&&job.status==='done'&&!notifiedUploads.current.has(job.id)){notifiedUploads.current.add(job.id);setNotice(`${count} 题上传成功并已合并到云端，已从待上传列表移除。`);}else if(count&&['failed','paused'].includes(job.status)&&previousJobStatus.current.get(job.id)!==job.status){setNotice(`${count} 题暂未上传成功，仍保留在待处理列表中。`);}previousJobStatus.current.set(job.id,job.status);}return latest;};
  useEffect(()=>{void refreshJobs().catch(e=>model.setError(String(e)));const tick=()=>void refreshJobs().catch(()=>{});window.addEventListener('qbank-upload-change',tick);const t=setInterval(tick,3000);return()=>{clearInterval(t);window.removeEventListener('qbank-upload-change',tick)}},[]);
  async function flush(){await model.flush();}
- useEffect(()=>{const escape=(e:KeyboardEvent)=>{if(e.key!=='Escape')return;e.preventDefault();e.stopImmediatePropagation();if(dismissActionMenus(document,true))return;if(preparing||navigating)return;if(login){setLogin(false);return;}void navigate(async()=>{await flush();await onSaved(target);onClose()})};window.addEventListener('keydown',escape,true);return()=>window.removeEventListener('keydown',escape,true)});
+ async function leave(){const records=await model.reload();for(const record of records)if(!record.removed&&!record.publishedAt&&!record.submissionId&&isBlankDraft(record))await model.remove(record);await onSaved(target);onClose();}
+ useEffect(()=>{const escape=(e:KeyboardEvent)=>{if(e.key!=='Escape')return;e.preventDefault();e.stopImmediatePropagation();if(dismissActionMenus(document,true))return;if(preparing||navigating)return;if(login){setLogin(false);return;}void navigate(leave)};window.addEventListener('keydown',escape,true);return()=>window.removeEventListener('keydown',escape,true)});
  useEffect(()=>{const saveBeforeHide=()=>{void model.flush().catch(()=>{})};window.addEventListener('blur',saveBeforeHide);return()=>window.removeEventListener('blur',saveBeforeHide)},[model.flush]);
  async function upload(){if(preparing||navigating)return;setPreparing(true);onBusy(true);try{await action(async()=>{
   await flush();const items=await model.reload(),selection=items.filter(r=>!r.removed&&!r.publishedAt&&!r.submissionId);
@@ -43,7 +44,7 @@ export function IntakePanel({banks,bankId,initial='',initialRecordId='',startMan
  const shown=model.records.filter(r=>awaitingUpload(r)&&(!query||r.reply?.stem.includes(query))&&(filter==='all'||filter==='invalid'&&r.issues.length&&!r.submissionId||filter==='pending'&&!r.submissionId));
  const recoverable=jobs.filter(j=>j.bankId===target&&['failed','paused'].includes(j.status));
  return <section className="intake-workspace" aria-label="录题工作区">
-  <header className="intake-header"><button aria-label="返回题库" disabled={preparing||navigating} onClick={()=>void navigate(async()=>{await flush();await onSaved(target);onClose()})}><ArrowLeft/>返回</button><div><h2>{tab==='records'?'待上传列表':'录入新题'}</h2><small>{tab==='records'?'已保存到本机 · 核对后统一上传':'自动存本机 · 录完后一次上传'}</small></div><select aria-label="录入题库" value={target} disabled={!model.ready||preparing||navigating} onChange={e=>{const id=e.target.value;void navigate(async()=>{await flush();setTarget(id)})}}>{banks.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select></header>
+  <header className="intake-header"><button aria-label="返回题库" disabled={preparing||navigating} onClick={()=>void navigate(leave)}><ArrowLeft/>返回</button><div><h2>{tab==='records'?'待上传列表':'录入新题'}</h2><small>{tab==='records'?'已保存到本机 · 核对后统一上传':'自动存本机 · 录完后一次上传'}</small></div><select aria-label="录入题库" value={target} disabled={!model.ready||preparing||navigating} onChange={e=>{const id=e.target.value;void navigate(async()=>{await flush();setTarget(id)})}}>{banks.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select></header>
   <nav className="intake-tabs" aria-label="录题导航">{([['edit','录题'],['records',`待上传 ${pending.length}`]] as const).map(([id,title])=><button key={id} aria-pressed={tab===id} onClick={()=>void navigate(async()=>{await flush();setTab(id)})}>{title}</button>)}</nav>
   <div className="intake-body">
    {!model.ready?<p role="status">读取本地记录…</p>:tab==='edit'?<div className="intake-work-columns">
