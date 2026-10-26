@@ -16,7 +16,7 @@ pnpm build:self-host
 pnpm self-host:deploy
 ```
 
-生成 `artifacts/self-host/qbank-auth-0.2.7.tar.gz`。部署脚本通过 SSH/SCP 将服务包放到 `/opt/qbank-auth/releases/`，解压到带时间戳的目录，再原子切换 `/opt/qbank-auth/current`，不会覆盖正在运行的目录。
+生成 `artifacts/self-host/qbank-auth-0.2.8.tar.gz`。部署脚本通过 SSH/SCP 将服务包放到 `/opt/qbank-auth/releases/`，解压到带时间戳的目录，再原子切换 `/opt/qbank-auth/current`，不会覆盖正在运行的目录。
 
 ## 环境变量
 

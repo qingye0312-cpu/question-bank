@@ -26,10 +26,10 @@ for (const name of files) {
   catch (error) { throw error; }
 }
 await fs.writeFile(path.join(output, 'package.json'), JSON.stringify({
-  name: 'qbank-auth-self-host', version: '0.2.7', private: true, type: 'commonjs',
+  name: 'qbank-auth-self-host', version: '0.2.8', private: true, type: 'commonjs',
   engines: { node: '>=20' }, scripts: { start: 'node local-server.cjs' },
 }, null, 2) + '\n');
-const archive = path.join(root, 'artifacts/self-host/qbank-auth-0.2.7.tar.gz');
+const archive = path.join(root, 'artifacts/self-host/qbank-auth-0.2.8.tar.gz');
 await fs.rm(archive, { force: true });
 const result = spawnSync('tar', ['-czf', archive, '-C', output, ...files, 'package.json'], { encoding: 'utf8', env:{...process.env,COPYFILE_DISABLE:'1'} });
 if (result.status !== 0) throw new Error(result.stderr || '请安装 tar 命令后重新构建');

@@ -1,6 +1,6 @@
 'use strict';
 const {createHash}=require('node:crypto');
-const VERSION = '0.2.7';
+const VERSION = '0.2.8';
 const LIMITS = Object.freeze({ requestBytes: 768 * 1024, compressedBytes: 512 * 1024,
   expandedBytes: 4 * 1024 * 1024, questions: 1000, sessionSeconds: 900 });
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
