@@ -3039,7 +3039,7 @@ checksum = "d55d956fa96f5ec02be2e13af0e20391a5aa83d6a074e3ad368959d0fab299ea"
 
 [[package]]
 name = "question-bank"
-version = "0.2.12"
+version = "0.2.13"
 dependencies = [
  "arboard",
  "base64 0.22.1",
