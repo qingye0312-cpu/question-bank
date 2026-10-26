@@ -14,10 +14,11 @@ import {useIntake} from './intake/use-intake';
 import {MODEL_PROMPT} from './generated/client-assets';
 import './intake/intake.css';
 const statuses={queued:'等待上传',uploading:'上传中',retry:'等待自动重试',paused:'需要登录',failed:'需要处理',done:'回执已保存'};
+type IncompletePrompt={completed:number;incomplete:number;needsLogin:boolean};
 type Props={banks:Bank[];bankId:string;initial?:string;initialRecordId?:string;startManual?:boolean;initialTab?:'edit'|'records';initialNotice?:string;onClose:()=>void;onSaved:(bankId:string)=>Promise<void>;onBusy:(busy:boolean)=>void};
 export function IntakePanel({banks,bankId,initial='',initialRecordId='',startManual=false,initialTab='edit',initialNotice='',onClose,onSaved,onBusy}:Props){
  const [target,setTarget]=useState(bankId||banks[0]?.id||''),[tab,setTab]=useState(initialTab),[query,setQuery]=useState(''),[filter,setFilter]=useState('all');
- const [jobs,setJobs]=useState<UploadJob[]>([]),[preparing,setPreparing]=useState(false),[navigating,setNavigating]=useState(false),[login,setLogin]=useState(false),[notice,setNotice]=useState(initialNotice);
+ const [jobs,setJobs]=useState<UploadJob[]>([]),[preparing,setPreparing]=useState(false),[navigating,setNavigating]=useState(false),[login,setLogin]=useState(false),[incompletePrompt,setIncompletePrompt]=useState<IncompletePrompt|null>(null),[notice,setNotice]=useState(initialNotice);
  const trackedUploads=useRef(new Map<string,number>()),notifiedUploads=useRef(new Set<string>()),previousJobStatus=useRef(new Map<string,string>());
  const composing=useRef(false);
  const model=useIntake(target,initial,initialRecordId,startManual),d=model.current;
@@ -31,14 +32,16 @@ export function IntakePanel({banks,bankId,initial='',initialRecordId='',startMan
  useEffect(()=>{void refreshJobs().catch(e=>model.setError(String(e)));const tick=()=>void refreshJobs().catch(()=>{});window.addEventListener('qbank-upload-change',tick);const t=setInterval(tick,3000);return()=>{clearInterval(t);window.removeEventListener('qbank-upload-change',tick)}},[]);
  async function flush(){await model.flush();}
  async function leave(){const records=await model.reload();for(const record of records)if(!record.removed&&!record.publishedAt&&!record.submissionId&&isBlankDraft(record))await model.remove(record);await onSaved(target);onClose();}
- useEffect(()=>{const escape=(e:KeyboardEvent)=>{if(e.key!=='Escape')return;e.preventDefault();e.stopImmediatePropagation();if(dismissActionMenus(document,true))return;if(preparing||navigating)return;if(login){setLogin(false);return;}void navigate(leave)};window.addEventListener('keydown',escape,true);return()=>window.removeEventListener('keydown',escape,true)});
+ useEffect(()=>{const escape=(e:KeyboardEvent)=>{if(e.key!=='Escape')return;e.preventDefault();e.stopImmediatePropagation();if(dismissActionMenus(document,true))return;if(preparing||navigating)return;if(login){setLogin(false);return;}if(incompletePrompt){setIncompletePrompt(null);return;}void navigate(leave)};window.addEventListener('keydown',escape,true);return()=>window.removeEventListener('keydown',escape,true)});
  useEffect(()=>{const saveBeforeHide=()=>{void model.flush().catch(()=>{})};window.addEventListener('blur',saveBeforeHide);return()=>window.removeEventListener('blur',saveBeforeHide)},[model.flush]);
  async function upload(){if(preparing||navigating)return;setPreparing(true);onBusy(true);try{await action(async()=>{
   await flush();const items=await model.reload(),selection=items.filter(r=>!r.removed&&!r.publishedAt&&!r.submissionId);
   if(!selection.length)return;
-  if(selection.some(r=>r.issues.length)){setTab('records');setFilter('invalid');throw Error('还有待补全题目，请修改或删除后再统一上传。');}
-  if(!cloudAccess()){setLogin(true);return;}
-  const job=await enqueueDrafts(target,selection.map(r=>({id:r.id,revision:r.revision})));trackedUploads.current.set(job.id,selection.length);await model.reload();const latestJobs=await refreshJobs();await model.next();setTab('edit');if(latestJobs.find(j=>j.id===job.id)?.status!=='done')setNotice(`本批 ${selection.length} 题已提交，上传成功后会自动从待上传列表清除。`);void runDesktopQueue().catch(e=>model.setError(String(e)));
+  const incomplete=selection.filter(r=>r.issues.length),completed=selection.filter(r=>!r.issues.length);
+  if(incomplete.length){setTab('records');setFilter('invalid');}
+  if(!completed.length){setIncompletePrompt({completed:0,incomplete:incomplete.length,needsLogin:false});return;}
+  if(!cloudAccess()){if(incomplete.length)setIncompletePrompt({completed:completed.length,incomplete:incomplete.length,needsLogin:true});else setLogin(true);return;}
+  const job=await enqueueDrafts(target,completed.map(r=>({id:r.id,revision:r.revision})));trackedUploads.current.set(job.id,completed.length);await model.reload();const latestJobs=await refreshJobs();await model.next();setTab(incomplete.length?'records':'edit');if(latestJobs.find(j=>j.id===job.id)?.status!=='done')setNotice(`本批 ${completed.length} 题已提交，上传成功后会自动从待上传列表清除。`);if(incomplete.length)setIncompletePrompt({completed:completed.length,incomplete:incomplete.length,needsLogin:false});void runDesktopQueue().catch(e=>model.setError(String(e)));
  });}finally{setPreparing(false);onBusy(false);}}
  async function exportFile(){await flush();const path=await save({defaultPath:`${new Date().toISOString().slice(0,10)}_录题.qbank-upload.json`,filters:[{name:'压缩增量包',extensions:['json']}]});if(path){await invoke('draft_export',{bankId:target,path});setNotice('文件已导出；题目仍可编辑，未触发上传。');}}
  const shown=model.records.filter(r=>awaitingUpload(r)&&(!query||r.reply?.stem.includes(query))&&(filter==='all'||filter==='invalid'&&r.issues.length&&!r.submissionId||filter==='pending'&&!r.submissionId));
@@ -56,7 +59,8 @@ export function IntakePanel({banks,bankId,initial='',initialRecordId='',startMan
   </div>
   {(model.error||notice)&&<div className={`intake-feedback ${model.error?'error':''}`} role={model.error?'alert':'status'}>{model.error||notice}</div>}
   <footer className="intake-footer"><button className="save-status" onClick={()=>void action(flush)}>{model.saving}</button><span>{pending.length} 题待上传{incomplete.length?` · ${incomplete.length} 题待补全`:''}</span><button disabled={!model.ready||preparing||navigating} onClick={()=>void navigate(async()=>{await flush();await model.next();setTab('edit')})}>下一题</button><button className="primary" disabled={!model.ready||preparing||navigating||!uploadable.length} onClick={()=>void upload()}><Upload/>{preparing?'准备上传…':uploadable.length?`上传 ${uploadable.length} 题`:pending.length?'上传处理中':'上传 0 题'}</button></footer>
-  {login&&<div className="modal-backdrop"><section className="modal"><button className="close-modal" onClick={()=>setLogin(false)} aria-label="关闭登录">×</button><h2>上传授权</h2><CloudLogin onChange={()=>{if(cloudAccess()){setLogin(false);setNotice('登录成功，请点击上传确认本次全部题目。')}}}/></section></div>}
+  {login&&<div className="modal-backdrop"><section className="modal"><button className="close-modal" onClick={()=>setLogin(false)} aria-label="关闭登录">×</button><h2>上传授权</h2><CloudLogin onChange={()=>{if(cloudAccess()){setLogin(false);setNotice('登录成功，请点击上传提交已完成题目。')}}}/></section></div>}
+  {incompletePrompt&&<div className="modal-backdrop"><section className="modal" role="alertdialog" aria-modal="true" aria-labelledby="intake-incomplete-title" aria-describedby="intake-incomplete-copy"><button className="close-modal" onClick={()=>setIncompletePrompt(null)} aria-label="关闭未完成题目提示">×</button><h2 id="intake-incomplete-title">{incompletePrompt.needsLogin?'需要登录':'有题目未完成'}</h2><p id="intake-incomplete-copy">{incompletePrompt.completed>0&&incompletePrompt.needsLogin?`${incompletePrompt.completed} 道完整题尚未提交，请登录后再次点击上传。 `:incompletePrompt.completed>0?`${incompletePrompt.completed} 道完整题已提交至云端上传队列。 `:'当前没有完整题目可上传。 '}{incompletePrompt.incomplete} 道未完成题未上传，仍保留在待上传列表中，请补全后再上传。</p><div className="intake-incomplete-actions">{incompletePrompt.needsLogin&&<button className="primary" onClick={()=>{setIncompletePrompt(null);setLogin(true)}}>去登录</button>}<button onClick={()=>setIncompletePrompt(null)}>{incompletePrompt.needsLogin?'稍后':'知道了'}</button></div></section></div>}
  </section>;
 }
 function MetadataFields({value,disabled,onChange}:{value:IntakeMetadata;disabled:boolean;onChange:(v:IntakeMetadata)=>void}){
