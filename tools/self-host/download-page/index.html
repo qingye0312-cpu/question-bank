@@ -555,13 +555,12 @@
       const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
       const themeQuery = window.matchMedia("(prefers-color-scheme: dark)");
       const gridSpacing = 72;
-      const maxSpeed = 126;
-      const minSpeed = 46;
-      const maxForce = 72;
+      const maxSpeed = 240;
+      const minSpeed = 86;
+      const maxForce = 112;
       const neighborRadius = 64;
       const separationRadius = 28;
       const cursorRadius = 176;
-      const frameInterval = 1000 / 30;
       const fishSpriteCount = 24;
       let width = 0;
       let height = 0;
@@ -623,7 +622,7 @@
 
       function createBoid() {
         const angle = Math.random() * Math.PI * 2;
-        const speed = 40 + Math.random() * 45;
+        const speed = 84 + Math.random() * 72;
         return {
           x: Math.random() * width,
           y: Math.random() * height,
@@ -652,8 +651,7 @@
           }
         }
 
-        const baseCount = Math.max(28, Math.min(96, Math.floor(width * height / 18000)));
-        const count = baseCount * 100;
+        const count = 1500;
         while (boids.length < count) boids.push(createBoid());
         if (boids.length > count) boids.length = count;
         gridColumns = Math.max(1, Math.ceil(width / neighborRadius));
@@ -845,11 +843,7 @@
       function animate(timestamp) {
         animationFrame = 0;
         if (reducedMotion || document.hidden) return;
-        if (lastFrame && timestamp - lastFrame < frameInterval) {
-          animationFrame = window.requestAnimationFrame(animate);
-          return;
-        }
-        const delta = lastFrame ? Math.min((timestamp - lastFrame) / 1000, .06) : 1 / 30;
+        const delta = lastFrame ? Math.min((timestamp - lastFrame) / 1000, .06) : 1 / 60;
         lastFrame = timestamp;
         updateBoids(delta);
         draw();
