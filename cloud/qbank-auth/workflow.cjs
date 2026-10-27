@@ -94,7 +94,8 @@ function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission})
     if(added){
       const previousLabel=s.release_version_label||`v${s.release_version}`,wasRolledBack=!!s.rollback;
       const nextBase=s.release_version+1,basePrefix=`v${nextBase}`;
-      const labels=[...(s.merge_history||[]).map(item=>item.release_version_label||`v${item.release_version}`),previousLabel];
+      const states=await store.listStates(b.bank_id);
+      const labels=[...states.map(item=>item.release_version_label||`v${item.release_version}`),...(s.merge_history||[]).map(item=>item.release_version_label||`v${item.release_version}`),previousLabel];
       const suffixes=labels.filter(label=>label===basePrefix||label.startsWith(`${basePrefix}.`)).map(label=>label===basePrefix?0:Number(label.slice(basePrefix.length+1))).filter(Number.isSafeInteger);
       const nextLabel=wasRolledBack&&suffixes.length?`${basePrefix}.${Math.max(...suffixes)+1}`:basePrefix;
       s.formal=formal;s.release_version=nextBase;s.release_version_label=nextLabel;s.merged_at=mergedAt;s.release_id=sha256(JSON.stringify(formal));
