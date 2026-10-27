@@ -47,7 +47,7 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
       if(publicResult !== undefined)return respond(200,publicResult);
       const workflowRoute = /^\/v1\/banks\/[0-9a-f-]{36}\/(seed|history|history\/[0-9]+\/questions|rollback)$/.test(path||'');
       const maintainerRoute = method==='GET' && ['/v1/maintainer-applications','/v1/maintainer-accounts'].includes(path)
-        || method==='POST' && (path==='/v1/maintainer-applications' || /^\/v1\/maintainer-applications\/[0-9a-f-]{36}\/decision$/.test(path) || /^\/v1\/maintainer-accounts\/[0-9a-f-]{36}\/(?:revoke|password-reset)$/.test(path));
+        || method==='POST' && (path==='/v1/maintainer-applications' || /^\/v1\/maintainer-applications\/[0-9a-f-]{36}\/decision$/.test(path) || /^\/v1\/maintainer-accounts\/[0-9a-f-]{36}\/(?:permissions|revoke|password-reset)$/.test(path));
       if (!workflowRoute && !maintainerRoute && !['POST /v1/auth/desktop', 'POST /v1/auth/register', 'POST /v1/auth/password-login', 'POST /v1/auth/password-reset', 'POST /v1/auth/refresh', 'POST /v1/auth/logout', 'GET /v1/me', 'POST /v1/uploads', 'POST /v1/banks/promote'].includes(`${method} ${path}`))
         fail(404, 'NOT_FOUND', '接口不存在');
       requireSessionConfig(config);
@@ -199,6 +199,28 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
         const registry=await access.read();
         const accounts=registry.password_accounts.map(a=>({id:a.id,auth_type:'password',phone:a.phone,real_name:a.real_name,phone_source:a.phone_source,nickname:a.nickname,identity_description:a.identity_description,openid:`p_${a.id}`,grants:a.grants,permissions:a.permissions||[],status:a.status,created_at:a.created_at,approved_at:a.approved_at||null,revoked_at:a.revoked_at||null}));
         return respond(200,{accounts});
+      }
+      const permissionsMatch=/^\/v1\/maintainer-accounts\/([0-9a-f-]{36})\/permissions$/.exec(path||'');
+      if(permissionsMatch&&method==='POST'){
+        if(!isAdmin)fail(403,'ROLE_FORBIDDEN','只有桌面最高权限可以修改维护者权限');
+        const body=jsonBody(event,8192);
+        if(!exact(body,['bank_ids','permissions']))fail(422,'PERMISSIONS_INVALID','权限修改内容无效');
+        if(!Array.isArray(body.bank_ids)||body.bank_ids.length>100||body.bank_ids.some(id=>typeof id!=='string'||!UUID.test(id)))fail(422,'BANKS_REQUIRED','请选择有效的云端题库');
+        if(!Array.isArray(body.permissions)||body.permissions.length>10||body.permissions.some(permission=>permission!=='export'))fail(422,'PERMISSIONS_INVALID','权限修改内容无效');
+        const bankIds=[...new Set(body.bank_ids)],permissions=[...new Set(body.permissions)];
+        if(bankIds.some(id=>!config.banks.some(bank=>bank.bank_id===id)))fail(422,'BANKS_REQUIRED','请选择有效的云端题库');
+        const result=await access.update(registry=>{
+          const account=registry.password_accounts.find(item=>item.id===permissionsMatch[1]);
+          if(!account)fail(404,'ACCOUNT_MISSING','手机号维护者记录不存在');
+          if(account.status==='revoked')fail(409,'MAINTAINER_REVOKED','已撤销的账号不能修改权限');
+          if(account.status!=='approved')fail(409,'ACCOUNT_NOT_APPROVED','只能修改已授权账号的权限');
+          account.grants=Object.fromEntries(bankIds.map(id=>[id,['upload']]));
+          account.permissions=permissions;
+          account.permissions_updated_at=new Date(clock()).toISOString();
+          account.permissions_updated_by=auth.maintainer_id;
+        });
+        const account=result.password_accounts.find(item=>item.id===permissionsMatch[1]);
+        return respond(200,{id:account.id,status:account.status,grants:account.grants,permissions:account.permissions||[]});
       }
       const resetMatch=/^\/v1\/maintainer-accounts\/([0-9a-f-]{36})\/password-reset$/.exec(path||'');
       if(resetMatch&&method==='POST'){
