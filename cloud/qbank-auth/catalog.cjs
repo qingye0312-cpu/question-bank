@@ -31,7 +31,7 @@ function createCatalog({store,validateStandardQuestion,clock,releaseName,manifes
   let state=await store.readState(id);
   if(state&&!matches(state)||!state&&config.banks.some(b=>b.bank_id===id))fail(409,'BANK_EXISTS','该题库身份已在云端使用，请检查目录；不会覆盖');
   if(!state&&config.banks.length>=100)fail(413,'CATALOG_FULL','云端目录已满');
-  if(!state){const at=new Date(clock()).toISOString(),releaseId=sha256(JSON.stringify(questions));state={format:'qbank-state-1',bank_id:id,name,revision:1,release_version:1,release_version_label:'v1',formal:questions,pending:[],resolved:[],batches:[],merge_history:[],updated_at:at,merged_at:at,release_id:releaseId,release_name:releaseName(at,name,'初建',1,id,releaseId),seed_uploader_account_id:auth.maintainer_id||auth.openid,seed_uploader_real_name:auth.real_name||auth.maintainer_id||auth.openid,promotion:{id:body.operation_id,hash,owner:auth.openid}};
+  if(!state){const at=new Date(clock()).toISOString(),releaseId=sha256(JSON.stringify(questions));state={format:'qbank-state-1',bank_id:id,name,revision:1,release_version:1,release_version_label:'v1',formal:questions,pending:[],resolved:[],batches:[],merge_history:[],updated_at:at,merged_at:at,release_id:releaseId,release_name:releaseName(at,name,'初建',1,id,releaseId),seed_uploader_account_id:auth.maintainer_id||auth.openid,seed_uploader_real_name:typeof auth.real_name==='string'&&auth.real_name.trim()&&auth.real_name.trim()!=='未记录'?auth.real_name.trim():'star',promotion:{id:body.operation_id,hash,owner:auth.openid}};
    if(Buffer.byteLength(JSON.stringify(state))>4194304)fail(413,'BANK_TOO_LARGE','完整题库超过 4 MiB 上限，本地数据已保留');
    if(!await store.createState(state)){state=await store.readState(id);if(!matches(state))fail(409,'BANK_EXISTS','另一任务已使用此题库身份');}
   }

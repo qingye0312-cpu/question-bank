@@ -8,6 +8,7 @@ const {key,answer,releaseName,projected,manifest,safeQuestion}=require('./projec
 const MAX_STATE_BYTES=4*1024*1024;
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const deny=(status,code,message)=>{throw new HttpError(status,code,message)};
+const uploaderName=(...values)=>values.map(value=>typeof value==='string'?value.trim():'').find(value=>value&&value!=='未记录')||'star';
 
 function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission}){
  const bank=(config,id)=>{const b=config.banks.find(b=>b.bank_id===id);if(!b)deny(404,'BANK_UNKNOWN','题库不存在');return b;};
@@ -63,10 +64,10 @@ function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission})
     batch_id:merge?.batch_id||null,question_count:declaredQuestions===null?(seeded?s.formal.length:addedCount):declaredQuestions,
     added_count:addedCount,
     uploader_account_id:merge?.uploader_account_id||s.seed_uploader_account_id||null,
-    uploader_real_name:merge?.uploader_real_name||s.seed_uploader_real_name||null,
-    uploader_nickname:merge?.uploader_nickname||null,uploader_auth_type:merge?.uploader_auth_type||null,
+    uploader_real_name:uploaderName(merge?.uploader_real_name,s.seed_uploader_real_name),
+    uploader_nickname:uploaderName(merge?.uploader_nickname),uploader_auth_type:merge?.uploader_auth_type||null,
     has_incremental_json:!!merge?.batch_id,has_revision_questions:addedCount>0};
-  });
+  }).reverse();
  }
  function validateQuestion(q,name){
   try{validateStandardQuestion(q,name);}catch{deny(422,'QUESTION_INVALID','请核对题目结构、题库身份、选项和答案');}
@@ -117,10 +118,8 @@ function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission})
     }
     const mergedAt=new Date(clock()).toISOString();
     const uploaderAccountId=record.uploader_account_id||auth.account_id||auth.maintainer_id||auth.openid;
-    const uploaderRealName=record.uploader_real_name||(typeof auth.real_name==='string'&&auth.real_name.trim()
-      ?auth.real_name.trim():auth.maintainer_id?'最高权限维护者 '+auth.maintainer_id:uploaderAccountId);
-    const uploaderNickname=record.uploader_nickname||(typeof auth.nickname==='string'&&auth.nickname.trim()
-      ?auth.nickname.trim():auth.maintainer_id?'最高权限维护者 '+auth.maintainer_id:uploaderAccountId);
+    const uploaderRealName=uploaderName(record.uploader_real_name,auth.real_name);
+    const uploaderNickname=uploaderName(record.uploader_nickname,auth.nickname);
     const uploaderAuthType=record.uploader_auth_type||(auth.password_account?'password':'key');
     s.batches=[...(s.batches||[]),record.submission_id];s.resolved=[...(s.resolved||[]),...resolved];
     s.merge_history=[...(s.merge_history||[]),{submission_id:record.submission_id,batch_id:delta.batch_id,merged_at:mergedAt,
@@ -223,7 +222,7 @@ function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission})
    const ids=new Set();for(const q of body.questions){validateQuestion(q,b.name);if(ids.has(q.question_id))deny(422,'DUPLICATE_ID','正式题库含重复 ID');ids.add(q.question_id);}
    s.formal=body.questions;s.release_version=1;s.release_version_label='v1';
    s.seed_uploader_account_id=auth.account_id||auth.maintainer_id||auth.openid;
-   s.seed_uploader_real_name=auth.real_name||s.seed_uploader_account_id;
+   s.seed_uploader_real_name=uploaderName(auth.real_name);
    const committedAt=new Date(clock()).toISOString();s.merged_at=committedAt;s.release_id=sha256(JSON.stringify(s.formal));
    s.release_name=releaseName(committedAt,s.name,'初建',s.release_version,s.bank_id,s.release_id);
    if(operation){s.operations=s.operations||[];const projectedResult=manifest({...s,revision:s.revision+1,updated_at:committedAt});s.operations.push({id:operation,hash:operationHash,result:projectedResult});}

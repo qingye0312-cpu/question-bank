@@ -356,10 +356,10 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
         submitted_by: sha256(`${config.appId}\0${auth.openid}`), package: envelope };
       record.confirmation={version:1,actor:record.submitted_by,confirmed_at:record.accepted_at,sha256:record.sha256};
       record.uploader_account_id=auth.account_id||auth.maintainer_id||auth.openid;
-      record.uploader_real_name=typeof auth.real_name==='string'&&auth.real_name.trim()
-        ?auth.real_name.trim():record.uploader_account_id;
-      record.uploader_nickname=typeof auth.nickname==='string'&&auth.nickname.trim()
-        ?auth.nickname.trim():auth.maintainer_id?'最高权限维护者 '+auth.maintainer_id:record.uploader_account_id;
+      record.uploader_real_name=typeof auth.real_name==='string'&&auth.real_name.trim()&&auth.real_name.trim()!=='未记录'
+        ?auth.real_name.trim():'star';
+      record.uploader_nickname=typeof auth.nickname==='string'&&auth.nickname.trim()&&auth.nickname.trim()!=='未记录'
+        ?auth.nickname.trim():'star';
       record.uploader_auth_type=auth.password_account?'password':'key';
       let accepted;
       try { accepted = await store.createSubmission(key, record); }

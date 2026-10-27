@@ -35,8 +35,21 @@
 .cloud-bank-picker p{margin:.35rem 0;color:var(--muted)}
 .cloud-bank{display:flex;align-items:center;gap:0.923077rem;padding:0.923077rem 0;flex-wrap:wrap}
 .cloud-bank span{color:var(--muted)}
-.cloud-history-actions{display:flex;gap:.55rem;justify-content:flex-end;flex-wrap:wrap;flex-shrink:0}
-.cloud-history-actions button{white-space:nowrap}
+.cloud-history{display:grid;gap:.7rem;margin-top:.8rem}
+.cloud-history-heading{display:flex;align-items:baseline;justify-content:space-between;gap:.75rem;padding:.1rem 0 .2rem}
+.cloud-history-heading h3{margin:0;color:var(--ink);font-size:1rem}
+.cloud-history-heading span{color:var(--muted);font-size:.75rem}
+.cloud-history-item{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:1rem;padding:.95rem 1rem;border:1px solid var(--line);border-radius:.75rem;background:var(--surface-soft);box-shadow:0 .12rem .35rem var(--shadow-soft)}
+.cloud-history-main{display:grid;gap:.45rem;min-width:0}
+.cloud-history-title{display:flex;align-items:center;gap:.55rem;min-width:0}
+.cloud-history-title b{color:var(--ink);font-size:.98rem;white-space:nowrap}
+.cloud-history-title span{padding:.2rem .45rem;border:1px solid var(--accent-border);border-radius:.38rem;background:var(--accent-soft);color:var(--accent);font-size:.72rem;font-weight:650;white-space:nowrap}
+.cloud-history-meta{display:flex;align-items:center;gap:.45rem 1rem;flex-wrap:wrap;color:var(--muted);font-size:.78rem;line-height:1.45}
+.cloud-history-meta span{color:var(--muted)}
+.cloud-history-meta strong{color:var(--secondary);font-weight:650}
+.cloud-history-meta time{font-variant-numeric:tabular-nums}
+.cloud-history-actions{display:flex;align-items:center;justify-content:flex-end;gap:.5rem;flex-wrap:wrap;flex-shrink:0}
+.cloud-history-actions button{min-height:2.35rem;padding:.5rem .7rem;white-space:nowrap;font-size:.8rem}
 .cloud-bank-name{appearance:none;display:flex;flex:1 1 18rem;min-width:0;flex-direction:column;gap:.2rem;padding:0;border:0;background:transparent;color:inherit;text-align:left;cursor:pointer}
 .cloud-bank-name b{color:var(--ink);overflow-wrap:anywhere}
 .cloud-bank-name small{color:var(--muted);font-size:.78rem;line-height:1.35;overflow-wrap:anywhere}
@@ -78,6 +91,8 @@
  .cloud-machine-credentials{grid-template-columns:minmax(0,1fr);gap:.6rem}
  .cloud-machine-actions{grid-template-columns:minmax(0,1.4fr) minmax(0,.9fr)}
  .cloud-machine-actions button{min-width:0;white-space:normal}
+ .cloud-history-item{grid-template-columns:minmax(0,1fr);align-items:stretch}
+ .cloud-history-actions{justify-content:flex-start}
 }
 @media(max-width:26rem){
  .cloud-machine-actions{grid-template-columns:minmax(0,1fr)}
