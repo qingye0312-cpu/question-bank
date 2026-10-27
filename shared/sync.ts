@@ -1,8 +1,8 @@
 import {unpackText,CLOUD_FILE_FORMAT} from './codec.ts';
 import {validTime,validateStandardQuestion,sha256,identityKey,type IntakeQuestion} from './intake.ts';
 export type SyncQuestion=Omit<IntakeQuestion,'answer'> & {answer:string[]|boolean|null; cloud_layer?:string};
-export type CloudManifest={bank_id:string;name:string;revision:number;release_version:number;sha256:string;bytes:number;minimum_client:string;updated_at:string;snapshot_format:string;protocol:2;merged_at?:string|null;release_name?:string|null;release_id?:string|null;rollback_at?:string|null;rollback_of?:number|null};
-export type CloudSnapshot={format:'qbank-snapshot-2';merged_at?:string|null;release_name?:string|null;release_id?:string|null;rollback_at?:string|null;rollback_of?:number|null;merges?:{batch_id:string;merged_at:string;question_count:number;added_count:number;duplicate_count:number;revision:number;release_version:number}[];bank_id:string;name:string;revision:number;release_version:number;updated_at:string;
+export type CloudManifest={bank_id:string;name:string;revision:number;release_version:number;release_version_label?:string|null;sha256:string;bytes:number;minimum_client:string;updated_at:string;snapshot_format:string;protocol:2;merged_at?:string|null;release_name?:string|null;release_id?:string|null;rollback_at?:string|null;rollback_of?:number|null};
+export type CloudSnapshot={format:'qbank-snapshot-2';merged_at?:string|null;release_name?:string|null;release_id?:string|null;release_version_label?:string|null;rollback_at?:string|null;rollback_of?:number|null;merges?:{batch_id:string;merged_at:string;question_count:number;added_count:number;duplicate_count:number;revision:number;release_version:number;release_version_label?:string|null}[];bank_id:string;name:string;revision:number;release_version:number;updated_at:string;
  formal:SyncQuestion[]|null;pending:SyncQuestion[];removed:{question_id:string;status:'merged'}[]};
 const uuid=/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
 export function readManifest(value:unknown):CloudManifest{
@@ -14,7 +14,8 @@ export function readManifest(value:unknown):CloudManifest{
  const needed=m.minimum_client.split('.').map(Number),current=[0,2,7];
  for(let i=0;i<3;i++){if(needed[i]>current[i])throw Error('此题库需要更新客户端，请先升级程序');if(needed[i]<current[i])break;}
  const validReleaseName=m.release_name==null||(typeof m.release_name==='string'&&m.release_name.length<=220&&!/[\\/:*?"<>|\x00-\x1f]/.test(m.release_name));
- if(m.merged_at!=null&&!validTime(m.merged_at)||m.rollback_at!=null&&!validTime(m.rollback_at)||m.rollback_of!=null&&(!Number.isSafeInteger(m.rollback_of)||m.rollback_of<1)||m.release_id!=null&&!/^[a-f0-9]{64}$/.test(m.release_id)||!validReleaseName)throw Error('云端结果名称或时间无效');
+ const validReleaseLabel=m.release_version_label==null||(typeof m.release_version_label==='string'&&/^v\d+(?:\.\d+)?$/.test(m.release_version_label));
+ if(m.merged_at!=null&&!validTime(m.merged_at)||m.rollback_at!=null&&!validTime(m.rollback_at)||m.rollback_of!=null&&(!Number.isSafeInteger(m.rollback_of)||m.rollback_of<1)||m.release_id!=null&&!/^[a-f0-9]{64}$/.test(m.release_id)||!validReleaseName||!validReleaseLabel)throw Error('云端结果名称或时间无效');
  return m;
 }
 export function snapshotPayload(value:unknown):{payload:string;sha256:string}{

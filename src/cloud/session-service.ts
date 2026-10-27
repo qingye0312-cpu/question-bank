@@ -3,7 +3,7 @@ import {invoke} from '@tauri-apps/api/core';
 import {UploadError} from '../../shared/queue';
 import desktopService from '../../shared/desktop-service.json';
 
-export type Access={capabilities?:string[];permissions?:string[];pending_permissions?:string[];pending_bank_ids?:string[];openid?:string;auth_type?:'key'|'password'|'';phone?:string;nickname?:string;account_status?:string;maintainer_id?:string;banks:{bank_id:string;name:string}[];grants:Record<string,string[]>;uploads_enabled:boolean};
+export type Access={capabilities?:string[];permissions?:string[];pending_permissions?:string[];pending_bank_ids?:string[];openid?:string;auth_type?:'key'|'password'|'';phone?:string;real_name?:string;nickname?:string;account_status?:string;maintainer_id?:string;banks:{bank_id:string;name:string}[];grants:Record<string,string[]>;uploads_enabled:boolean};
 type Session={token:string;origin:string;expires:number;access:Access;authType:'key'|'password';refreshToken?:string};
 type NativeResponse<T=Record<string,unknown>>={status:number;auth_type?:'key'|'password'|'';body:T&{error?:{message?:string;code?:string}}};
 const ORIGIN_KEY='qbank-cloud-origin-v1';

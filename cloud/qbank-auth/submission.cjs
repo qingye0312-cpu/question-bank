@@ -64,7 +64,7 @@ function receipt(record, merge) {
     sha256: record.sha256, payload_sha256: record.payload_sha256, question_count: record.question_count,
     status: merge.duplicate ? 'duplicate' : 'merged', accepted_at: record.accepted_at,
     merged_at: merge.merged_at, added_count: merge.added_count, duplicate_count: merge.duplicate_count,
-    revision: merge.revision, release_version: merge.release_version, release_name: merge.release_name };
+    revision: merge.revision, release_version: merge.release_version, release_version_label: merge.release_version_label||`v${merge.release_version}`, release_name: merge.release_name };
 }
 
 

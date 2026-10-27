@@ -269,7 +269,12 @@ function createFileStore({ root = process.env.QBANK_STORAGE_ROOT || '/var/lib/qb
     }
   }
 
-  return { root: base, readState, readStateAt, listStates, createState, createRollback, finalizeRollback, createSubmission };
+  async function readSubmission(bankId, batchId) {
+    assertUuid(bankId, 'bank id'); assertUuid(batchId, 'batch id');
+    return readPacked(path.join(inbox, bankId, `${batchId}.json`), 2 * LIMITS.requestBytes + 4096);
+  }
+
+  return { root: base, readState, readStateAt, listStates, createState, createRollback, finalizeRollback, createSubmission, readSubmission };
 }
 
 module.exports = { createFileStore };
