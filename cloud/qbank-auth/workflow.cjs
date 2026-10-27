@@ -17,19 +17,35 @@ function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission})
   if(!Number.isSafeInteger(revision)||revision<1)return null;
   return store.readStateAt(b.bank_id,revision);
  }
+ function stateDiff(previous,current){
+  if(current?.rollback||!Array.isArray(current?.formal))return [];
+  const previousIds=new Set(Array.isArray(previous?.formal)?previous.formal.map(q=>q.question_id):[]);
+  const previousKeys=new Set();
+  for(const q of Array.isArray(previous?.formal)?previous.formal:[]){try{previousKeys.add(key(q));}catch{/* Preserve the ID-only fallback for legacy records. */}}
+  return current.formal.filter(q=>{
+   if(previousIds.has(q.question_id))return false;
+   try{return !previousKeys.has(key(q));}catch{return true;}
+  });
+ }
  async function history(b){
-  const states=await store.listStates(b.bank_id);
-  return states.map(s=>{
-   const merge=(s.merge_history||[]).find(m=>m.revision===s.revision),seeded=!merge&&s.revision===1&&Array.isArray(s.formal);
-   return {revision:s.revision,release_version:s.release_version,release_version_label:s.release_version_label||`v${s.release_version}`,updated_at:s.updated_at,merged_at:s.merged_at||null,
+  // Rollback refs are operational events, not formal releases. Keep the
+  // immutable files for audit/rollback, but omit them from the release list.
+  const allStates=await store.listStates(b.bank_id),byRevision=new Map(allStates.map(s=>[s.revision,s])),states=allStates.filter(s=>!s.rollback);
+  return states.map((s,index)=>{
+   const previous=byRevision.get(s.revision-1)||states[index+1],derived=stateDiff(previous,s),merge=(s.merge_history||[]).find(m=>m.revision===s.revision),seeded=!merge&&s.revision===1&&Array.isArray(s.formal);
+   const declaredAdded=Number.isSafeInteger(merge?.added_count)?merge.added_count:null;
+   const addedCount=declaredAdded===null?(seeded?s.formal.length:derived.length):declaredAdded||derived.length;
+   const declaredQuestions=Number.isSafeInteger(merge?.question_count)?merge.question_count:null;
+   const formalLabel=s.release_version_label||`v${s.release_version}`;
+   return {revision:s.revision,formal_revision:formalLabel.slice(1),release_version:s.release_version,release_version_label:formalLabel,updated_at:s.updated_at,merged_at:s.merged_at||null,
     release_name:s.release_name||null,release_id:s.release_id||null,rollback_at:s.rollback_at||null,
     rollback_of:s.rollback?.target_revision||null,merge_count:Array.isArray(s.merge_history)?s.merge_history.length:0,
-    batch_id:merge?.batch_id||null,question_count:Number.isSafeInteger(merge?.question_count)?merge.question_count:seeded?s.formal.length:0,
-    added_count:Number.isSafeInteger(merge?.added_count)?merge.added_count:seeded?s.formal.length:0,
+    batch_id:merge?.batch_id||null,question_count:declaredQuestions===null?(seeded?s.formal.length:addedCount):declaredQuestions,
+    added_count:addedCount,
     uploader_account_id:merge?.uploader_account_id||s.seed_uploader_account_id||null,
     uploader_real_name:merge?.uploader_real_name||s.seed_uploader_real_name||null,
     uploader_nickname:merge?.uploader_nickname||null,uploader_auth_type:merge?.uploader_auth_type||null,
-    has_incremental_json:!!merge?.batch_id};
+    has_incremental_json:!!merge?.batch_id,has_revision_questions:addedCount>0&&!s.rollback};
   });
  }
  function validateQuestion(q,name){
@@ -121,22 +137,28 @@ function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission})
    }else if(!auth.desktop||!roles.includes('merge'))deny(403,'ROLE_FORBIDDEN','没有此题库的合并发布权限');
    const s=await latest(b);
    if(action==='history_questions'&&method==='GET'){
-    const revision=Number(exportedMatch[2]),target=await atRevision(b,revision),merge=target?.merge_history?.find(item=>item.revision===revision);
+    const revision=Number(exportedMatch[2]),target=await atRevision(b,revision),previous=revision>1?await atRevision(b,revision-1):null,merge=target?.merge_history?.find(item=>item.revision===revision);
     if(!target)deny(404,'VERSION_MISSING','目标版本不存在或已损坏');
-    if(!merge||!merge.added_count)return {revision,batch_id:merge?.batch_id||null,question_count:merge?.question_count||0,added_count:0,questions:[]};
-    if(typeof store.readSubmission!=='function'||typeof decodeSubmission!=='function')deny(404,'INCREMENTAL_JSON_MISSING','此修订的新增题目记录不可用');
-    let record;
-    try{record=await store.readSubmission(id,merge.batch_id);}catch{record=null;}
-    if(!record||record.format!=='qbank-submission-1'||record.bank_id!==id||record.batch_id!==merge.batch_id)deny(404,'INCREMENTAL_JSON_MISSING','此修订的新增题目记录不可用');
-    let decoded;
-    try{decoded=decodeSubmission(record.package);}catch{deny(502,'INCREMENTAL_JSON_INVALID','此修订的新增题目记录已损坏');}
-    const ids=new Set(Array.isArray(merge.added_question_ids)?merge.added_question_ids:
-      (target.resolved||[]).filter(item=>item.id?.startsWith(`${merge.batch_id}/`)&&!item.duplicate).map(item=>item.question_id));
-    const questions=(decoded.questions||[]).filter(q=>ids.has(q.question_id)).map(safeQuestion);
-    if(questions.length!==merge.added_count)deny(502,'INCREMENTAL_JSON_INCOMPLETE','此修订的新增题目记录不完整');
-    return {revision,batch_id:merge.batch_id,question_count:merge.question_count,added_count:merge.added_count,questions};
+    const fallback=stateDiff(previous,target).map(q=>{try{return safeQuestion(q);}catch{return q;}});
+    const declaredAdded=Number.isSafeInteger(merge?.added_count)?merge.added_count:null;
+    let questions=[];
+    if(merge?.batch_id&&declaredAdded>0&&typeof store.readSubmission==='function'&&typeof decodeSubmission==='function'){
+     let record;
+     try{record=await store.readSubmission(id,merge.batch_id);}catch{record=null;}
+     if(record&&record.format==='qbank-submission-1'&&record.bank_id===id&&record.batch_id===merge.batch_id){
+      try{
+       const decoded=decodeSubmission(record.package),ids=new Set(Array.isArray(merge.added_question_ids)?merge.added_question_ids:
+        (target.resolved||[]).filter(item=>item.id?.startsWith(`${merge.batch_id}/`)&&!item.duplicate).map(item=>item.question_id));
+       questions=(decoded.questions||[]).filter(q=>ids.has(q.question_id)).map(safeQuestion);
+      }catch{/* Fall back to the immutable version diff for legacy or damaged packages. */}
+     }
+    }
+    if(!questions.length&&fallback.length&&(!declaredAdded||declaredAdded===fallback.length))questions=fallback;
+    const addedCount=declaredAdded===null?fallback.length:declaredAdded||fallback.length;
+    if(questions.length!==addedCount)deny(502,'INCREMENTAL_JSON_INCOMPLETE','此修订的新增题目记录不完整');
+    return {revision,batch_id:merge?.batch_id||null,question_count:Number.isSafeInteger(merge?.question_count)?merge.question_count:questions.length,added_count:addedCount,questions};
    }
-   if(action==='history'&&method==='GET')return {current_revision:s.revision,release_version:s.release_version,release_version_label:s.release_version_label||`v${s.release_version}`,versions:await history(b)};
+   if(action==='history'&&method==='GET'){const formalLabel=s.release_version_label||`v${s.release_version}`;return {current_revision:s.revision,current_formal_revision:formalLabel.slice(1),release_version:s.release_version,release_version_label:formalLabel,versions:await history(b)};}
    if(method!=='POST')deny(405,'METHOD_NOT_ALLOWED','不支持此请求方法');
    const operation=body?.operation_id,operationHash=sha256(JSON.stringify({actor:auth.openid,action,body}));
    if(operation){
