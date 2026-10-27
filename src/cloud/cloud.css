@@ -35,6 +35,8 @@
 .cloud-bank-picker p{margin:.35rem 0;color:var(--muted)}
 .cloud-bank{display:flex;align-items:center;gap:0.923077rem;padding:0.923077rem 0;flex-wrap:wrap}
 .cloud-bank span{color:var(--muted)}
+.cloud-history-actions{display:flex;gap:.55rem;justify-content:flex-end;flex-wrap:wrap;flex-shrink:0}
+.cloud-history-actions button{white-space:nowrap}
 .cloud-bank-name{appearance:none;display:flex;flex:1 1 18rem;min-width:0;flex-direction:column;gap:.2rem;padding:0;border:0;background:transparent;color:inherit;text-align:left;cursor:pointer}
 .cloud-bank-name b{color:var(--ink);overflow-wrap:anywhere}
 .cloud-bank-name small{color:var(--muted);font-size:.78rem;line-height:1.35;overflow-wrap:anywhere}

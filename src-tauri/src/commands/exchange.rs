@@ -67,6 +67,25 @@ pub(crate) async fn export_recorded_questions(
 }
 
 #[tauri::command]
+pub(crate) async fn export_remote_questions(
+    questions: Vec<Question>,
+    path: String,
+) -> Result<usize> {
+    blocking(move || {
+        if questions.is_empty() {
+            return Err("没有可导出的新增题目".into());
+        }
+        if questions.len() > 1000 {
+            return Err("单次修订导出超过 1000 题".into());
+        }
+        let bytes = crate::exchange::write_recommended_docx(&questions)?;
+        crate::exchange::atomic_write(&PathBuf::from(path), &bytes)?;
+        Ok(questions.len())
+    })
+    .await
+}
+
+#[tauri::command]
 pub(crate) async fn count_recorded_questions(
     s: State<'_, AppState>,
     bank_id: String,

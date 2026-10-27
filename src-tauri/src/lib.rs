@@ -164,6 +164,7 @@ pub fn run() {
             commands::exchange::export_bank,
             commands::exchange::count_recorded_questions,
             commands::exchange::export_recorded_questions,
+            commands::exchange::export_remote_questions,
             commands::library::history,
             commands::library::rebuild_index,
             commands::library::app_info,
