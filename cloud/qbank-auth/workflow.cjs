@@ -21,7 +21,7 @@ function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission})
   const states=await store.listStates(b.bank_id);
   return states.map(s=>{
    const merge=(s.merge_history||[]).find(m=>m.revision===s.revision),seeded=!merge&&s.revision===1&&Array.isArray(s.formal);
-   return {revision:s.revision,release_version:s.release_version,updated_at:s.updated_at,merged_at:s.merged_at||null,
+   return {revision:s.revision,release_version:s.release_version,release_version_label:s.release_version_label||`v${s.release_version}`,updated_at:s.updated_at,merged_at:s.merged_at||null,
     release_name:s.release_name||null,release_id:s.release_id||null,rollback_at:s.rollback_at||null,
     rollback_of:s.rollback?.target_revision||null,merge_count:Array.isArray(s.merge_history)?s.merge_history.length:0,
     batch_id:merge?.batch_id||null,question_count:Number.isSafeInteger(merge?.question_count)?merge.question_count:seeded?s.formal.length:0,
@@ -98,7 +98,7 @@ function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission})
       const suffixes=labels.filter(label=>label===basePrefix||label.startsWith(`${basePrefix}.`)).map(label=>label===basePrefix?0:Number(label.slice(basePrefix.length+1))).filter(Number.isSafeInteger);
       const nextLabel=wasRolledBack&&suffixes.length?`${basePrefix}.${Math.max(...suffixes)+1}`:basePrefix;
       s.formal=formal;s.release_version=nextBase;s.release_version_label=nextLabel;s.merged_at=mergedAt;s.release_id=sha256(JSON.stringify(formal));
-      s.release_name=releaseName(mergedAt,s.name,'合并',s.release_version,s.bank_id,s.release_id);
+      s.release_name=releaseName(mergedAt,s.name,'合并',nextLabel.slice(1),s.bank_id,s.release_id);
       s.rollback=null;s.rollback_at=null;s.merge_history.at(-1).release_version=s.release_version;s.merge_history.at(-1).release_version_label=nextLabel;}
     s.merge_history.at(-1).release_name=s.release_name;
     try{
@@ -135,7 +135,7 @@ function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission})
     if(questions.length!==merge.added_count)deny(502,'INCREMENTAL_JSON_INCOMPLETE','此修订的新增题目记录不完整');
     return {revision,batch_id:merge.batch_id,question_count:merge.question_count,added_count:merge.added_count,questions};
    }
-   if(action==='history'&&method==='GET')return {current_revision:s.revision,release_version:s.release_version,versions:await history(b)};
+   if(action==='history'&&method==='GET')return {current_revision:s.revision,release_version:s.release_version,release_version_label:s.release_version_label||`v${s.release_version}`,versions:await history(b)};
    if(method!=='POST')deny(405,'METHOD_NOT_ALLOWED','不支持此请求方法');
    const operation=body?.operation_id,operationHash=sha256(JSON.stringify({actor:auth.openid,action,body}));
    if(operation){
@@ -155,7 +155,7 @@ function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission})
     // question content from a version created before a rename.
     const restored=structuredClone(target.formal).map(q=>({...q,bank:s.name}));
     const rolledAt=new Date(clock()).toISOString(),releaseId=target.name===s.name&&target.release_id?target.release_id:sha256(JSON.stringify(restored));
-    s.formal=restored;s.pending=[];s.resolved=structuredClone(target.resolved||[]);
+    s.formal=restored;s.pending=[];s.resolved=structuredClone(target.resolved||[]);s.seed_uploader_account_id=null;s.seed_uploader_real_name=null;
     s.release_version=target.release_version;s.release_version_label=target.release_version_label||`v${target.release_version}`;s.merged_at=target.merged_at||rolledAt;s.release_id=releaseId;
     s.release_name=releaseName(rolledAt,s.name,'回退',s.release_version,s.bank_id,releaseId);
     s.rollback={target_revision:target.revision,from_revision:s.revision,rolled_back_at:rolledAt,actor:sha256(auth.openid)};s.rollback_at=rolledAt;

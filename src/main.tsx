@@ -9,7 +9,7 @@ import {createRoot} from 'react-dom/client';
 import {invoke, isTauri} from '@tauri-apps/api/core';
 import {getCurrentWebview} from '@tauri-apps/api/webview';
 import {SoftwareUpdate} from './software-update';
-import {cloudAccess,cloudInitializePersistentSession,fetchCatalog,reloadDesktopCache,startCloudWorker,type Access} from './cloud-client';
+import {cloudAccess,cloudCall,cloudInitializePersistentSession,fetchCatalog,reloadDesktopCache,startCloudWorker,type Access} from './cloud-client';
 import {IntakePanel} from './intake-panel';
 import {IntakeHub} from './intake-hub';
 import {QuestionExport} from './question-export';
@@ -88,8 +88,18 @@ function App(){
  function switchBank(id:string){setBankId(id)}
  function openExport(format='package'){setExportBank(bankId||active?.bank_id||banks[0]?.id||'');setExportFormat(format);setModal('export')}
  async function doExport(){if(exportFormat.startsWith('docx')&&!canWordExport)return;await work('正在制作文件，请稍候',async()=>{const b=banks.find(b=>b.id===exportBank);if(!b)throw Error('请选择题库');const ext=exportFormat==='package'?'qbank.zip':exportFormat.startsWith('docx')?'docx':exportFormat;const path=await save({title:exportFormat==='package'?'制作离线题库包':'导出题库',defaultPath:`${await invoke<string>('export_name',{bankId:exportBank})}.${ext}`,filters:[{name:ext,extensions:exportFormat==='package'?['zip']:[ext]}]});if(!path)return;const count=await invoke<number>('export_bank',{bankId:exportBank,path,format:exportFormat,filter:exportFiltered&&exportFormat!=='package'?{text:committed,kind,bank_id:exportBank}:null});setModal('');setNotice(`已保存 ${count.toLocaleString()} 题：${path}`);})}
- async function doQuestionExport(targetBank:string,startAt:string|null,endBefore:string|null){if(!canWordExport)return;await work('正在准备 DOCX 题目文件',async()=>{
+ async function doQuestionExport(targetBank:string,startAt:string|null,endBefore:string|null,revisions:number[]=[]){if(!canWordExport)return;await work('正在准备 DOCX 题目文件',async()=>{
   const selectedBank=banks.find(item=>item.id===targetBank);if(!selectedBank)throw Error('请选择题库');
+  if(revisions.length){
+   const batches=await Promise.all(revisions.map(revision=>cloudCall<{revision:number;added_count:number;questions:Question[]}>(`/v1/banks/${targetBank}/history/${revision}/questions`,undefined,true)));
+   const questions=batches.flatMap(batch=>batch.questions||[]),expected=batches.reduce((count,batch)=>count+(batch.added_count||0),0);
+   if(!questions.length||questions.length!==expected)throw Error('云端没有返回完整的所选修订新增题目');
+   const now=new Date(),pad=(value:number)=>String(value).padStart(2,'0'),stamp=`${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+   const simpleBankName=selectedBank.name.replace(/[\\/:*?"<>|\u0000-\u001f]/g,'_').replace(/\s+/g,'_').replace(/^[_ .-]+|[_ .-]+$/g,'').slice(0,48)||'题库';
+   const path=await save({title:'导出修订新增题目',defaultPath:`${simpleBankName}_${stamp}_${expected}题_修订${revisions.join('-')}.docx`,filters:[{name:'Word 文档',extensions:['docx']}]});
+   if(!path)return;
+   const exported=await invoke<number>('export_remote_questions',{questions,path});setModal('');setNotice(`已导出 ${exported.toLocaleString()} 道题：${path}`);return;
+  }
   const count=await invoke<number>('count_recorded_questions',{bankId:targetBank,startAt,endBefore});
   if(!count)throw Error('所选范围内没有可导出的题目');
   const now=new Date(),pad=(value:number)=>String(value).padStart(2,'0');
@@ -204,7 +214,7 @@ function App(){
   {dropping&&<div className="delta-drop-overlay">松开即可导入 JSON 增量题库<br/><small>按题库身份合并 · 自动跳过重复题</small></div>}
   {modal==='library'&&<CloudLibrary banks={banks} onClose={()=>setModal('')} onChanged={refresh} onDeleted={bankDeleted} onCreated={switchBank}/>}
   {modal==='intake-hub'&&<IntakeHub busy={!!busy} bankId={bankId||active?.bank_id||''} showExport={canWordExport} onAI={selectedBankId=>openIntake('', '', false, selectedBankId)} onManual={selectedBankId=>beginManualEntry(selectedBankId)} onJSON={()=>void chooseJsonImport()} onExport={()=>{if(canWordExport)setModal('question-export')}} onClose={()=>setModal('')}/>}
-  {modal==='question-export'&&canWordExport&&<QuestionExport banks={banks} defaultBankId={bankId||active?.bank_id||banks[0]?.id||''} busy={!!busy} onClose={()=>setModal('')} onExport={(id,startAt,endBefore)=>void doQuestionExport(id,startAt,endBefore)}/>}
+  {modal==='question-export'&&canWordExport&&<QuestionExport banks={banks} defaultBankId={bankId||active?.bank_id||banks[0]?.id||''} busy={!!busy} onClose={()=>setModal('')} onExport={(id,startAt,endBefore,revisions)=>void doQuestionExport(id,startAt,endBefore,revisions)}/>}
   {modal==='intake'&&<IntakePanel banks={banks} bankId={intakeBankId||bankId||active?.bank_id||''} initial={intakeInitial} initialRecordId={intakeRecord} startManual={intakeManual} initialTab={intakeTab} initialNotice={intakeNotice} onClose={()=>setModal('')} onBusy={value=>setBusy(value?'正在处理录入':'')} onSaved={async id=>{await refresh();switchBank(id)}}/>}
   {modal==='ocr'&&<OcrPanel banks={banks} bankId={bankId||active?.bank_id||''} initial={ocrInitial} onClose={()=>setModal('')} onSearch={(value,id)=>{setModal('');switchBank(id);setText(value);setCommitted(value);input.current?.focus()}}/>}
   {modal&&modal!=='library'&&modal!=='ocr'&&modal!=='intake'&&modal!=='intake-hub'&&modal!=='question-export'&&<div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget&&!busy){setModal('');setDraft(null)}}}><section className={`modal ${modal==='edit'||modal==='cloud-login'?'large':''} ${modal==='settings'?'settings-modal':''} ${modal==='cloud-login'?'cloud-login-modal':''}`} role="dialog" aria-modal="true" aria-label={modal==='cloud-login'?'云端登录与权限':undefined}><button className="close-modal" aria-label="关闭" disabled={!!busy} onClick={()=>{setModal('');setDraft(null)}}><X size={20}/></button>

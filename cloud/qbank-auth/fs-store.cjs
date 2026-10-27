@@ -78,7 +78,7 @@ function createFileStore({ root = process.env.QBANK_STORAGE_ROOT || '/var/lib/qb
       || ref.from_revision < 1 || ref.from_revision >= revision
       || !Number.isSafeInteger(ref.target_revision) || ref.target_revision < 1
       || ref.target_revision >= revision || typeof ref.name !== 'string' || !ref.name.trim()
-      || !Number.isSafeInteger(ref.release_version) || typeof ref.updated_at !== 'string'
+      || !Number.isSafeInteger(ref.release_version) || (ref.release_version_label != null && (typeof ref.release_version_label !== 'string' || !/^v\d+(?:\.\d+)?$/.test(ref.release_version_label))) || typeof ref.updated_at !== 'string'
       || typeof ref.rollback_at !== 'string' || typeof ref.release_id !== 'string'
       || typeof ref.release_name !== 'string' || !ref.operation || typeof ref.operation.id !== 'string')
       throw new Error('Invalid rollback reference');
@@ -92,6 +92,7 @@ function createFileStore({ root = process.env.QBANK_STORAGE_ROOT || '/var/lib/qb
       name: ref.name,
       revision,
       release_version: ref.release_version,
+      release_version_label: ref.release_version_label || `v${ref.release_version}`,
       formal,
       pending: [],
       resolved: structuredClone(target.resolved || []),
@@ -101,6 +102,8 @@ function createFileStore({ root = process.env.QBANK_STORAGE_ROOT || '/var/lib/qb
       release_name: ref.release_name,
       rollback: ref.rollback,
       rollback_at: ref.rollback_at,
+      seed_uploader_account_id: null,
+      seed_uploader_real_name: null,
       operations: [...(parent.operations || []), ref.operation],
     };
   }
@@ -212,7 +215,7 @@ function createFileStore({ root = process.env.QBANK_STORAGE_ROOT || '/var/lib/qb
     const ref = {
       format: 'qbank-rollback-ref-1', bank_id: state.bank_id, revision: state.revision,
       name: state.name, from_revision: fromRevision, target_revision: targetRevision,
-      release_version: state.release_version, updated_at: state.updated_at,
+      release_version: state.release_version, release_version_label: state.release_version_label || `v${state.release_version}`, updated_at: state.updated_at,
       merged_at: state.merged_at || null, release_id: state.release_id,
       release_name: state.release_name, rollback: state.rollback,
       rollback_at: state.rollback_at, operation,

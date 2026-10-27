@@ -7,7 +7,7 @@ import type {CloudManifest} from '../shared/sync';
 import type {Bank,Question} from './types';
 
 type Version={revision:number;release_version:number;release_version_label?:string|null;updated_at:string;merged_at?:string|null;release_name?:string|null;release_id?:string|null;rollback_at?:string|null;rollback_of?:number|null;merge_count:number;batch_id?:string|null;question_count?:number;added_count?:number;has_incremental_json?:boolean;uploader_account_id?:string|null;uploader_real_name?:string|null;uploader_nickname?:string|null;uploader_auth_type?:'password'|'key'|null};
-type History={current_revision:number;release_version:number;versions:Version[]};
+type History={current_revision:number;release_version:number;release_version_label?:string|null;versions:Version[]};
 type RevisionQuestions={revision:number;batch_id?:string|null;question_count:number;added_count:number;questions:Question[]};
 
 export function CloudPanel({banks,onChanged,onClose,onBusy,embedded=false}:{banks:Bank[];onChanged:()=>Promise<unknown>;onClose:()=>void;onBusy:(value:boolean)=>void;embedded?:boolean}){
@@ -52,7 +52,7 @@ export function CloudPanel({banks,onChanged,onClose,onBusy,embedded=false}:{bank
   {!embedded&&<><button className="close-modal" disabled={busy} onClick={onClose}>×</button><h2>云端题库与维护</h2></>}
   {!selected?<>
    <div className="cloud-catalog-list">
-    {catalog.map(b=><div className="cloud-bank cloud-catalog-item" key={b.bank_id}><button type="button" className="cloud-bank-name" disabled={busy} onClick={()=>{setMessage('');setSelected(b.bank_id)}}><b>{b.name}</b>{b.release_name&&<small>{b.release_name}</small>}</button><span className="cloud-catalog-release">正式 v{b.release_version} · 修订 {b.revision}</span>{!banks.some(k=>k.id===b.bank_id)&&<button className="cloud-catalog-download" disabled={busy} onClick={()=>void task(async()=>{await syncDesktop(b.bank_id,b);await onChanged();setMessage('题库已下载')})}>下载题库</button>}</div>)}
+    {catalog.map(b=><div className="cloud-bank cloud-catalog-item" key={b.bank_id}><button type="button" className="cloud-bank-name" disabled={busy} onClick={()=>{setMessage('');setSelected(b.bank_id)}}><b>{b.name}</b>{b.release_name&&<small>{b.release_name}</small>}</button><span className="cloud-catalog-release">正式 {b.release_version_label||`v${b.release_version}`} · 修订 {b.revision}</span>{!banks.some(k=>k.id===b.bank_id)&&<button className="cloud-catalog-download" disabled={busy} onClick={()=>void task(async()=>{await syncDesktop(b.bank_id,b);await onChanged();setMessage('题库已下载')})}>下载题库</button>}</div>)}
     {!catalog.length&&<p className="callout">{busy?'正在读取云端题库目录…':'云端目录暂无题库。'}</p>}
    </div>
    <div className="cloud-catalog-footer"><button className="cloud-refresh-button" disabled={busy} onClick={()=>void task(checkUpdates)}>{busy?'正在检查…':'检查更新'}</button>{message&&<p className="callout cloud-catalog-status" role="status">{message}</p>}</div>
@@ -61,7 +61,7 @@ export function CloudPanel({banks,onChanged,onClose,onBusy,embedded=false}:{bank
    <h3>{selectedBank?.name||'题库历史版本'}</h3>
    {!canMerge?<p className="callout">当前账号没有此题库的版本历史查看权限。</p>:historyLoading?<p>正在读取历史版本…</p>:null}
   </>}
-  {selected&&history&&<><p>正式版本 {history.release_version} · 修订 {history.current_revision} · 新上传会直接合并</p>
+  {selected&&history&&<><p>正式版本 {history.release_version_label||`v${history.release_version}`} · 修订 {history.current_revision} · 新上传会直接合并</p>
    {history.current_revision===0&&access?.capabilities?.includes('cloud_bank:create')&&<button disabled={busy||!banks.some(b=>b.id===selected)} onClick={()=>void task(async()=>{
     const questions=await invoke<Question[]>('bank_questions',{bankId:selected});
     if(!window.confirm('将本机「'+(banks.find(b=>b.id===selected)?.name||'')+'」的 '+questions.length+' 道正式题初始化为云端首版？'))return;

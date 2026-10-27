@@ -136,4 +136,4 @@ su qbank -s /bin/sh -c 'node /opt/qbank-auth/current/repair-bank-status.cjs <ban
 
 ## 维护者密钥
 
-在本机执行 `node tools/create-maintainer.mjs <维护者ID> <bank_id> <upload,merge> [https://服务地址]` 生成密钥、授权条目和桌面导入证书。只把授权条目写入服务器环境，把证书文件安全分发到对应桌面；私钥不写入代码或聊天。
+在本机执行 `node tools/create-maintainer.mjs <维护者ID> <bank_id> <upload,merge> [真实姓名] [https://服务地址]` 生成密钥、授权条目和桌面导入证书。填写真实姓名后，云端修订历史会显示该姓名；只把授权条目写入服务器环境，把证书文件安全分发到对应桌面；私钥不写入代码或聊天。

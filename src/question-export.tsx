@@ -3,17 +3,20 @@ import type {KeyboardEvent} from 'react';
 import {ArrowRight, ChevronDown, Download, FileText, X} from 'lucide-react';
 import {DateTimePicker} from './date-time-picker';
 import {calendarDate, localDateTime, moveCalendarDate} from './date-time';
+import {cloudCall} from './cloud-client';
 import type {Bank} from './types';
 import './question-export.css';
 
-type ExportScope = 'all' | 'range';
+type ExportScope = 'all' | 'range' | 'revision';
+type Revision={revision:number;release_version:number;release_version_label?:string|null;updated_at:string;added_count?:number;question_count?:number;batch_id?:string|null;has_incremental_json?:boolean;uploader_real_name?:string|null;uploader_nickname?:string|null};
+type RevisionHistory={versions:Revision[]};
 
 export function QuestionExport({banks, defaultBankId, busy, onClose, onExport}: {
   banks: Bank[];
   defaultBankId: string;
   busy: boolean;
   onClose: () => void;
-  onExport: (bankId: string, startAt: string | null, endBefore: string | null) => void;
+  onExport: (bankId: string, startAt: string | null, endBefore: string | null, revisions: number[]) => void;
 }) {
   const [bankId, setBankId] = useState(defaultBankId);
   const [scope, setScope] = useState<ExportScope>('all');
@@ -21,10 +24,36 @@ export function QuestionExport({banks, defaultBankId, busy, onClose, onExport}: 
   const [end, setEnd] = useState(() => ({date: calendarDate(new Date()), time: '23:59'}));
   const [confirming, setConfirming] = useState(false);
   const [validation, setValidation] = useState('');
+  const [revisions, setRevisions] = useState<Revision[]>([]);
+  const [selectedRevisions, setSelectedRevisions] = useState<number[]>([]);
+  const [revisionLoading, setRevisionLoading] = useState(false);
   const panel = useRef<HTMLElement>(null);
   const continueButton = useRef<HTMLButtonElement>(null);
   const cancelConfirmation = useRef<HTMLButtonElement>(null);
   const selected = banks.find(bank => bank.id === bankId);
+  const selectedRevisionRows = revisions.filter(row => selectedRevisions.includes(row.revision));
+  const selectedRevisionCount = selectedRevisionRows.reduce((total, row) => total + (row.added_count || 0), 0);
+
+  useEffect(() => {
+    if (scope !== 'revision' || !selected?.read_only) {
+      setRevisions([]);
+      setSelectedRevisions([]);
+      setRevisionLoading(false);
+      return;
+    }
+    let active = true;
+    setRevisionLoading(true);
+    setValidation('');
+    void cloudCall<RevisionHistory>(`/v1/banks/${bankId}/history`, undefined, true).then(result => {
+      if (!active) return;
+      const rows = Array.isArray(result.versions) ? result.versions : [];
+      setRevisions(rows);
+      setSelectedRevisions([]);
+    }).catch(error => {
+      if (active) setValidation(String(error));
+    }).finally(() => {if (active) setRevisionLoading(false);});
+    return () => {active = false;};
+  }, [scope, bankId, selected?.read_only]);
 
   useEffect(() => {
     const previous = document.activeElement;
@@ -36,7 +65,10 @@ export function QuestionExport({banks, defaultBankId, busy, onClose, onExport}: 
   function reviewExport() {
     setValidation('');
     if (!selected) {setValidation('请先选择题库。'); return;}
-    if (scope === 'range') {
+    if (scope === 'revision') {
+      if (!selected.read_only) {setValidation('按修订版本导出仅支持云端题库。'); return;}
+      if (!selectedRevisions.length) {setValidation('请至少选择一个修订版本。'); return;}
+    } else if (scope === 'range') {
       const from = localDateTime(start.date, start.time), through = localDateTime(end.date, end.time);
       if (!from || !through) {setValidation('请完整选择有效的开始和结束时间。'); return;}
       if (from > through) {setValidation('开始时间不能晚于结束时间。'); return;}
@@ -46,11 +78,12 @@ export function QuestionExport({banks, defaultBankId, busy, onClose, onExport}: 
   function confirmExport() {
     if (!selected) return;
     setConfirming(false);
-    if (scope === 'all') {onExport(bankId, null, null); return;}
+    if (scope === 'revision') {onExport(bankId, null, null, selectedRevisions); return;}
+    if (scope === 'all') {onExport(bankId, null, null, []); return;}
     const from = localDateTime(start.date, start.time), through = localDateTime(end.date, end.time);
     if (!from || !through || from > through) return;
     // Include the entire selected end minute; the backend uses a half-open interval.
-    onExport(bankId, from.toISOString(), new Date(through.getTime() + 60_000).toISOString());
+    onExport(bankId, from.toISOString(), new Date(through.getTime() + 60_000).toISOString(), []);
   }
   function cancelReview() {
     setConfirming(false);
@@ -91,7 +124,7 @@ export function QuestionExport({banks, defaultBankId, busy, onClose, onExport}: 
           <div className="question-export-selection-row">
             <label className="question-export-bank-label">选择题库
               <span className="question-export-select-wrap">
-                <select value={bankId} onChange={event => {setBankId(event.target.value); setValidation('');}} disabled={busy}>
+                <select value={bankId} onChange={event => {const next=event.target.value;setBankId(next);if (!banks.find(bank => bank.id === next)?.read_only && scope === 'revision') setScope('all');setValidation('');}} disabled={busy}>
                   <option value="" disabled>请选择题库</option>
                   {banks.map(bank => <option key={bank.id} value={bank.id}>{bank.name} · {bank.count.toLocaleString()} 题</option>)}
                 </select>
@@ -101,10 +134,10 @@ export function QuestionExport({banks, defaultBankId, busy, onClose, onExport}: 
             <div className="question-export-scope">
               <span id="question-export-scope-label">导出范围</span>
               <div className="question-export-segments" role="radiogroup" aria-labelledby="question-export-scope-label">
-                {(['all', 'range'] as const).map(value => <label key={value} className={scope === value ? 'selected' : ''}>
-                  <input type="radio" name="question-export-scope" value={value} checked={scope === value} disabled={busy}
+                {(['all', 'range', 'revision'] as const).map(value => <label key={value} className={`${scope === value ? 'selected' : ''}${value === 'revision' && !selected?.read_only ? ' disabled' : ''}`}>
+                  <input type="radio" name="question-export-scope" value={value} checked={scope === value} disabled={busy || (value === 'revision' && !selected?.read_only)}
                     onChange={() => {setScope(value); setValidation('');}}/>
-                  <span>{value === 'all' ? '全部导出' : '按时间范围'}</span>
+                  <span>{value === 'all' ? '全部导出' : value === 'range' ? '按时间范围' : '按修订版本'}</span>
                 </label>)}
               </div>
             </div>
@@ -113,6 +146,14 @@ export function QuestionExport({banks, defaultBankId, busy, onClose, onExport}: 
             {scope === 'all' ? <div className="question-export-all">
               <strong>{(selected?.count || 0).toLocaleString()}<span>题</span></strong>
               <p>导出所选题库的全部题目</p>
+            </div> : scope === 'revision' ? <div className="question-export-revisions">
+              {revisionLoading ? <p className="question-export-range-note">正在读取修订记录…</p> : !revisions.length ? <p className="question-export-range-note">当前题库暂无可用修订记录。</p> : <>
+                <div className="question-export-revision-table-wrap"><table className="question-export-revision-table"><thead><tr><th scope="col">选择</th><th scope="col">正式版</th><th scope="col">提交者</th><th scope="col">题目数量</th><th scope="col">提交时间</th></tr></thead><tbody>{revisions.map(row => {
+                  const added = row.added_count || 0, canSelect = !!row.has_incremental_json && added > 0, checked = selectedRevisions.includes(row.revision);
+                  return <tr key={row.revision} className={!canSelect ? 'unavailable' : ''}><td><input type="checkbox" checked={checked} disabled={busy || !canSelect} aria-label={`选择修订 ${row.revision}`} onChange={() => setSelectedRevisions(current => checked ? current.filter(value => value !== row.revision) : [...current, row.revision])}/></td><td>修订 {row.revision} · {row.release_version_label || `v${row.release_version}`}</td><td>{row.uploader_real_name || row.uploader_nickname || '未记录'}</td><td>{added.toLocaleString()} 题</td><td>{new Date(row.updated_at).toLocaleString()}</td></tr>;
+                })}</tbody></table></div>
+                <p className="question-export-range-note">可多选有新增题目记录的修订；首版和回退修订没有可单独导出的增量包。</p>
+              </>}
             </div> : <div className="question-export-range">
               <div className="question-export-range-toolbar">
                 <span>按录入时间筛选</span>
@@ -140,7 +181,9 @@ export function QuestionExport({banks, defaultBankId, busy, onClose, onExport}: 
           <h3 id="question-export-confirm-title">是否导出此题库？</h3>
           <p id="question-export-confirm-copy">当前题库：<b>{selected?.name}</b><br/>{scope === 'all'
             ? `全部导出，共 ${selected?.count.toLocaleString()} 题。`
-            : `录入时间：${start.date} ${start.time} 至 ${end.date} ${end.time}。`}<br/>仅包含题目、选项、答案与解析。</p>
+            : scope === 'revision'
+              ? `已选择 ${selectedRevisions.length} 个修订，共 ${selectedRevisionCount.toLocaleString()} 题。`
+              : `录入时间：${start.date} ${start.time} 至 ${end.date} ${end.time}。`}<br/>仅包含题目、选项、答案与解析。</p>
           <div className="question-export-confirm-actions"><button ref={cancelConfirmation} disabled={busy} onClick={cancelReview}>取消</button><button className="primary" disabled={busy} onClick={confirmExport}>确认导出</button></div>
         </section>
       </div>}
