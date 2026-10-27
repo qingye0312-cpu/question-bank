@@ -10,6 +10,12 @@ https://qbank.creart.top:8443 {
 		header Cache-Control "no-cache"
 		file_server
 	}
+	handle /fishdownload* {
+		root * /var/lib/qbank-desktop-updates/site
+		rewrite * /index.html
+		header Cache-Control "no-cache"
+		file_server
+	}
 	handle /fastdowmload/api* {
 		reverse_proxy 127.0.0.1:8090
 	}

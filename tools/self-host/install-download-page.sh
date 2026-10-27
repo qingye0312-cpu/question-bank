@@ -38,6 +38,23 @@ if ! grep -q 'root \* /var/lib/qbank-desktop-updates/site' "$DOMAIN_CONFIG"; the
   cat "$TEMP" > "$DOMAIN_CONFIG"
 fi
 
+if ! grep -q 'handle /fishdownload\*' "$DOMAIN_CONFIG"; then
+  awk '
+    /^[[:space:]]*handle_path \/v1\/desktop\/releases\/\* \{/ && !inserted {
+      print "\thandle /fishdownload* {"
+      print "\t\troot * /var/lib/qbank-desktop-updates/site"
+      print "\t\trewrite * /index.html"
+      print "\t\theader Cache-Control \"no-cache\""
+      print "\t\tfile_server"
+      print "\t}"
+      inserted = 1
+    }
+    { print }
+    END { if (!inserted) exit 1 }
+  ' "$DOMAIN_CONFIG" > "$TEMP" || { echo 'could not insert the fishdownload route into Caddy config' >&2; exit 1; }
+  cat "$TEMP" > "$DOMAIN_CONFIG"
+fi
+
 if ! caddy validate --config "$MAIN_CONFIG" --adapter caddyfile; then
   cp -p "$BACKUP" "$DOMAIN_CONFIG"
   exit 1
@@ -56,5 +73,13 @@ if ! curl --fail --silent --show-error --resolve qbank.creart.top:8443:127.0.0.1
   echo 'the download page did not pass the local HTTPS check; Caddy config was restored' >&2
   exit 1
 fi
+if ! curl --fail --silent --show-error --resolve qbank.creart.top:8443:127.0.0.1 \
+  https://qbank.creart.top:8443/fishdownload -o /tmp/qbank-download-page-check.html \
+  || ! grep -q '下载题库桌面版' /tmp/qbank-download-page-check.html; then
+  cp -p "$BACKUP" "$DOMAIN_CONFIG"
+  caddy reload --config "$MAIN_CONFIG" --adapter caddyfile >/dev/null 2>&1 || true
+  echo 'the fishdownload page did not pass the local HTTPS check; Caddy config was restored' >&2
+  exit 1
+fi
 
-echo "Download page deployed at https://qbank.creart.top:8013/download"
+echo "Download pages deployed at https://qbank.creart.top:8013/download and /fishdownload"

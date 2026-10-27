@@ -557,6 +557,7 @@
 
       const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
       const themeQuery = window.matchMedia("(prefers-color-scheme: dark)");
+      const fishEnabled = !window.location.pathname.startsWith("/fishdownload");
       const gridSpacing = 72;
       const maxSpeed = 320;
       const minSpeed = 102;
@@ -594,7 +595,7 @@
           fish: style.getPropertyValue("--fish-color").trim(),
           glow: style.getPropertyValue("--fish-glow").trim(),
         };
-        fishSprites = createFishSprites();
+        fishSprites = fishEnabled ? createFishSprites() : [];
       }
 
       function createFishSprites() {
@@ -657,7 +658,7 @@
           }
         }
 
-        const count = 1500;
+        const count = fishEnabled ? 1500 : 0;
         while (boids.length < count) boids.push(createBoid());
         if (boids.length > count) boids.length = count;
         gridColumns = Math.max(1, Math.ceil(width / neighborRadius));
@@ -855,8 +856,10 @@
         if (reducedMotion || document.hidden) return;
         const delta = lastFrame ? Math.min((timestamp - lastFrame) / 1000, .06) : 1 / 60;
         lastFrame = timestamp;
-        updateBoids(delta);
-        simulationTime += delta;
+        if (fishEnabled) {
+          updateBoids(delta);
+          simulationTime += delta;
+        }
         draw();
         animationFrame = window.requestAnimationFrame(animate);
       }
