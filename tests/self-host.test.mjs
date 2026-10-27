@@ -108,6 +108,6 @@ test('packaged self-host merges an upload, reopens compressed disk state, replay
  const manifest=readManifest((await localRequest(server,'GET',`/v1/banks/${id}/manifest`)).data);
  const snapshot=readSnapshot((await localRequest(server,'GET',`/v1/banks/${id}/snapshot-file`)).data,manifest);assert.equal(snapshot.formal.length,2);assert.equal(snapshot.pending.length,0);
  const rollback=await localRequest(server,'POST',`/v1/banks/${id}/rollback`,{base_revision:2,target_revision:1,operation_id:randomUUID()},token);assert.equal(rollback.status,200);assert.equal(rollback.data.revision,3);
- assert.equal((await localRequest(server,'GET',`/v1/banks/${id}/history`,undefined,token)).data.versions.length,3);
+ assert.equal((await localRequest(server,'GET',`/v1/banks/${id}/history`,undefined,token)).data.versions.length,1);
  assert.equal((await createFileStore({root}).readState(id)).formal.length,1);
 });

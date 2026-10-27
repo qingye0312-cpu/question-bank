@@ -18,7 +18,7 @@ function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission})
   return store.readStateAt(b.bank_id,revision);
  }
  function stateDiff(previous,current){
-  if(current?.rollback||!Array.isArray(current?.formal))return [];
+  if(current?.rollback_reference||!Array.isArray(current?.formal))return [];
   const previousIds=new Set(Array.isArray(previous?.formal)?previous.formal.map(q=>q.question_id):[]);
   const previousKeys=new Set();
   for(const q of Array.isArray(previous?.formal)?previous.formal:[]){try{previousKeys.add(key(q));}catch{/* Preserve the ID-only fallback for legacy records. */}}
@@ -27,17 +27,37 @@ function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission})
    try{return !previousKeys.has(key(q));}catch{return true;}
   });
  }
+ function revisionLabel(state){return state?.release_version_label||`v${state?.release_version||0}`;}
+ function labelSort(left,right){
+  const parse=value=>{const match=/^v(\d+)(?:\.(\d+))?$/.exec(value||'');return match?[Number(match[1]),Number(match[2]||0)]:[Number.MAX_SAFE_INTEGER,Number.MAX_SAFE_INTEGER];};
+  const a=parse(left),b=parse(right);return a[0]-b[0]||a[1]-b[1];
+ }
+ async function formalHistory(b){
+  const allStates=await store.listStates(b.bank_id),latestState=allStates[0]||null;
+  if(!latestState||!Array.isArray(latestState.formal))return [];
+  const currentVersion=latestState.release_version||0;
+  const candidates=allStates.filter(state=>!state.rollback_reference&&Array.isArray(state.formal)
+    &&Number.isSafeInteger(state.release_version)&&state.release_version<=currentVersion);
+  const byLabel=new Map();
+  for(const state of candidates){
+   const label=revisionLabel(state),existing=byLabel.get(label);
+   if(!existing||state.revision>existing.revision)byLabel.set(label,state);
+  }
+  // A current rollback reference resolves to its target formal state. Keep
+  // the newest full state for that release so export uses added questions,
+  // while the operational rollback event stays out of the release list.
+  const labels=[...byLabel.keys()].sort(labelSort);
+  return labels.map((label,index)=>({state:byLabel.get(label),formal_revision:String(index+1),release_version_label:label}));
+ }
  async function history(b){
-  // Rollback refs are operational events, not formal releases. Keep the
-  // immutable files for audit/rollback, but omit them from the release list.
-  const allStates=await store.listStates(b.bank_id),byRevision=new Map(allStates.map(s=>[s.revision,s])),states=allStates.filter(s=>!s.rollback);
-  return states.map((s,index)=>{
-   const previous=byRevision.get(s.revision-1)||states[index+1],derived=stateDiff(previous,s),merge=(s.merge_history||[]).find(m=>m.revision===s.revision),seeded=!merge&&s.revision===1&&Array.isArray(s.formal);
+  const entries=await formalHistory(b);
+  return entries.map(({state:s,formal_revision,release_version_label},index)=>{
+   const previous=entries[index-1]?.state||null,derived=stateDiff(previous,s),merge=(s.merge_history||[]).find(m=>m.release_version_label===release_version_label&&Number.isSafeInteger(m.added_count)&&m.added_count===derived.length&&m.added_count>0),seeded=index===0&&!merge&&Array.isArray(s.formal);
    const declaredAdded=Number.isSafeInteger(merge?.added_count)?merge.added_count:null;
    const addedCount=declaredAdded===null?(seeded?s.formal.length:derived.length):declaredAdded||derived.length;
    const declaredQuestions=Number.isSafeInteger(merge?.question_count)?merge.question_count:null;
-   const formalLabel=s.release_version_label||`v${s.release_version}`;
-   return {revision:s.revision,formal_revision:formalLabel.slice(1),release_version:s.release_version,release_version_label:formalLabel,updated_at:s.updated_at,merged_at:s.merged_at||null,
+   const formalLabel=release_version_label;
+   return {revision:s.revision,formal_revision,release_version:s.release_version,release_version_label:formalLabel,updated_at:s.updated_at,merged_at:s.merged_at||null,
     release_name:s.release_name||null,release_id:s.release_id||null,rollback_at:s.rollback_at||null,
     rollback_of:s.rollback?.target_revision||null,merge_count:Array.isArray(s.merge_history)?s.merge_history.length:0,
     batch_id:merge?.batch_id||null,question_count:declaredQuestions===null?(seeded?s.formal.length:addedCount):declaredQuestions,
@@ -45,7 +65,7 @@ function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission})
     uploader_account_id:merge?.uploader_account_id||s.seed_uploader_account_id||null,
     uploader_real_name:merge?.uploader_real_name||s.seed_uploader_real_name||null,
     uploader_nickname:merge?.uploader_nickname||null,uploader_auth_type:merge?.uploader_auth_type||null,
-    has_incremental_json:!!merge?.batch_id,has_revision_questions:addedCount>0&&!s.rollback};
+    has_incremental_json:!!merge?.batch_id,has_revision_questions:addedCount>0};
   });
  }
  function validateQuestion(q,name){
@@ -137,9 +157,11 @@ function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission})
    }else if(!auth.desktop||!roles.includes('merge'))deny(403,'ROLE_FORBIDDEN','没有此题库的合并发布权限');
    const s=await latest(b);
    if(action==='history_questions'&&method==='GET'){
-    const revision=Number(exportedMatch[2]),target=await atRevision(b,revision),previous=revision>1?await atRevision(b,revision-1):null,merge=target?.merge_history?.find(item=>item.revision===revision);
+    const revision=Number(exportedMatch[2]),entries=await formalHistory(b),entry=entries.find(item=>item.state.revision===revision),target=entry?.state||await atRevision(b,revision),previous=entry?entries[entries.indexOf(entry)-1]?.state:null;
+    const releaseLabel=entry?.release_version_label||revisionLabel(target);
     if(!target)deny(404,'VERSION_MISSING','目标版本不存在或已损坏');
     const fallback=stateDiff(previous,target).map(q=>{try{return safeQuestion(q);}catch{return q;}});
+    const merge=target.merge_history?.find(item=>item.release_version_label===releaseLabel&&Number.isSafeInteger(item.added_count)&&item.added_count===fallback.length&&item.added_count>0);
     const declaredAdded=Number.isSafeInteger(merge?.added_count)?merge.added_count:null;
     let questions=[];
     if(merge?.batch_id&&declaredAdded>0&&typeof store.readSubmission==='function'&&typeof decodeSubmission==='function'){

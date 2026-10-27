@@ -88,6 +88,7 @@ function createFileStore({ root = process.env.QBANK_STORAGE_ROOT || '/var/lib/qb
     const formal = structuredClone(target.formal).map(question => ({ ...question, bank: ref.name }));
     return {
       ...parent,
+      rollback_reference: true,
       bank_id: bankId,
       name: ref.name,
       revision,
