@@ -90,11 +90,11 @@
 .library-create label{font-weight:600;color:var(--secondary)}
 .library-create input{min-width:0}
 @media(max-width:42rem){.library-create{grid-template-columns:1fr}.library-create button{justify-self:start}}
-.library-manager .maintainer-admin{max-height:52vh;overflow:auto}
-.library-manager .cloud-maintenance-embedded{padding:0;border:0;box-shadow:none;max-height:55vh;min-width:0;max-width:100%;overflow-x:hidden;overflow-y:auto}
+.library-manager .maintainer-admin{max-height:none;overflow:visible}
+.library-manager .cloud-maintenance-embedded{padding:0 .9rem 0 0;border:0;box-shadow:none;max-height:55vh;min-width:0;max-width:100%;overflow-x:hidden;overflow-y:auto;scrollbar-gutter:stable}
 .library-manager .cloud-catalog-list{margin-top:.25rem}
 .maintainer-admin{display:grid;gap:1rem;max-height:60vh;overflow:auto}
-.maintainer-toolbar{display:flex;align-items:flex-start;gap:.7rem;flex-wrap:wrap}
+.maintainer-toolbar{display:flex;align-items:stretch;gap:.7rem;flex-wrap:wrap}
 .maintainer-toolbar .maintainer-guidance{flex:1 1 30rem;min-width:0;margin:0;padding:.7rem .9rem;line-height:1.55}
 .maintainer-toolbar button,.maintainer-row button{display:inline-flex;align-items:center;gap:.35rem}
 .maintainer-row{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:.85rem 0;border-bottom:1px solid var(--border);min-width:0}
