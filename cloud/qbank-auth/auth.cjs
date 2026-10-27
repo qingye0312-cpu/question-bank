@@ -28,7 +28,8 @@ function verify(token, config, now, registry) {
     const maintainer=config.maintainers.find(m=>`d_${m.id}`===payload.sub && m.key_sha256===payload.key_version);
     if(!maintainer)fail(403,'MAINTAINER_REVOKED','维护者授权已撤销，请联系管理员');
     return {openid:payload.sub,banks:Object.keys(maintainer.grants),grants:maintainer.grants,desktop:true,
-      capabilities:config.creators.includes(maintainer.id)?['cloud_bank:create','maintainer:manage']:[] ,maintainer_id:maintainer.id};
+      capabilities:config.creators.includes(maintainer.id)?['cloud_bank:create','maintainer:manage']:[] ,maintainer_id:maintainer.id,
+      real_name:maintainer.real_name||maintainer.id,nickname:maintainer.nickname||''};
   }
   if(payload.aud==='qbank-maintainer-account-v1'){
     const accountId=payload.sub.slice(2),account=(registry?.password_accounts||[]).find(a=>a.id===accountId);

@@ -13,9 +13,13 @@ function loadConfig(env) {
   if (!Array.isArray(origins) || origins.some(o => typeof o !== 'string'
     || !/^(https?:\/\/[^/\s]+|tauri:\/\/localhost)$/.test(o))) fail(503, 'CONFIG_INVALID', '跨域配置无效');
   const maintainers = envJSON(env, 'QBANK_MAINTAINERS', '[]');
-  if (!Array.isArray(maintainers) || maintainers.length > 100 || maintainers.some(m => !exact(m,['id','key_sha256','grants'])
-    || !/^[A-Za-z0-9_-]{10,64}$/.test(m.id) || !HASH.test(m.key_sha256) || !object(m.grants)
-    || Object.entries(m.grants).some(([id,roles]) => !UUID.test(id) || !Array.isArray(roles) || !roles.length || roles.some(r=>!['upload','merge'].includes(r))))
+  const validMaintainer = m => {
+    if (!object(m) || (!exact(m,['id','key_sha256','grants']) && !exact(m,['id','key_sha256','grants','real_name']))) return false;
+    if (Object.hasOwn(m,'real_name') && (typeof m.real_name !== 'string' || !m.real_name.trim() || m.real_name.trim().length > 40)) return false;
+    return /^[A-Za-z0-9_-]{10,64}$/.test(m.id) && HASH.test(m.key_sha256) && object(m.grants)
+      && !Object.entries(m.grants).some(([id,roles]) => !UUID.test(id) || !Array.isArray(roles) || !roles.length || roles.some(r=>!['upload','merge'].includes(r)));
+  };
+  if (!Array.isArray(maintainers) || maintainers.length > 100 || maintainers.some(m => !validMaintainer(m))
     || new Set(maintainers.map(m=>m.id)).size!==maintainers.length) fail(503,'CONFIG_INVALID','桌面维护者配置无效');
   const creators=envJSON(env,'QBANK_CLOUD_CREATORS','[]');
   if(!Array.isArray(creators)||creators.some(id=>!maintainers.some(m=>m.id===id)))fail(503,'CONFIG_INVALID','最高权限账号配置无效');

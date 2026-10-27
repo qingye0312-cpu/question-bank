@@ -1,6 +1,6 @@
 import {invoke} from '@tauri-apps/api/core';
 import {readManifest,readSnapshot,snapshotPayload,snapshotPath,type CloudManifest} from '../../shared/sync';
-import {cloudOrigin,cloudCall} from './session-service';
+import {cloudAccess,cloudOrigin,cloudCall} from './session-service';
 import {runDesktopQueue} from './submission-runner';
 export async function fetchCatalog():Promise<CloudManifest[]>{
  const result=await cloudCall<{banks:unknown[]}>('/v1/catalog');if(!Array.isArray(result.banks)||result.banks.length>100)throw Error('云端目录无效');
@@ -59,8 +59,25 @@ export function syncDesktopCatalog():Promise<{changed:boolean;failed:string[]}>{
 }
 
 export function startCloudWorker(onChanged:()=>void,onNotice:(message:string)=>void=()=>{}){
- let updating=false,lastSync=0;
- const wake=()=>{void runDesktopQueue().catch(()=>{});if(updating||Date.now()-lastSync<30000)return;updating=true;lastSync=Date.now();void syncDesktopCatalog().then(({changed,failed})=>{if(changed)onChanged();if(failed.length)onNotice(`部分题库暂未更新：${failed.join('、')}。已保留本地内容。`);}).catch(()=>{onNotice('云端暂未连接，继续使用本地题库。');}).finally(()=>{updating=false;});};
- const timer=setInterval(wake,15000);window.addEventListener('online',wake);window.addEventListener('focus',wake);wake();
- return()=>{clearInterval(timer);window.removeEventListener('online',wake);window.removeEventListener('focus',wake)};
+ const authenticatedInterval=30_000;
+ const guestInterval=12*60*60*1000;
+ let updating=false,lastSync=0,lastMode=cloudAccess()?'authenticated':'guest';
+ const wake=()=>{
+  void runDesktopQueue().catch(()=>{});
+  const mode=cloudAccess()?'authenticated':'guest';
+  // Persistent-session restoration and login/logout both emit this event.
+  // Reset the throttle when the mode changes so a newly authenticated user
+  // starts the existing 30-second sync loop immediately.
+  if(mode!==lastMode){lastMode=mode;lastSync=0;}
+  const interval=mode==='authenticated'?authenticatedInterval:guestInterval;
+  if(updating||Date.now()-lastSync<interval)return;
+  updating=true;lastSync=Date.now();
+  void syncDesktopCatalog().then(({changed,failed})=>{if(changed)onChanged();if(failed.length)onNotice(`部分题库暂未更新：${failed.join('、')}。已保留本地内容。`);}).catch(()=>{onNotice('云端暂未连接，继续使用本地题库。');}).finally(()=>{updating=false;});
+ };
+ const timer=setInterval(wake,15000);
+ window.addEventListener('online',wake);
+ window.addEventListener('focus',wake);
+ window.addEventListener('qbank-cloud-access-change',wake);
+ wake();
+ return()=>{clearInterval(timer);window.removeEventListener('online',wake);window.removeEventListener('focus',wake);window.removeEventListener('qbank-cloud-access-change',wake)};
 }

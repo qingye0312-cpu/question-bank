@@ -57,7 +57,7 @@ function decodeUpload(envelope, parseDelta, parseModelReply) {
   }
   // Normalize compression server-side: the stored package never contains extra gzip members/trailing data.
   const canonical = { ...envelope, data: gzipSync(raw).toString('base64') };
-  return { delta, envelope: canonical };
+  return { delta, questions, envelope: canonical };
 }
 function receipt(record, merge) {
   return { submission_id: record.submission_id, bank_id: record.bank_id, batch_id: record.batch_id,

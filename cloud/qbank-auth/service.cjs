@@ -8,7 +8,8 @@ const {createAccessRegistry}=require('./access.cjs');
 const {DUMMY_HASH,hashPassword,validatePassword,verifyPassword}=require('./password.cjs');
 
 function createHandler({ env = () => process.env, store, parseDelta, parseModelReply, validateStandardQuestion, clock = Date.now }) {
-  const workflow = require('./workflow.cjs').createWorkflow({store,validateStandardQuestion,clock});
+  const workflow = require('./workflow.cjs').createWorkflow({store,validateStandardQuestion,clock,
+    decodeSubmission: envelope => decodeUpload(envelope, parseDelta, parseModelReply)});
   const access = createAccessRegistry({store,clock});
   const rate = new Map();
   function throttle(key, maximum) {
@@ -44,7 +45,7 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
       });
       const publicResult = await workflow.read(method,path,config);
       if(publicResult !== undefined)return respond(200,publicResult);
-      const workflowRoute = /^\/v1\/banks\/[0-9a-f-]{36}\/(seed|history|rollback)$/.test(path||'');
+      const workflowRoute = /^\/v1\/banks\/[0-9a-f-]{36}\/(seed|history|history\/[0-9]+\/questions|rollback)$/.test(path||'');
       const maintainerRoute = method==='GET' && ['/v1/maintainer-applications','/v1/maintainer-accounts'].includes(path)
         || method==='POST' && (path==='/v1/maintainer-applications' || /^\/v1\/maintainer-applications\/[0-9a-f-]{36}\/decision$/.test(path) || /^\/v1\/maintainer-accounts\/[0-9a-f-]{36}\/(?:revoke|password-reset)$/.test(path));
       if (!workflowRoute && !maintainerRoute && !['POST /v1/auth/desktop', 'POST /v1/auth/register', 'POST /v1/auth/password-login', 'POST /v1/auth/password-reset', 'POST /v1/auth/refresh', 'POST /v1/auth/logout', 'GET /v1/me', 'POST /v1/uploads', 'POST /v1/banks/promote'].includes(`${method} ${path}`))
@@ -181,7 +182,7 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
         ? headers.authorization.slice(7) : null, config, now, await access.read());
       if (path === '/v1/me') {
         const pendingApplication=auth.password_account?(await access.read()).maintainer_applications.find(application=>application.status==='pending'&&application.account_id===auth.account_id):undefined;
-        return respond(200, { openid: auth.openid, auth_type:auth.password_account?'password':auth.desktop?'key':'', phone: auth.phone_masked||'', nickname:auth.nickname||'', account_status:auth.account_status|| (auth.desktop?'desktop':'approved'),
+        return respond(200, { openid: auth.openid, auth_type:auth.password_account?'password':auth.desktop?'key':'', phone: auth.phone_masked||'', real_name:auth.real_name||'', nickname:auth.nickname||'', account_status:auth.account_status|| (auth.desktop?'desktop':'approved'),
         banks: config.banks.filter(b => auth.banks.includes(b.bank_id)), permissions: [...new Set([...(auth.permissions||[]),...Object.values(auth.grants).flat()])], pending_permissions:pendingApplication?.permissions||[], pending_bank_ids:pendingApplication?.bank_ids||[], grants:auth.grants, capabilities:auth.capabilities||[], uploads_enabled: config.uploadsEnabled });
       }
       const isAdmin=auth.desktop&&auth.capabilities?.includes('maintainer:manage');
@@ -333,6 +334,8 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
         submitted_by: sha256(`${config.appId}\0${auth.openid}`), package: envelope };
       record.confirmation={version:1,actor:record.submitted_by,confirmed_at:record.accepted_at,sha256:record.sha256};
       record.uploader_account_id=auth.account_id||auth.maintainer_id||auth.openid;
+      record.uploader_real_name=typeof auth.real_name==='string'&&auth.real_name.trim()
+        ?auth.real_name.trim():record.uploader_account_id;
       record.uploader_nickname=typeof auth.nickname==='string'&&auth.nickname.trim()
         ?auth.nickname.trim():auth.maintainer_id?'最高权限维护者 '+auth.maintainer_id:record.uploader_account_id;
       record.uploader_auth_type=auth.password_account?'password':'key';
