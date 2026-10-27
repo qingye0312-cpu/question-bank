@@ -1,4 +1,4 @@
-import {useEffect,useState} from 'react';
+import {useEffect,useRef,useState} from 'react';
 import {Check,KeyRound,RefreshCw,Shield,X} from 'lucide-react';
 import {cloudAccess,cloudCall} from './session-service';
 
@@ -13,9 +13,24 @@ function requestedPermissions(app:Pick<Application,'bank_ids'|'permissions'>,ban
 }
 export function MaintainerAdmin({banks,onChange}:{banks:Bank[];onChange?:()=>void}){
  const [applications,setApplications]=useState<Application[]>([]),[accounts,setAccounts]=useState<Account[]>([]),[busy,setBusy]=useState(false),[message,setMessage]=useState(''),[resetCode,setResetCode]=useState('');
+ const refreshing=useRef(false);
  const access=cloudAccess(),admin=!!access?.capabilities?.includes('maintainer:manage');
- async function refresh(){if(!admin)return;const [a,b]=await Promise.all([cloudCall<{applications:Application[]}>('/v1/maintainer-applications',undefined,true),cloudCall<{accounts:Account[]}>('/v1/maintainer-accounts',undefined,true)]);setApplications(a.applications);setAccounts(b.accounts);}
- useEffect(()=>{void refresh().catch(e=>setMessage(String(e)))},[admin]);
+ async function refresh(){
+  if(!admin||refreshing.current)return;
+  refreshing.current=true;
+  try{
+   const [a,b]=await Promise.all([cloudCall<{applications:Application[]}>('/v1/maintainer-applications',undefined,true),cloudCall<{accounts:Account[]}>('/v1/maintainer-accounts',undefined,true)]);
+   setApplications(a.applications);setAccounts(b.accounts);
+  }finally{refreshing.current=false;}
+ }
+ useEffect(()=>{
+  if(!admin)return;
+  let alive=true;
+  const report=(error:unknown)=>{if(alive)setMessage(String(error));};
+  void refresh().catch(report);
+  const timer=window.setInterval(()=>{void refresh().catch(report)},30_000);
+  return()=>{alive=false;window.clearInterval(timer)};
+ },[admin]);
  async function run(fn:()=>Promise<void>){if(busy)return;setBusy(true);setMessage('');try{await fn();onChange?.()}catch(e){setMessage(String(e))}finally{setBusy(false)}}
  async function decide(app:Application,decision:'approve'|'reject'){await run(async()=>{const grants=Object.fromEntries(app.bank_ids.map(id=>[id,['upload']]));await cloudCall(`/v1/maintainer-applications/${app.id}/decision`,{decision,grants,permissions:app.permissions||[],note:decision==='approve'?'桌面最高权限批准':'桌面最高权限拒绝'},true);await refresh()})}
  async function revoke(account:Account){if(!window.confirm(`撤销手机号 ${account.phone} 的维护者权限？`))return;await run(async()=>{await cloudCall(`/v1/maintainer-accounts/${account.id}/revoke`,{},true);await refresh()})}
@@ -23,12 +38,12 @@ export function MaintainerAdmin({banks,onChange}:{banks:Bank[];onChange?:()=>voi
   if(!window.confirm(`为手机号 ${account.phone} 重置密码？这会立即清除现有题库授权和 Word 导出权限。用户设置新密码后，仍需桌面管理员重新审批。`))return;
   await run(async()=>{const result=await cloudCall<{reset_token:string;expires_at:string}>(`/v1/maintainer-accounts/${account.id}/password-reset`,{},true);if(typeof result.reset_token!=='string'||!result.reset_token)throw Error('服务器没有返回重置码');setResetCode(result.reset_token);await refresh();setMessage(`已生成 24 小时有效的一次性重置码，请安全转交账号本人：`);});
  }
- return <section className="maintainer-admin" aria-label="题库维护者管理"><div className="maintainer-toolbar"><button disabled={busy||!admin} onClick={()=>void run(refresh)}><RefreshCw size={16}/>刷新申请</button></div>
-  <p className="callout">手机号是唯一登录标识，真实姓名、昵称和身份说明由申请人填写；请核实后批准。登录密码账户仅获得审批通过的题库上传或 Word 导出权限。最高权限密钥和证书可在“云端登录与权限”中使用。</p>
+ const approvedAccounts=accounts.filter(a=>a.status==='approved'),pendingAccounts=accounts.filter(a=>a.status!=='approved'&&a.status!=='revoked');
+ return <section className="maintainer-admin" aria-label="题库维护者管理"><div className="maintainer-toolbar"><button disabled={busy||!admin} onClick={()=>void run(refresh)}><RefreshCw size={16}/>刷新申请</button><p className="callout maintainer-guidance">手机号是唯一登录标识，真实姓名、昵称和身份说明由申请人填写；请核实后批准。登录密码账户仅获得审批通过的题库上传或 Word 导出权限。最高权限密钥和证书可在“云端登录与权限”中使用。</p></div>
   {!admin?<p className="callout"><Shield size={16}/>请先在题库管理页面上方完成最高权限登录，再查看和处理维护者申请。</p>:<>
-  <h3>待审批申请 {applications.length}</h3>{applications.length===0?<p>暂无待审批申请。</p>:applications.map(app=><article className="maintainer-row" key={app.id}><div><b>{app.real_name} · {app.phone}</b><span>{app.nickname||'未填写昵称'}</span><p className="maintainer-requested-permissions"><strong>申请权限</strong><span>{requestedPermissions(app,banks)}</span></p>{app.password_reset&&<small>密码重置后需重新授权</small>}{app.password_reset_required&&<small className="warning">申请人尚未完成密码重置，暂不能处理</small>}<p className="maintainer-identity"><strong>身份说明</strong>{app.identity_description}</p><small>手机号由申请人填写 · {new Date(app.created_at).toLocaleString()}</small></div><div><button disabled={busy||!!app.password_reset_required} onClick={()=>void decide(app,'approve')}><Check size={15}/>批准</button><button disabled={busy||!!app.password_reset_required} onClick={()=>void decide(app,'reject')}><X size={15}/>拒绝</button></div></article>)}
-  <h3>已授权手机号 {accounts.filter(a=>a.status==='approved').length}</h3>{accounts.filter(a=>a.status==='approved').map(account=><article className="maintainer-row" key={account.id}><div><b>{account.real_name} · {account.phone}</b><span>{account.nickname||'未填写昵称'} · 权限：{[...Object.keys(account.grants).map(id=>banks.find(b=>b.bank_id===id)?.name||id),...((account.permissions||[]).includes('export')?['Word 导出（全部题库）']:[])].join('、')||'无'}</span><p className="maintainer-identity"><strong>身份说明</strong>{account.identity_description}</p><small>批准于 {account.approved_at?new Date(account.approved_at).toLocaleString():'未知'}</small></div><div><button disabled={busy} onClick={()=>void resetPassword(account)}><KeyRound size={15}/>重置密码</button><button disabled={busy} onClick={()=>void revoke(account)}>撤销</button></div></article>)}
-  {accounts.some(a=>a.status!=='approved'&&a.status!=='revoked')&&<><h3>待授权手机号</h3>{accounts.filter(a=>a.status!=='approved'&&a.status!=='revoked').map(account=><article className="maintainer-row" key={account.id}><div><b>{account.real_name} · {account.phone}</b><span>{account.status==='password_reset_required'?'等待用户重置密码':account.status==='rejected'?'申请未通过':'等待管理员审批'}</span><p className="maintainer-identity"><strong>身份说明</strong>{account.identity_description}</p></div><button disabled={busy} onClick={()=>void resetPassword(account)}><KeyRound size={15}/>重置密码</button></article>)}</>}
+  <div className="maintainer-section-heading"><h3>待审批申请 · {applications.length}</h3>{applications.length===0&&<p className="maintainer-empty">暂无待审批申请。</p>}</div>{applications.map(app=><article className="maintainer-row" key={app.id}><div><b>{app.real_name} · {app.phone}</b><span>{app.nickname||'未填写昵称'}</span><p className="maintainer-requested-permissions"><strong>申请权限</strong><span>{requestedPermissions(app,banks)}</span></p>{app.password_reset&&<small>密码重置后需重新授权</small>}{app.password_reset_required&&<small className="warning">申请人尚未完成密码重置，暂不能处理</small>}<p className="maintainer-identity"><strong>身份说明：</strong>{app.identity_description}</p><small>手机号由申请人填写 · {new Date(app.created_at).toLocaleString()}</small></div><div><button disabled={busy||!!app.password_reset_required} onClick={()=>void decide(app,'approve')}><Check size={15}/>批准</button><button disabled={busy||!!app.password_reset_required} onClick={()=>void decide(app,'reject')}><X size={15}/>拒绝</button></div></article>)}
+  <h3>已授权手机号 · {approvedAccounts.length}</h3>{approvedAccounts.map(account=><article className="maintainer-row" key={account.id}><div><b>{account.real_name} · {account.phone} <small className="maintainer-approved-at">批准于 {account.approved_at?new Date(account.approved_at).toLocaleString():'未知'}</small></b><span>{account.nickname||'未填写昵称'} · 权限：{[...Object.keys(account.grants).map(id=>banks.find(b=>b.id===id)?.name||id),...((account.permissions||[]).includes('export')?['Word 导出（全部题库）']:[])].join('、')||'无'}</span><p className="maintainer-identity"><strong>身份说明：</strong>{account.identity_description}</p></div><div><button disabled={busy} onClick={()=>void resetPassword(account)}><KeyRound size={15}/>重置密码</button><button disabled={busy} onClick={()=>void revoke(account)}>撤销</button></div></article>)}
+  {pendingAccounts.length>0&&<><h3>待授权手机号</h3>{pendingAccounts.map(account=><article className="maintainer-row" key={account.id}><div><b>{account.real_name} · {account.phone}</b><span>{account.status==='password_reset_required'?'等待用户重置密码':account.status==='rejected'?'申请未通过':'等待管理员审批'}</span><p className="maintainer-identity"><strong>身份说明：</strong>{account.identity_description}</p></div><button disabled={busy} onClick={()=>void resetPassword(account)}><KeyRound size={15}/>重置密码</button></article>)}</>}
   </>}
   {message&&<p className="callout" role="status">{message}{resetCode&&<><br/><code className="maintainer-reset-code">{resetCode}</code><br/><button type="button" onClick={()=>{setResetCode('');setMessage('重置码已从此窗口隐藏；如需重新获取，请重新发放，旧码会失效。')}}>隐藏重置码</button></>}</p>}
  </section>;
