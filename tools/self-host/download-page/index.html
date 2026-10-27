@@ -816,19 +816,19 @@
             const dy = targetY - y;
             const distance = Math.hypot(dx, dy);
             const proximity = Math.max(0, 1 - distance / 260);
-            const length = 8 + proximity * 30;
+            const length = 8 + proximity * 24;
             const angle = distance > .1 ? Math.atan2(dy, dx) : 0;
             context.save();
             context.translate(x, y);
             context.rotate(angle);
             context.globalAlpha = .42 + proximity * .58;
-            context.lineWidth = .55 + proximity * .25;
+            context.lineWidth = .85 + proximity * .65;
             context.beginPath();
             context.moveTo(-length * .48, 0);
             context.lineTo(length * .48, 0);
-            context.moveTo(length * .16, -length * .25);
+            context.moveTo(length * .13, -length * .12);
             context.lineTo(length * .48, 0);
-            context.lineTo(length * .16, length * .25);
+            context.lineTo(length * .13, length * .12);
             context.stroke();
             context.restore();
           }
