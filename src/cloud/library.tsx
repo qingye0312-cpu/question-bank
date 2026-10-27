@@ -35,7 +35,7 @@ export function CloudLibrary({banks,onClose,onChanged,onDeleted,onCreated}:{bank
   <div className="library-tabs" role="tablist" aria-label="题库管理功能">
    <button role="tab" aria-selected={selectedTab==='local'} className={selectedTab==='local'?'active':''} onClick={()=>setTab('local')}>本地题库</button>
    {isHighestPrivilege&&<button role="tab" aria-selected={selectedTab==='cloud'} className={selectedTab==='cloud'?'active':''} onClick={()=>setTab('cloud')}>云端同步与版本</button>}
-   {isHighestPrivilege&&<button role="tab" aria-selected={selectedTab==='maintainers'} className={selectedTab==='maintainers'?'active':''} onClick={()=>setTab('maintainers')}>维护者与申请</button>}
+   {isHighestPrivilege&&<button role="tab" aria-selected={selectedTab==='maintainers'} className={selectedTab==='maintainers'?'active':''} onClick={()=>setTab('maintainers')}>权限管理</button>}
   </div>
   {message&&<p className="callout library-message" role="status">{message}</p>}
   {selectedTab==='local'&&<>
