@@ -46,25 +46,20 @@
 .cloud-history-heading span{color:var(--muted);font-size:.75rem}
 .cloud-history-heading-actions{display:flex;align-items:center;gap:.65rem;flex-wrap:wrap;justify-content:flex-end}
 .cloud-history-heading-actions button{min-height:2.1rem;padding:.38rem .65rem;white-space:nowrap;font-size:.78rem}
-.cloud-history-details{display:grid;gap:.8rem;margin-top:.8rem}
-.cloud-history-details-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;padding:.1rem 0 .2rem}
-.cloud-history-details-heading h3{margin:0;color:var(--ink);font-size:1rem}
-.cloud-history-details-heading p{margin:.25rem 0 0;color:var(--muted);font-size:.78rem}
-.cloud-history-details-heading button{min-height:2.25rem;padding:.42rem .7rem;white-space:nowrap}
-.cloud-history-details-list{display:grid;gap:.6rem}
-.cloud-history-details-item{padding:.7rem .85rem;border:1px solid var(--line);border-radius:.7rem;background:var(--surface-soft)}
-.cloud-history-details-toggle{display:flex;align-items:center;justify-content:space-between;gap:1rem;width:100%;padding:0;border:0;background:transparent;color:var(--ink);text-align:left}
-.cloud-history-details-toggle>span:first-child{display:flex;align-items:center;gap:.55rem;flex-wrap:wrap;min-width:0}
-.cloud-history-details-toggle b{font-size:.9rem;white-space:nowrap}
-.cloud-history-details-toggle em{padding:.18rem .42rem;border:1px solid var(--accent-border);border-radius:.35rem;background:var(--accent-soft);color:var(--accent);font-size:.72rem;font-style:normal;font-weight:650}
-.cloud-history-details-toggle>span:last-child{color:var(--muted);font-size:.78rem;white-space:nowrap}
-.cloud-history-details-meta{display:flex;gap:.45rem 1rem;flex-wrap:wrap;margin-top:.35rem;color:var(--muted);font-size:.75rem}
-.cloud-history-details-meta time{font-variant-numeric:tabular-nums}
-.cloud-history-question-list{margin-top:.65rem;padding:.55rem .7rem;border-top:1px solid var(--line);color:var(--secondary);font-size:.8rem}
-.cloud-history-question-list ol{display:grid;gap:.55rem;margin:0;padding-left:1.35rem}
-.cloud-history-question-list li{padding-left:.15rem}
-.cloud-history-question-list strong{color:var(--ink);font-size:.78rem}
-.cloud-history-question-list p{margin:.2rem 0 0;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
+.cloud-operation-page{display:grid;gap:.8rem;margin-top:.8rem}
+.cloud-operation-page-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;padding:.1rem 0 .2rem}
+.cloud-operation-page-heading h3{margin:0;color:var(--ink);font-size:1rem}
+.cloud-operation-page-heading p{margin:.25rem 0 0;color:var(--muted);font-size:.78rem}
+.cloud-operation-page-heading button{min-height:2.25rem;padding:.42rem .7rem;white-space:nowrap}
+.cloud-operation-list{display:grid;gap:.6rem}
+.cloud-operation-item{display:grid;gap:.45rem;padding:.8rem .9rem;border:1px solid var(--line);border-radius:.7rem;background:var(--surface-soft)}
+.cloud-operation-title{display:flex;align-items:center;justify-content:space-between;gap:1rem}
+.cloud-operation-title>div{display:flex;align-items:center;gap:.55rem;flex-wrap:wrap;min-width:0}
+.cloud-operation-title b{color:var(--ink);font-size:.92rem;white-space:nowrap}
+.cloud-operation-title em{padding:.18rem .42rem;border:1px solid var(--line);border-radius:.35rem;color:var(--secondary);font-size:.72rem;font-style:normal;font-weight:650;white-space:nowrap}
+.cloud-operation-title time{color:var(--muted);font-size:.75rem;font-variant-numeric:tabular-nums;white-space:nowrap}
+.cloud-operation-meta{display:flex;gap:.45rem 1rem;flex-wrap:wrap;color:var(--muted);font-size:.76rem;line-height:1.45}
+.cloud-operation-release-name{margin:0;color:var(--muted);font-size:.72rem;overflow-wrap:anywhere}
 .cloud-history-item{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:1rem;padding:.95rem 1rem;border:1px solid var(--line);border-radius:.75rem;background:var(--surface-soft);box-shadow:0 .12rem .35rem var(--shadow-soft)}
 .cloud-history-main{display:grid;gap:.45rem;min-width:0}
 .cloud-history-title{display:flex;align-items:center;gap:.55rem;flex-wrap:wrap;min-width:0}

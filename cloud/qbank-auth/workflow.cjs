@@ -70,6 +70,14 @@ function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission})
     has_incremental_json:!!merge?.batch_id,has_revision_questions:addedCount>0};
   }).reverse();
  }
+ async function operationHistory(b){
+  const states=await store.listStates(b.bank_id);
+  return states.sort((left,right)=>left.revision-right.revision).map(s=>{
+   const merge=(s.merge_history||[]).find(item=>item.revision===s.revision),rollbackTarget=s.rollback?.target_revision||null,rollbackState=rollbackTarget?states.find(item=>item.revision===rollbackTarget):null;
+   const kind=s.rollback||s.rollback_reference?'rollback':merge?'merge':s.revision===1?'seed':'state';
+   return {revision:s.revision,kind,release_version:s.release_version,release_version_label:revisionLabel(s),updated_at:s.updated_at,merged_at:s.merged_at||null,release_name:s.release_name||null,release_id:s.release_id||null,batch_id:merge?.batch_id||null,question_count:Number.isSafeInteger(merge?.question_count)?merge.question_count:null,added_count:Number.isSafeInteger(merge?.added_count)?merge.added_count:null,duplicate_count:Number.isSafeInteger(merge?.duplicate_count)?merge.duplicate_count:null,rollback_of:rollbackTarget,rollback_to_release_version_label:rollbackState?revisionLabel(rollbackState):null,uploader_account_id:merge?.uploader_account_id||s.seed_uploader_account_id||null,uploader_real_name:uploaderName(merge?.uploader_real_name,s.seed_uploader_real_name),uploader_nickname:uploaderName(merge?.uploader_nickname)};
+  }).reverse();
+ }
  function validateQuestion(q,name){
   try{validateStandardQuestion(q,name);}catch{deny(422,'QUESTION_INVALID','请核对题目结构、题库身份、选项和答案');}
  }
@@ -187,7 +195,7 @@ function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission})
     });
     return {revision,batch_id:merge?.batch_id||null,question_count:Number.isSafeInteger(merge?.question_count)?merge.question_count:latestQuestions.length,added_count:addedCount,questions:latestQuestions};
    }
-   if(action==='history'&&method==='GET'){const formalLabel=s.release_version_label||`v${s.release_version}`;return {current_revision:s.revision,current_formal_revision:formalLabel.slice(1),release_version:s.release_version,release_version_label:formalLabel,versions:await history(b)};}
+   if(action==='history'&&method==='GET'){const formalLabel=s.release_version_label||`v${s.release_version}`;return {current_revision:s.revision,current_formal_revision:formalLabel.slice(1),release_version:s.release_version,release_version_label:formalLabel,versions:await history(b),operations:await operationHistory(b)};}
    if(method!=='POST')deny(405,'METHOD_NOT_ALLOWED','不支持此请求方法');
    const operation=body?.operation_id,operationHash=sha256(JSON.stringify({actor:auth.openid,action,body}));
    if(operation){

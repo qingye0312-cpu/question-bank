@@ -72,8 +72,11 @@ test('one compressed Base64 upload is decoded, decompressed, merged, recompresse
   assert.equal(snapshot.pending.length,0);
   assert.equal(snapshot.formal.some(q=>q.question_id===base.question_id),true);
   assert.ok(manifest.release_name.includes('_合并_v2_'));
-  assert.equal((await s.call('GET',`/v1/banks/${id}/history`,undefined,token)).status,200);
-  assert.equal((await s.call('GET',`/v1/banks/${id}/history`,undefined,token)).data.versions.length,2);
+  const history=await s.call('GET',`/v1/banks/${id}/history`,undefined,token);
+  assert.equal(history.status,200);
+  assert.equal(history.data.versions.length,2);
+  assert.equal(history.data.operations.length,2);
+  assert.deepEqual(history.data.operations.map(operation=>operation.kind),['merge','seed']);
   const duplicate=await s.call('POST','/v1/uploads',encodeUpload(fixture),token);
   assert.equal(duplicate.status,200);
   assert.equal(duplicate.data.receipt.status,'duplicate');
@@ -141,19 +144,18 @@ test('conflicting answers reject the whole multi-question upload without a parti
  const state=await s.store.readState(id);assert.equal(state.revision,1);assert.equal(state.formal.length,1);assert.equal(state.merge_history.length,0);
 });
 
-test('replaying a merged batch after another upload or rollback returns its original merge time and version',async()=>{
+test('replaying a merged batch stays idempotent until rollback, then can merge again',async()=>{
  const s=setup(),token=await s.login();await seed(s,token);
  const first=await s.call('POST','/v1/uploads',encodeUpload(fixture),token);assert.equal(first.status,201);
  const another=deltaPackage(id,delta.name,randomUUID(),[{...questions[0],question_id:randomUUID(),stem:'第二批新题'}],new Date().toISOString());
  assert.equal((await s.call('POST','/v1/uploads',encodeUpload(another),token)).status,201);
- for(const revision of [3,4]){
-  if(revision===4)assert.equal((await s.call('POST',`/v1/banks/${id}/rollback`,{operation_id:randomUUID(),base_revision:3,target_revision:1},token)).status,200);
-  const retry=await s.call('POST','/v1/uploads',encodeUpload(fixture),token);
-  assert.equal(retry.status,200);assert.equal(retry.data.receipt.status,'duplicate');assert.equal(retry.data.version.revision,revision);
-  for(const field of ['revision','release_version','release_name','merged_at','accepted_at'])assert.equal(retry.data.receipt[field],first.data.receipt[field],field);
-  assert.equal((await s.store.readState(id)).revision,revision);
- }
- assert.equal((await s.store.readState(id)).formal.length,1);
+ const beforeRollback=await s.call('POST','/v1/uploads',encodeUpload(fixture),token);
+ assert.equal(beforeRollback.status,200);assert.equal(beforeRollback.data.receipt.status,'duplicate');assert.equal(beforeRollback.data.version.revision,3);
+ for(const field of ['revision','release_version','release_name','merged_at','accepted_at'])assert.equal(beforeRollback.data.receipt[field],first.data.receipt[field],field);
+ assert.equal((await s.call('POST',`/v1/banks/${id}/rollback`,{operation_id:randomUUID(),base_revision:3,target_revision:1},token)).status,200);
+ const afterRollback=await s.call('POST','/v1/uploads',encodeUpload(fixture),token);
+ assert.equal(afterRollback.status,200);assert.equal(afterRollback.data.receipt.status,'merged');assert.equal(afterRollback.data.receipt.added_count,1);assert.equal(afterRollback.data.version.revision,5);assert.equal(afterRollback.data.version.release_version,2);
+ assert.equal((await s.store.readState(id)).formal.length,2);
 });
 
 test('reading flagged source material does not relax new-upload validation',async()=>{
