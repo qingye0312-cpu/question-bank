@@ -1,4 +1,5 @@
 use super::*;
+use rusqlite::Connection;
 #[derive(Deserialize, Serialize)]
 pub struct Snapshot {
     #[serde(default)]
@@ -70,6 +71,59 @@ pub fn clear_cached_snapshot(store: &Store, bank_ids: &[String]) -> Result<Vec<S
     }
     tx.commit().map_err(err)?;
     Ok(cleared)
+}
+
+fn clear_rolled_back_uploaded_entries(
+    c: &Connection,
+    bank_id: &str,
+    formal: &[Question],
+) -> Result<()> {
+    let formal_ids: HashSet<_> = formal.iter().map(|q| q.question_id.as_str()).collect();
+    let mut stmt = c
+        .prepare("SELECT question_id,batch_id FROM intake_entries WHERE bank_id=?1 AND upload_status='uploaded'")
+        .map_err(err)?;
+    let all_entries: Vec<(String, String)> = stmt
+        .query_map([bank_id], |row| Ok((row.get(0)?, row.get(1)?)))
+        .map_err(err)?
+        .collect::<std::result::Result<_, _>>()
+        .map_err(err)?;
+    let stale: Vec<(String, String)> = all_entries
+        .into_iter()
+        .filter(|(question_id, _)| !formal_ids.contains(question_id.as_str()))
+        .collect();
+    drop(stmt);
+    let mut batches = HashSet::new();
+    for (question_id, batch_id) in stale {
+        batches.insert(batch_id);
+        c.execute(
+            "DELETE FROM intake_entries WHERE bank_id=?1 AND question_id=?2 AND upload_status='uploaded'",
+            params![bank_id, question_id],
+        )
+        .map_err(err)?;
+        c.execute(
+            "DELETE FROM intake_originals WHERE bank_id=?1 AND question_id=?2 AND NOT EXISTS(SELECT 1 FROM intake_entries WHERE bank_id=?1 AND question_id=?2)",
+            params![bank_id, question_id],
+        )
+        .map_err(err)?;
+        c.execute(
+            "DELETE FROM draft_records WHERE bank_id=?1 AND id=?2",
+            params![bank_id, question_id],
+        )
+        .map_err(err)?;
+    }
+    for batch_id in batches {
+        c.execute(
+            "DELETE FROM intake_transfers WHERE batch_id=?1 AND NOT EXISTS(SELECT 1 FROM intake_entries WHERE batch_id=?1)",
+            [&batch_id],
+        )
+        .map_err(err)?;
+        c.execute(
+            "DELETE FROM intake_batches WHERE id=?1 AND NOT EXISTS(SELECT 1 FROM intake_entries WHERE batch_id=?1) AND NOT EXISTS(SELECT 1 FROM intake_transfers WHERE batch_id=?1)",
+            [&batch_id],
+        )
+        .map_err(err)?;
+    }
+    Ok(())
 }
 
 pub fn apply(store: &Store, payload: &str, digest: &str) -> Result<()> {
@@ -219,6 +273,11 @@ pub fn apply(store: &Store, payload: &str, digest: &str) -> Result<()> {
             }
         }
     };
+    if s.rollback_of.is_some() {
+        if let Some(formal) = s.formal.as_deref() {
+            clear_rolled_back_uploaded_entries(&tx, &s.bank_id, formal)?;
+        }
+    }
     let mut st=tx.prepare("SELECT o.data FROM intake_originals o JOIN intake_entries e ON e.bank_id=o.bank_id AND e.question_id=o.question_id WHERE o.bank_id=?1 AND o.deleted=0 AND e.upload_status='pending' ORDER BY e.created_at,o.question_id").map_err(err)?;
     let drafts = st
         .query_map([&s.bank_id], |r| r.get::<_, String>(0))
