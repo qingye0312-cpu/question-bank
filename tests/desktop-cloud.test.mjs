@@ -99,6 +99,22 @@ test('desktop logout cancels an in-flight login and never restores its session',
  await requested.promise;c.cloudLogout();response.resolve();await rejected;
  assert.equal(c.cloudAccess(),undefined);assert.equal(calls,1);
 });
+
+test('desktop phone login stores the refresh credential with the native command field name',async()=>{
+ const saved=[];const refresh='r1.'+'a'.repeat(43);
+ const c=client(async(command,args)=>{
+  if(command==='credential_refresh_save'){saved.push(args);return;}
+  if(command==='cloud_request'){
+   if(args.path==='/v1/auth/password-login')return {status:200,body:{access_token:'v1.test.signature',refresh_token:refresh,expires_in:900}};
+   if(args.path==='/v1/me')return {status:200,body:{openid:'p_account',auth_type:'password',account_status:'approved',banks:[],grants:{},permissions:[],uploads_enabled:true}};
+  }
+  throw Error(`unexpected ${command}`);
+ });
+ const access=await c.cloudLoginPassword('+86 138 1234 5678','StrongPass123');
+ assert.equal(access.account_status,'approved');
+ assert.deepEqual(saved,[{origin:'https://first.example',refreshToken:refresh}]);
+});
+
 test('desktop accepts only compressed current snapshots and rejects review candidates',()=>{
  assert.throws(()=>sync.readSnapshot({payload,sha256:wrapper.sha256},manifest),/封装无效/);
  const rejected=JSON.stringify({...JSON.parse(payload),pending:[{question_id:'candidate'}]});

@@ -276,12 +276,80 @@ pub(crate) fn add_batch(c: &Connection, id: &str, bank_id: &str) -> Result<()> {
     Ok(())
 }
 fn add_entry(c: &Connection, bank: &str, batch: &str, q: &Question) -> Result<()> {
+    // A cloud rollback can remove the searchable projection while retaining a
+    // pending waiting-upload row and its draft. Re-importing that package must
+    // reconcile the existing row instead of attempting a second primary-key
+    // insert. Frozen transfers are immutable and must remain retryable.
+    let existing_entry: Option<(String, String, String)> = c
+        .query_row(
+            "SELECT e.batch_id,e.upload_status,COALESCE(t.endpoint,'')
+             FROM intake_entries e
+             LEFT JOIN intake_transfers t ON t.batch_id=e.batch_id
+             WHERE e.bank_id=?1 AND e.question_id=?2",
+            params![bank, q.question_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()
+        .map_err(err)?;
+    if existing_entry
+        .as_ref()
+        .is_some_and(|(_, _, endpoint)| !endpoint.is_empty())
+    {
+        return Err("原提交结果尚待确认，保留内容用于重试".into());
+    }
+
+    // A deleted projection is safe to replace. An active projection should
+    // already have been classified as a duplicate by the caller.
+    let existing_question: Option<(i64, bool)> = c
+        .query_row(
+            "SELECT rowid,deleted FROM questions WHERE bank_id=?1 AND id=?2",
+            params![bank, q.question_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()
+        .map_err(err)?;
+    if let Some((rowid, deleted)) = existing_question {
+        if !deleted {
+            return Err("题目身份已存在，不能重复录入".into());
+        }
+        db::remove_index(c, rowid)?;
+        c.execute("DELETE FROM questions WHERE rowid=?1", [rowid])
+            .map_err(err)?;
+    }
     db::insert(c, bank, q)?;
     c.execute(
         "INSERT OR REPLACE INTO intake_originals(bank_id,question_id,data) VALUES(?1,?2,?3)",
         params![bank, q.question_id, serde_json::to_string(q).map_err(err)?],
     )
     .map_err(err)?;
+    if let Some((old_batch, status, _)) = existing_entry {
+        if status != "pending" {
+            c.execute(
+                "DELETE FROM intake_entries WHERE bank_id=?1 AND question_id=?2",
+                params![bank, q.question_id],
+            )
+            .map_err(err)?;
+        } else {
+            c.execute(
+                "UPDATE intake_entries SET batch_id=?1,created_at=?2 WHERE bank_id=?3 AND question_id=?4",
+                params![batch, now(), bank, q.question_id],
+            )
+            .map_err(err)?;
+            if old_batch != batch {
+                c.execute(
+                    "DELETE FROM intake_transfers WHERE batch_id=?1 AND NOT EXISTS(SELECT 1 FROM intake_entries WHERE batch_id=?1)",
+                    [&old_batch],
+                )
+                .map_err(err)?;
+                c.execute(
+                    "DELETE FROM intake_batches WHERE id=?1 AND NOT EXISTS(SELECT 1 FROM intake_entries WHERE batch_id=?1) AND NOT EXISTS(SELECT 1 FROM intake_transfers WHERE batch_id=?1)",
+                    [&old_batch],
+                )
+                .map_err(err)?;
+            }
+            return Ok(());
+        }
+    }
     c.execute(
         "INSERT INTO intake_entries(bank_id,question_id,batch_id,created_at) VALUES(?1,?2,?3,?4)",
         params![bank, q.question_id, batch, now()],

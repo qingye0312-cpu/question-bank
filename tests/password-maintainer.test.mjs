@@ -64,6 +64,28 @@ test('desktop highest privilege approves, lists and revokes a phone maintainer',
  assert.equal((await s.call('GET','/v1/me',undefined,user.data.access_token)).status,403);
 });
 
+test('an approved phone account can start a fresh session after approval',async()=>{
+ const s=setup(),created=await s.register(),admin=await s.admin();
+ assert.equal((await s.call('POST',`/v1/maintainer-applications/${created.data.application.id}/decision`,{decision:'approve'},admin)).status,200);
+ const logged=await s.login();
+ assert.equal(logged.status,200);
+ assert.equal(logged.data.status,'approved');
+ assert.equal((await s.call('GET','/v1/me',undefined,logged.data.access_token)).data.account_status,'approved');
+ assert.equal((await s.call('POST','/v1/auth/refresh',{refresh_token:logged.data.refresh_token})).status,200);
+});
+
+test('password login accepts legacy phone formatting after approval',async()=>{
+ const s=setup(),created=await s.register(),admin=await s.admin();
+ assert.equal((await s.call('POST',`/v1/maintainer-applications/${created.data.application.id}/decision`,{decision:'approve'},admin)).status,200);
+ const registry=s.current.get('00000000-0000-0000-0000-000000000000');
+ registry.password_accounts[0].phone=' +86 138 1234 5678 ';
+ delete registry.password_accounts[0].phone_hash;
+ delete registry.password_accounts[0].phone_masked;
+ const logged=await s.login('+86 (138) 1234-5678');
+ assert.equal(logged.status,200);
+ assert.equal(logged.data.status,'approved');
+});
+
 test('registration enforces shared phone/password fields and prevents duplicate phone registration',async()=>{
  const s=setup();
  assert.equal((await s.register({password:'weak'})).data.error.code,'PASSWORD_INVALID');

@@ -75,6 +75,28 @@ test('Mini Program receipt verification accepts only merged or duplicate results
   assert.throws(()=>verifyReceipt({...base,status:'merged',added_count:2},expected));
 });
 
+test('Mini Program login cannot be overwritten by a slower startup restore',async()=>{
+ const origin='https://race.example.test',oldRefresh=`r1.${'b'.repeat(43)}`,newRefresh=`r1.${'c'.repeat(43)}`;
+ const storageKey=`qbank-maintainer-refresh-v1:${origin}`;authStorage.set(storageKey,oldRefresh);
+ let releaseRestore;const restoreGate=new Promise(resolve=>{releaseRestore=resolve;});
+ const requests=[];
+ const client=createCloudClient({origin:()=>origin,request:async(_origin,path,_method,body,token)=>{
+   requests.push({path,body,token});
+   if(path==='/v1/auth/refresh'){await restoreGate;return {status:200,body:{access_token:'v1.restore.signature',refresh_token:oldRefresh,expires_in:900,openid:'p_restore',status:'approved',banks:[]}};}
+   if(path==='/v1/auth/password-login')return {status:200,body:{access_token:'v1.login.signature',refresh_token:newRefresh,expires_in:900,openid:'p_login',status:'approved',banks:[]}};
+   if(path==='/v1/me')return {status:200,body:{openid:token==='v1.login.signature'?'p_login':'p_restore',permissions:[],uploads_enabled:true,banks:[]}};
+   throw Error(path);
+ }});
+ const restoring=client.restoreSession();
+ await new Promise(resolve=>setTimeout(resolve,0));
+ const logged=await client.loginPassword('13812345678','StrongPass123');
+ assert.equal(logged.openid,'p_login');
+ releaseRestore();
+ await assert.rejects(restoring,/登录状态已改变/);
+ assert.equal(client.state().openid,'p_login');
+ assert.equal(authStorage.get(storageKey),newRefresh);
+});
+
 test('Mini Program registration validates and submits the shared phone/password form',async()=>{
  const requests=[];
  const client=createCloudClient({origin:()=> 'https://qbank.example.test',request:async(_origin,path,_method,body)=>{

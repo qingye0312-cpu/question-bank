@@ -16,6 +16,15 @@ function maskPhone(value){
   const text=String(value),digits=text.replace(/^\+/,'');
   return `${text.startsWith('+')?'+':''}${digits.slice(0,3)}****${digits.slice(-4)}`;
 }
+function normalizeStoredPhone(record){
+  if(!record||typeof record!=='object'||typeof record.phone!=='string')return;
+  try{
+    const phone=normalizePhone(record.phone);
+    record.phone=phone;
+    record.phone_hash=sha256(phone);
+    record.phone_masked=maskPhone(phone);
+  }catch{/* Preserve malformed legacy records for explicit administrative repair. */}
+}
 function emptyRegistry(){return {format:'qbank-state-1',bank_id:REGISTRY_ID,revision:0,banks:[],legacy_accounts:[],password_accounts:[],maintainer_applications:[],updated_at:''};}
 function cleanRegistry(value){
   if(!value)return emptyRegistry();
@@ -27,7 +36,23 @@ function cleanRegistry(value){
   delete result.wechat_accounts;
   for(const account of [...result.legacy_accounts,...result.password_accounts])if(account&&typeof account==='object')delete account.username;
   for(const application of result.maintainer_applications)if(application&&typeof application==='object')delete application.username;
+  for(const account of result.password_accounts)normalizeStoredPhone(account);
+  for(const application of result.maintainer_applications)normalizeStoredPhone(application);
   return result;
+}
+
+function passwordPhoneMatches(account,value){
+  if(!account||typeof account!=='object')return false;
+  let phone;
+  try{phone=normalizePhone(value);}catch{return false;}
+  const digest=sha256(phone);
+  if(account.phone_hash===digest||account.phone===phone)return true;
+  if(typeof account.phone!=='string')return false;
+  try{return normalizePhone(account.phone)===phone;}catch{return false;}
+}
+function findPasswordAccount(registry,value){
+  const matches=registry.password_accounts.filter(account=>passwordPhoneMatches(account,value));
+  return matches.find(account=>account.status!=='revoked')||matches[0];
 }
 
 function createAccessRegistry({store,clock=Date.now}){
@@ -41,7 +66,7 @@ function createAccessRegistry({store,clock=Date.now}){
     }
     fail(409,'REVISION_CONFLICT','授权目录正在更新，请刷新后重试');
   }
-  return {read,update,normalizePhone,maskPhone,phoneHash:value=>sha256(normalizePhone(value)),REGISTRY_ID};
+  return {read,update,normalizePhone,maskPhone,phoneHash:value=>sha256(normalizePhone(value)),passwordPhoneMatches,findPasswordAccount,REGISTRY_ID};
 }
 
-module.exports={REGISTRY_ID,createAccessRegistry,normalizePhone,maskPhone};
+module.exports={REGISTRY_ID,createAccessRegistry,normalizePhone,maskPhone,passwordPhoneMatches,findPasswordAccount};

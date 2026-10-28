@@ -1,5 +1,5 @@
 use question_bank::{
-    backup, cloud, exchange,
+    backup, cloud, drafts, exchange,
     db::{self, Query, Store},
     intake,
     model::*,
@@ -271,6 +271,42 @@ fn reimport_repairs_orphaned_manual_upload_entries_left_by_an_older_client() {
     .to_string();
     cloud::apply(&s, &rolled_back, &hash(rolled_back.as_bytes())).unwrap();
     assert_eq!(intake::import(&s, &file).unwrap().added, 1);
+}
+
+#[test]
+fn reimport_reuses_orphaned_pending_entry_after_rollback() {
+    let (d, s, b) = setup();
+    let saved = intake::save(&s, &b, "", &reply()).unwrap();
+    let question = saved.comparison.question.clone();
+    let file = d.path().join("orphaned-pending.qbank-delta.json");
+    intake::export(&s, &saved.batch_id, &file).unwrap();
+
+    // A rollback can leave the waiting-upload record and draft while the
+    // searchable projection is gone. Re-importing the same package must
+    // restore the projection and keep the pending record usable.
+    let c = s.conn().unwrap();
+    let row: i64 = c
+        .query_row(
+            "SELECT rowid FROM questions WHERE bank_id=?1 AND id=?2",
+            rusqlite::params![b, question.question_id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    db::remove_index(&c, row).unwrap();
+    c.execute("DELETE FROM questions WHERE rowid=?1", [row])
+        .unwrap();
+    c.execute(
+        "UPDATE intake_originals SET deleted=1 WHERE bank_id=?1 AND question_id=?2",
+        rusqlite::params![b, question.question_id],
+    )
+    .unwrap();
+    drop(c);
+
+    let imported = intake::import(&s, &file).unwrap();
+    assert_eq!(imported.added, 1);
+    assert_eq!(intake::entries(&s, &imported.batch_id).unwrap().len(), 1);
+    assert_eq!(intake::batches(&s).unwrap().iter().filter(|batch| batch.pending > 0).count(), 1);
+    assert_eq!(drafts::list(&s, &b).unwrap().len(), 1);
 }
 
 #[test]

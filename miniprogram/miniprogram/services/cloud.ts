@@ -131,6 +131,7 @@ export function createCloudClient(deps:{origin:()=>string;request:Transport;now?
     const current=active();
     if(current){if(current.expiresAt<=now()+15000)await refreshSession(current);return state();}
     if(restoring)return restoring;
+    const epoch=generation;
     const run=(async()=>{
       const base=origin(),token=readRefreshToken(base);
       if(!token)return state();
@@ -148,7 +149,7 @@ export function createCloudClient(deps:{origin:()=>string;request:Transport;now?
         expiresAt:now()+Number(result.expires_in)*1000,banks:readBanks(result.banks),permissions:[],pendingPermissions:[],uploadsEnabled:false,status:typeof result.status==='string'?result.status:undefined,
         phone:typeof result.phone==='string'?result.phone:undefined,authType:'password'};
       const me=object((await rawCall('/v1/me','GET',undefined,current)).body);applyAccess(current,me);
-      if(base!==deps.origin())throw new Error('登录状态已改变，请重试');
+      if(epoch!==generation||base!==deps.origin())throw new Error('登录状态已改变，请重试');
       session=current;return state();
     })();
     restoring=run;void run.finally(()=>{if(restoring===run)restoring=undefined}).catch(()=>{});return run;
@@ -163,7 +164,7 @@ export function createCloudClient(deps:{origin:()=>string;request:Transport;now?
   async function loginPassword(phone:string,password:string):Promise<CloudAccess>{
     if(pending)return pending;
     const run=(async()=>{
-      const base=origin(),epoch=generation,started=now();session=undefined;
+      const base=origin(),epoch=++generation,started=now();session=undefined;
       const normalized=normalizePhone(phone);if(!PHONE_PATTERN.test(normalized))throw new Error('请填写有效的 11 位手机号');
       const result=object((await rawCall('/v1/auth/password-login','POST',{phone:normalized,password})).body);
       if(typeof result.access_token!=='string'||!/^v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(result.access_token)
@@ -171,12 +172,20 @@ export function createCloudClient(deps:{origin:()=>string;request:Transport;now?
         ||!Number.isInteger(result.expires_in)||Number(result.expires_in)<30||Number(result.expires_in)>900)
         throw new Error('云端登录响应无效，请重试');
       saveRefreshToken(base,result.refresh_token);
-      const current:Session={openid:typeof result.openid==='string'?result.openid:'',token:result.access_token,refreshToken:result.refresh_token,origin:base,
-        expiresAt:started+Number(result.expires_in)*1000,banks:readBanks(result.banks),permissions:[],pendingPermissions:[],uploadsEnabled:false,status:typeof result.status==='string'?result.status:undefined,
-        phone:typeof result.phone==='string'?result.phone:undefined,authType:'password'};
-      const me=object((await rawCall('/v1/me','GET',undefined,current)).body);applyAccess(current,me);
-      if(epoch!==generation||base!==deps.origin())throw new Error('登录已取消，请重新登录');
-      session=current;return state();
+      try{
+        const current:Session={openid:typeof result.openid==='string'?result.openid:'',token:result.access_token,refreshToken:result.refresh_token,origin:base,
+          expiresAt:started+Number(result.expires_in)*1000,banks:readBanks(result.banks),permissions:[],pendingPermissions:[],uploadsEnabled:false,status:typeof result.status==='string'?result.status:undefined,
+          phone:typeof result.phone==='string'?result.phone:undefined,authType:'password'};
+        const me=object((await rawCall('/v1/me','GET',undefined,current)).body);applyAccess(current,me);
+        if(epoch!==generation||base!==deps.origin())throw new Error('登录已取消，请重新登录');
+        session=current;return state();
+      }catch(error){
+        // Do not let a failed validation resurrect a half-open session later.
+        // A newer login may already have replaced this token, so only remove
+        // the token that this attempt wrote.
+        if(epoch===generation&&readRefreshToken(base)===result.refresh_token)removeRefreshToken(base);
+        throw error;
+      }
     })();
     pending=run;void run.finally(()=>{if(pending===run)pending=undefined}).catch(()=>{});return run;
   }

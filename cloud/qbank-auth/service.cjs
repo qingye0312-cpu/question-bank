@@ -88,7 +88,7 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
         const passwordHash=await hashPassword(body.password);
         let accountId,applicationId;
         const result=await access.update(registry=>{
-          if(registry.password_accounts.some(account=>account.phone_hash===phoneHash&&account.status!=='revoked'))fail(409,'PHONE_TAKEN','此手机号已注册，请直接登录或联系管理员');
+          if(registry.password_accounts.some(account=>account.status!=='revoked'&&access.passwordPhoneMatches(account,phone)))fail(409,'PHONE_TAKEN','此手机号已注册，请直接登录或联系管理员');
           const at=new Date(clock()).toISOString();accountId=randomUUID();applicationId=randomUUID();
           const account={id:accountId,password_hash:passwordHash,sessions:[],phone,phone_hash:phoneHash,phone_masked:access.maskPhone(phone),phone_source:'self_reported',real_name:realName,nickname,identity_description:identityDescription,grants:{},permissions:[],status:'pending',created_at:at};
           const application={id:applicationId,auth_type:'password',account_id:accountId,phone,phone_hash:phoneHash,phone_masked:access.maskPhone(phone),phone_source:'self_reported',real_name:realName,nickname,identity_description:identityDescription,bank_ids:bankIds,permissions,status:'pending',created_at:at};
@@ -109,7 +109,7 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
           await verifyPassword(typeof body?.password==='string'?body.password:'',DUMMY_HASH);
           fail(401,'CREDENTIALS_INVALID','手机号或密码不正确');
         }
-        const registry=await access.read(),account=phone?registry.password_accounts.find(item=>item.phone_hash===phoneHash||item.phone===phone):undefined;
+        const registry=await access.read(),account=phone?access.findPasswordAccount(registry,phone):undefined;
         const usable=account&&account.status!=='revoked'&&account.status!=='password_reset_required';
         const matches=await verifyPassword(body.password,usable?account.password_hash:DUMMY_HASH);
         if(!usable||!matches)fail(401,'CREDENTIALS_INVALID','手机号或密码不正确');
@@ -161,7 +161,8 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
         if(!exact(body,['phone','reset_token','password'])||!phone||typeof body.reset_token!=='string'||body.reset_token.length<32||body.reset_token.length>128)
           fail(401,'PASSWORD_RESET_INVALID','重置码无效或已过期，请联系管理员重新发放');
         const registry=await access.read(),candidate=sha256(body.reset_token);
-        const account=registry.password_accounts.find(item=>item.phone_hash===phoneHash&&item.status==='password_reset_required');
+        const found=phone?access.findPasswordAccount(registry,phone):undefined;
+        const account=found?.status==='password_reset_required'?found:undefined;
         const stored=account&&HASH.test(account.password_reset_sha256||'')?account.password_reset_sha256:'0'.repeat(64);
         const matches=timingSafeEqual(Buffer.from(candidate,'hex'),Buffer.from(stored,'hex'));
         if(!account||!matches||!Number.isSafeInteger(account.password_reset_expires_at)||account.password_reset_expires_at<=clock())
