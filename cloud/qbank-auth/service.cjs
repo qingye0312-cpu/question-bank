@@ -102,10 +102,12 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
         const client=String(headers['x-forwarded-for']||headers['x-client-address']||'unknown').slice(0,100);
         throttle(`password-login:${client}`,10);
         const body=jsonBody(event,2048);
+        if(body?.client!==undefined&&body.client!=='desktop'&&body.client!=='miniprogram')fail(422,'CLIENT_INVALID','登录端类型无效');
+        const clientType=body?.client==='miniprogram'?'miniprogram':'desktop';
         let phone='';try{if(typeof body?.phone==='string')phone=access.normalizePhone(body.phone);}catch{}
         const phoneHash=phone?access.phoneHash(phone):sha256(String(body?.phone||'invalid'));
         throttle(`password-user:${phoneHash}`,10);
-        if(!exact(body,['phone','password'])||typeof body.password!=='string'){
+        if((!exact(body,['phone','password'])&&!exact(body,['phone','password','client']))||typeof body.password!=='string'){
           await verifyPassword(typeof body?.password==='string'?body.password:'',DUMMY_HASH);
           fail(401,'CREDENTIALS_INVALID','手机号或密码不正确');
         }
@@ -113,17 +115,21 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
         const usable=account&&account.status!=='revoked'&&account.status!=='password_reset_required';
         const matches=await verifyPassword(body.password,usable?account.password_hash:DUMMY_HASH);
         if(!usable||!matches)fail(401,'CREDENTIALS_INVALID','手机号或密码不正确');
-        const refreshToken=`r1.${randomBytes(32).toString('base64url')}`,refreshHash=sha256(refreshToken);
+        const refreshToken=`r1.${randomBytes(32).toString('base64url')}`,refreshHash=sha256(refreshToken),sessionId=randomUUID();
         const updated=await access.update(next=>{
           const current=next.password_accounts.find(item=>item.id===account.id);
           if(!current||current.password_hash!==account.password_hash||current.status==='revoked'||current.status==='password_reset_required')fail(401,'CREDENTIALS_INVALID','手机号或密码不正确');
           if(!Array.isArray(current.sessions))current.sessions=[];
-          current.sessions.push({token_sha256:refreshHash,created_at:new Date(clock()).toISOString(),last_used_at:new Date(clock()).toISOString()});
+          // Keep one active phone session per client. Legacy sessions without
+          // a client marker belonged to the old desktop app and are replaced
+          // by the first typed desktop login.
+          current.sessions=current.sessions.filter(session=>session?.client!==clientType&&!(clientType==='desktop'&&!session?.client));
+          current.sessions.push({id:sessionId,client:clientType,token_sha256:refreshHash,created_at:new Date(clock()).toISOString(),last_used_at:new Date(clock()).toISOString()});
         });
         const currentAccount=updated.password_accounts.find(item=>item.id===account.id);
         const now=Math.floor(clock()/1000),subject=`p_${account.id}`;
         const token=sign({sub:subject,aud:'qbank-maintainer-account-v1',app_id:config.appId,auth_version:config.authVersion,
-          password_version:sha256(currentAccount.password_hash),iat:now,exp:now+LIMITS.sessionSeconds},config);
+          password_version:sha256(currentAccount.password_hash),session_id:sessionId,iat:now,exp:now+LIMITS.sessionSeconds},config);
         const grants=currentAccount.status==='approved'&&object(currentAccount.grants)?currentAccount.grants:{};
         return respond(200,{access_token:token,refresh_token:refreshToken,expires_in:LIMITS.sessionSeconds,openid:subject,
           phone:currentAccount.phone_masked||access.maskPhone(phone),status:currentAccount.status||'pending',banks:config.banks.filter(bank=>Object.hasOwn(grants,bank.bank_id)),
@@ -133,11 +139,13 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
         const body=jsonBody(event,2048),refreshToken=body?.refresh_token;
         if(!exact(body,['refresh_token'])||typeof refreshToken!=='string'||!/^r1\.[A-Za-z0-9_-]{43}$/.test(refreshToken))fail(401,'SESSION_INVALID','本机登录凭证无效，请重新登录');
         const digest=sha256(refreshToken),registry=await access.read();
-        const account=registry.password_accounts.find(item=>Array.isArray(item.sessions)&&item.sessions.some(s=>s.token_sha256===digest));
+        const account=registry.password_accounts.find(item=>Array.isArray(item.sessions)&&item.sessions.some(s=>s?.token_sha256===digest));
         if(!account||account.status==='revoked'||account.status==='password_reset_required')fail(401,'SESSION_INVALID','登录凭证已失效，请使用手机号和密码重新登录');
+        const session=account.sessions.find(item=>item?.token_sha256===digest);
+        if(!session?.id)fail(401,'SESSION_INVALID','登录凭证已失效，请使用手机号和密码重新登录');
         const now=Math.floor(clock()/1000),subject=`p_${account.id}`;
         const token=sign({sub:subject,aud:'qbank-maintainer-account-v1',app_id:config.appId,auth_version:config.authVersion,
-          password_version:sha256(account.password_hash),iat:now,exp:now+LIMITS.sessionSeconds},config);
+          password_version:sha256(account.password_hash),session_id:session.id,iat:now,exp:now+LIMITS.sessionSeconds},config);
         const grants=account.status==='approved'&&object(account.grants)?account.grants:{};
         return respond(200,{access_token:token,refresh_token:refreshToken,expires_in:LIMITS.sessionSeconds,openid:subject,
           phone:account.phone_masked||'',status:account.status||'pending',banks:config.banks.filter(bank=>Object.hasOwn(grants,bank.bank_id)),
@@ -147,7 +155,7 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
         const body=jsonBody(event,2048),refreshToken=body?.refresh_token;
         if(exact(body,['refresh_token'])&&typeof refreshToken==='string'&&/^r1\.[A-Za-z0-9_-]{43}$/.test(refreshToken)){
           const digest=sha256(refreshToken);
-          await access.update(registry=>{for(const account of registry.password_accounts){if(Array.isArray(account.sessions))account.sessions=account.sessions.filter(s=>s.token_sha256!==digest);}});
+          await access.update(registry=>{for(const account of registry.password_accounts){if(Array.isArray(account.sessions))account.sessions=account.sessions.filter(s=>s?.token_sha256!==digest);}});
         }
         return respond(200,{ok:true});
       }

@@ -166,7 +166,7 @@ export function createCloudClient(deps:{origin:()=>string;request:Transport;now?
     const run=(async()=>{
       const base=origin(),epoch=++generation,started=now();session=undefined;
       const normalized=normalizePhone(phone);if(!PHONE_PATTERN.test(normalized))throw new Error('请填写有效的 11 位手机号');
-      const result=object((await rawCall('/v1/auth/password-login','POST',{phone:normalized,password})).body);
+      const result=object((await rawCall('/v1/auth/password-login','POST',{phone:normalized,password,client:'miniprogram'})).body);
       if(typeof result.access_token!=='string'||!/^v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(result.access_token)
         ||typeof result.refresh_token!=='string'||!/^r1\.[A-Za-z0-9_-]{43}$/.test(result.refresh_token)
         ||!Number.isInteger(result.expires_in)||Number(result.expires_in)<30||Number(result.expires_in)>900)

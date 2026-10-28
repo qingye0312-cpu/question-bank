@@ -24,7 +24,7 @@ function setup(){
  const call=async(method,path,body,token)=>{const response=await handler({httpMethod:method,path,headers:{'content-type':'application/json',...(token?{authorization:`Bearer ${token}`}:{})},...(body===undefined?{}:{body:JSON.stringify(body)})});return {status:response.statusCode,data:JSON.parse(response.body)}};
  const admin=async()=>(await call('POST','/v1/auth/desktop',{key})).data.access_token;
  const register=async(patch={})=>call('POST','/v1/auth/register',{phone:'13812345678',real_name:'张三',nickname:'小星',identity_description:'课程助教',password,bank_ids:[bankId],...patch});
- const login=async(phone='13812345678',secret=password)=>call('POST','/v1/auth/password-login',{phone,password:secret});
+ const login=async(phone='13812345678',secret=password,client)=>call('POST','/v1/auth/password-login',{phone,password:secret,...(client?{client}:{})});
  return {call,env,current,register,login,admin};
 }
 
@@ -72,6 +72,36 @@ test('an approved phone account can start a fresh session after approval',async(
  assert.equal(logged.data.status,'approved');
  assert.equal((await s.call('GET','/v1/me',undefined,logged.data.access_token)).data.account_status,'approved');
  assert.equal((await s.call('POST','/v1/auth/refresh',{refresh_token:logged.data.refresh_token})).status,200);
+});
+
+test('phone accounts keep one desktop and one Mini Program session, evicting only the same client',async()=>{
+ const s=setup(),created=await s.register(),admin=await s.admin();
+ assert.equal((await s.call('POST',`/v1/maintainer-applications/${created.data.application.id}/decision`,{decision:'approve'},admin)).status,200);
+ const desktopOne=await s.login('13812345678',password,'desktop');
+ const miniOne=await s.login('13812345678',password,'miniprogram');
+ assert.equal(desktopOne.status,200);assert.equal(miniOne.status,200);
+ const desktopTwo=await s.login('13812345678',password,'desktop');
+ assert.equal(desktopTwo.status,200);
+ assert.equal((await s.call('GET','/v1/me',undefined,desktopOne.data.access_token)).status,401);
+ assert.equal((await s.call('POST','/v1/auth/refresh',{refresh_token:desktopOne.data.refresh_token})).status,401);
+ assert.equal((await s.call('GET','/v1/me',undefined,miniOne.data.access_token)).status,200);
+ assert.equal((await s.call('POST','/v1/auth/refresh',{refresh_token:miniOne.data.refresh_token})).status,200);
+ const miniTwo=await s.login('13812345678',password,'miniprogram');
+ assert.equal(miniTwo.status,200);
+ assert.equal((await s.call('GET','/v1/me',undefined,miniOne.data.access_token)).status,401);
+ assert.equal((await s.call('POST','/v1/auth/refresh',{refresh_token:miniOne.data.refresh_token})).status,401);
+ assert.equal((await s.call('GET','/v1/me',undefined,desktopTwo.data.access_token)).status,200);
+ assert.equal((await s.call('POST','/v1/auth/refresh',{refresh_token:desktopTwo.data.refresh_token})).status,200);
+ assert.equal((await s.call('GET','/v1/me',undefined,miniTwo.data.access_token)).status,200);
+});
+
+test('password tokens issued before device-slot tracking are rejected',async()=>{
+ const s=setup(),created=await s.register(),admin=await s.admin();
+ assert.equal((await s.call('POST',`/v1/maintainer-applications/${created.data.application.id}/decision`,{decision:'approve'},admin)).status,200);
+ const logged=await s.login();
+ const registry=s.current.get('00000000-0000-0000-0000-000000000000');
+ registry.password_accounts[0].sessions[0].id=undefined;
+ assert.equal((await s.call('GET','/v1/me',undefined,logged.data.access_token)).status,401);
 });
 
 test('password login accepts legacy phone formatting after approval',async()=>{

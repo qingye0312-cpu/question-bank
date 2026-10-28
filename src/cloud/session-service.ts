@@ -107,7 +107,7 @@ export async function cloudLogin(key:string){
 
 export async function cloudLoginPassword(phone:string,password:string){
  session=undefined;const attempt=++generation,origin=cloudOrigin(),started=Date.now();notifyAccessChange();
- const result=await cloudCall<{access_token:string;refresh_token:string;expires_in:number}>('/v1/auth/password-login',{phone,password});
+ const result=await cloudCall<{access_token:string;refresh_token:string;expires_in:number}>('/v1/auth/password-login',{phone,password,client:'desktop'});
  if(typeof result.refresh_token!=='string'||!/^r1\.[A-Za-z0-9_-]{43}$/.test(result.refresh_token))throw Error('服务端没有返回有效的登录续期凭据');
  await queueCredential('credential_refresh_save',{origin,refreshToken:result.refresh_token});
  if(attempt!==generation||origin!==cloudOrigin()){await queueCredential('credential_refresh_save',{origin,refreshToken:null});throw Error('登录已取消，请重试');}

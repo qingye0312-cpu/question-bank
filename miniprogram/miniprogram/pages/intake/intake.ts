@@ -153,10 +153,11 @@ Page({
  },
  onSync(){void this.run(()=>controller!.sync())},
  onLogout(){void cloud.logout();void pauseUploads().catch(e=>{controller!.error=String(e);controller!.render()});this.setData({loggedIn:false,hasExportPermission:false,pendingExportPermission:false,maintainerPhone:'',maintainerPhoneDisplay:'',maintainerPassword:'',maintainerPasswordConfirm:'',maintainerPasswordValid:false,maintainerPasswordsMatch:false,maintainerResetToken:'',maintainerAccountStatus:'',maintainerAuthType:'',applicationMessage:'已退出登录'})},
- queueExportPreparation(signature:string,pendingCount=this.data.pendingCount){
+ queueExportPreparation(signature:string,pendingCount?:number){
+  const count=pendingCount===undefined?this.data.pendingCount:pendingCount;
   if(prepareTimer)clearTimeout(prepareTimer);
   exportGeneration++;
-  if(!pendingCount){this.setData({filePath:'',fileName:'',exportPrepared:false});return;}
+  if(!count){this.setData({filePath:'',fileName:'',exportPrepared:false});return;}
   this.setData({exportPrepared:false});
   prepareTimer=setTimeout(()=>{prepareTimer=undefined;void this.prepareExportFile(signature)},280);
  },

@@ -61,7 +61,7 @@ for(const envVersion of ['develop','trial','release'])test(`Mini Program ${envVe
   assert.equal(await client.authorize(bankId,bank.name),origin);
   const prepared=prepareUpload(fixture),result=await client.upload(prepared,origin);
   assert.equal(result.receipt.status,'merged');assert.equal(result.duplicate,false);
-  assert.equal(requests[0].path,'/v1/auth/password-login');assert.equal(requests[0].body.phone,'13812345678');assert.equal(requests[0].body.password,'StrongPass123');
+  assert.equal(requests[0].path,'/v1/auth/password-login');assert.equal(requests[0].body.phone,'13812345678');assert.equal(requests[0].body.password,'StrongPass123');assert.equal(requests[0].body.client,'miniprogram');
   assert.equal(requests.at(-1).body.format,'qbank-confirmed-upload-1');assert.equal(requests.at(-1).body.package.format,'qbank-upload-1');
   assert.equal(client.state().openid,'p_account');assert.ok(!JSON.stringify(client.state()).includes('v1.token.signature'));
 });

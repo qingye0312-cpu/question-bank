@@ -94,17 +94,18 @@ test('changing desktop service while a snapshot downloads cancels the old apply 
 });
 test('desktop logout cancels an in-flight login and never restores its session',async()=>{
  const requested=pause(),response=pause();let calls=0;
- const c=client(async()=>{calls++;requested.resolve();await response.promise;return {status:200,body:{access_token:'v1.dGVzdA.c2lnbmF0dXJl',expires_in:900}};});
- const login=c.cloudLogin('test-maintainer-secret'),rejected=assert.rejects(login,/登录响应无效/);
+ const c=client(async(command)=>{if(command.startsWith('credential_'))return;calls++;requested.resolve();await response.promise;return {status:200,body:{access_token:'v1.dGVzdA.c2lnbmF0dXJl',expires_in:900}};});
+ const login=c.cloudLogin('test-maintainer-secret'),rejected=assert.rejects(login,/登录(?:响应无效|已取消)/);
  await requested.promise;c.cloudLogout();response.resolve();await rejected;
  assert.equal(c.cloudAccess(),undefined);assert.equal(calls,1);
 });
 
 test('desktop phone login stores the refresh credential with the native command field name',async()=>{
- const saved=[];const refresh='r1.'+'a'.repeat(43);
+ const saved=[],requests=[];const refresh='r1.'+'a'.repeat(43);
  const c=client(async(command,args)=>{
   if(command==='credential_refresh_save'){saved.push(args);return;}
   if(command==='cloud_request'){
+   requests.push(args);
    if(args.path==='/v1/auth/password-login')return {status:200,body:{access_token:'v1.test.signature',refresh_token:refresh,expires_in:900}};
    if(args.path==='/v1/me')return {status:200,body:{openid:'p_account',auth_type:'password',account_status:'approved',banks:[],grants:{},permissions:[],uploads_enabled:true}};
   }
@@ -112,7 +113,8 @@ test('desktop phone login stores the refresh credential with the native command 
  });
  const access=await c.cloudLoginPassword('+86 138 1234 5678','StrongPass123');
  assert.equal(access.account_status,'approved');
- assert.deepEqual(saved,[{origin:'https://first.example',refreshToken:refresh}]);
+ assert.equal(requests.find(request=>request.path==='/v1/auth/password-login').body.client,'desktop');
+ assert.deepEqual(JSON.parse(JSON.stringify(saved)),[{origin:'https://first.example',refreshToken:refresh}]);
 });
 
 test('desktop accepts only compressed current snapshots and rejects review candidates',()=>{
@@ -125,6 +127,7 @@ test('desktop accepts only compressed current snapshots and rejects review candi
 test('desktop confirmed queue retries the same frozen transfer after reopening and stops on logout or changed identity',async()=>{
  const state=new Map(),storage=new Map(),sent=[],receipts=[];let lost=true,actor='maintainer-a';
  const invoke=async(command,args)=>{
+  if(command==='credential_save'||command==='credential_refresh_save'||command==='credential_logout')return;
   if(command==='draft_records')return [{id:'q1',revision:1,submissionId:''},{id:'q2',revision:3,submissionId:''}];
   if(command==='draft_submit'){assert.deepEqual(JSON.parse(JSON.stringify(args.expected)),[{id:'q1',revision:1},{id:'q2',revision:3}]);const job={id:'session-one',groupId:'session-one',bankId:bank,endpoint:args.endpoint,actor:args.actor,confirmedAt:new Date().toISOString(),status:'queued',attempts:0,nextAt:0,error:''};state.set('upload-queue',[job]);return job;}
   if(command==='cloud_transfer')return {envelope:{frozen:args.batchId},receipt:null};
@@ -148,15 +151,17 @@ test('desktop confirmed queue retries the same frozen transfer after reopening a
  actor='maintainer-b';await reopened.cloudLogin('another-test-key');await reopened.retryDesktopJobs();await reopened.runDesktopQueue();assert.equal(sent.length,count);assert.equal((await reopened.desktopJobs())[0].status,'paused');assert.equal(receipts.length,1);
 });
 
-test('remembering a desktop key uses native credentials and forgetting it leaves the queue intact',async()=>{
- const storage=new Map(),state=new Map([['upload-queue',[{id:'existing',status:'done'}]]]),native=[];
+test('desktop key credentials stay in native storage and forgetting them leaves the queue intact',async()=>{
+ const storage=new Map(),state=new Map([['upload-queue',[{id:'existing',status:'done'}]]]),native=[],credential=[];
  const c=client(async(command,args)=>{
-  if(command==='credential_save'){native.push(args);return;}
-  if(command==='credential_login')return {status:200,body:{access_token:'v1.test.signature',expires_in:900}};
+  if(command==='credential_save'){native.push(args);credential.push(args.key);return;}
+  if(command==='credential_refresh_save'){native.push(args);return;}
+  if(command==='credential_logout'){native.push(args);credential.length=0;return;}
+  if(command==='credential_resume')return credential.length?{status:200,auth_type:'key',body:{access_token:'v1.test.signature',expires_in:900}}:{status:401,auth_type:'',body:{}};
   return {status:200,body:args.path.endsWith('/desktop')?{access_token:'v1.test.signature',expires_in:900}:{openid:'a',banks:[],grants:{},uploads_enabled:true}};
  },state,storage);
- await c.cloudLogin('test-only-private-key',true);assert.equal(c.remembersMachine(),true);assert.equal(native[0].key,'test-only-private-key');
+ await c.cloudLogin('test-only-private-key');assert.equal(native[0].key,'test-only-private-key');
  assert.ok(!JSON.stringify([...storage,...state]).includes('test-only-private-key'));
- c.setCloudOrigin('https://second.example');assert.equal(c.remembersMachine(),false);c.setCloudOrigin('https://first.example');assert.ok(await c.resumeDesktop());
- await c.cloudForget();assert.equal(native.at(-1).key,null);assert.equal(c.remembersMachine(),false);assert.equal((await c.desktopJobs())[0].id,'existing');
+ await c.cloudLogout();assert.equal(credential.length,0);assert.equal(native.at(-1).origin,'https://first.example');
+ await c.cloudForget();assert.equal(native.some(item=>item.key===null),true);assert.equal((await c.desktopJobs())[0].id,'existing');
 });
