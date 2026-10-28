@@ -557,7 +557,7 @@
 
       const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
       const themeQuery = window.matchMedia("(prefers-color-scheme: dark)");
-      const fishEnabled = !window.location.pathname.startsWith("/fishdownload");
+      const fishEnabled = window.location.pathname.startsWith("/fishdownload");
       const gridSpacing = 72;
       const maxSpeed = 320;
       const minSpeed = 102;
