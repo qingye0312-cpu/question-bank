@@ -185,9 +185,9 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
         return respond(200, { openid: auth.openid, auth_type:auth.password_account?'password':auth.desktop?'key':'', phone: auth.phone_masked||'', real_name:auth.real_name||'', nickname:auth.nickname||'', account_status:auth.account_status|| (auth.desktop?'desktop':'approved'),
         banks: config.banks.filter(b => auth.banks.includes(b.bank_id)), permissions: [...new Set([...(auth.permissions||[]),...Object.values(auth.grants).flat()])], pending_permissions:pendingApplication?.permissions||[], pending_bank_ids:pendingApplication?.bank_ids||[], grants:auth.grants, capabilities:auth.capabilities||[], uploads_enabled: config.uploadsEnabled });
       }
-      const isAdmin=auth.desktop&&auth.capabilities?.includes('maintainer:manage');
+      const isAdmin=auth.capabilities?.includes('maintainer:manage');
       if(path==='/v1/maintainer-applications'&&method==='GET'){
-        if(!isAdmin)fail(403,'ROLE_FORBIDDEN','只有桌面最高权限可以管理维护者申请');
+        if(!isAdmin)fail(403,'ROLE_FORBIDDEN','只有具备题库维护者管理权限的账号可以管理维护者申请');
         const registry=await access.read();
         return respond(200,{applications:registry.maintainer_applications.filter(a=>a.status==='pending'&&a.auth_type==='password').map(a=>{
           const account=registry.password_accounts.find(item=>item.id===a.account_id);
@@ -195,19 +195,20 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
         })});
       }
       if(path==='/v1/maintainer-accounts'&&method==='GET'){
-        if(!isAdmin)fail(403,'ROLE_FORBIDDEN','只有桌面最高权限可以管理维护者账号');
+        if(!isAdmin)fail(403,'ROLE_FORBIDDEN','只有具备题库维护者管理权限的账号可以管理维护者账号');
         const registry=await access.read();
         const accounts=registry.password_accounts.map(a=>({id:a.id,auth_type:'password',phone:a.phone,real_name:a.real_name,phone_source:a.phone_source,nickname:a.nickname,identity_description:a.identity_description,openid:`p_${a.id}`,grants:a.grants,permissions:a.permissions||[],status:a.status,created_at:a.created_at,approved_at:a.approved_at||null,revoked_at:a.revoked_at||null}));
         return respond(200,{accounts});
       }
       const permissionsMatch=/^\/v1\/maintainer-accounts\/([0-9a-f-]{36})\/permissions$/.exec(path||'');
       if(permissionsMatch&&method==='POST'){
-        if(!isAdmin)fail(403,'ROLE_FORBIDDEN','只有桌面最高权限可以修改维护者权限');
+        if(!isAdmin)fail(403,'ROLE_FORBIDDEN','只有具备题库维护者管理权限的账号可以修改维护者权限');
         const body=jsonBody(event,8192);
         if(!exact(body,['bank_ids','permissions']))fail(422,'PERMISSIONS_INVALID','权限修改内容无效');
         if(!Array.isArray(body.bank_ids)||body.bank_ids.length>100||body.bank_ids.some(id=>typeof id!=='string'||!UUID.test(id)))fail(422,'BANKS_REQUIRED','请选择有效的云端题库');
-        if(!Array.isArray(body.permissions)||body.permissions.length>10||body.permissions.some(permission=>permission!=='export'))fail(422,'PERMISSIONS_INVALID','权限修改内容无效');
-        const bankIds=[...new Set(body.bank_ids)],permissions=[...new Set(body.permissions)];
+        if(!Array.isArray(body.permissions)||body.permissions.length>10||body.permissions.some(permission=>permission!=='export'&&permission!=='maintainer:manage'))fail(422,'PERMISSIONS_INVALID','权限修改内容无效');
+        if(!auth.desktop&&body.permissions.includes('maintainer:manage'))fail(403,'ROLE_FORBIDDEN','只有密钥登录可以设置题库维护者管理权限');
+        const bankIds=[...new Set(body.bank_ids)],requestedPermissions=[...new Set(body.permissions)];
         if(bankIds.some(id=>!config.banks.some(bank=>bank.bank_id===id)))fail(422,'BANKS_REQUIRED','请选择有效的云端题库');
         const result=await access.update(registry=>{
           const account=registry.password_accounts.find(item=>item.id===permissionsMatch[1]);
@@ -215,7 +216,7 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
           if(account.status==='revoked')fail(409,'MAINTAINER_REVOKED','已撤销的账号不能修改权限');
           if(account.status!=='approved')fail(409,'ACCOUNT_NOT_APPROVED','只能修改已授权账号的权限');
           account.grants=Object.fromEntries(bankIds.map(id=>[id,['upload']]));
-          account.permissions=permissions;
+          account.permissions=[...new Set([...requestedPermissions,...(!auth.desktop&&(account.permissions||[]).includes('maintainer:manage')?['maintainer:manage']:[])])];
           account.permissions_updated_at=new Date(clock()).toISOString();
           account.permissions_updated_by=auth.maintainer_id;
         });
@@ -224,7 +225,7 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
       }
       const resetMatch=/^\/v1\/maintainer-accounts\/([0-9a-f-]{36})\/password-reset$/.exec(path||'');
       if(resetMatch&&method==='POST'){
-        if(!isAdmin)fail(403,'ROLE_FORBIDDEN','只有桌面最高权限可以重置维护者密码');
+        if(!isAdmin)fail(403,'ROLE_FORBIDDEN','只有具备题库维护者管理权限的账号可以重置维护者密码');
         const resetToken=randomBytes(32).toString('base64url'),expiresAt=clock()+24*60*60*1000;
         await access.update(registry=>{
           const account=registry.password_accounts.find(item=>item.id===resetMatch[1]);
@@ -296,7 +297,7 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
       }
       const decisionMatch=/^\/v1\/maintainer-applications\/([0-9a-f-]{36})\/decision$/.exec(path||'');
       if(decisionMatch&&method==='POST'){
-        if(!isAdmin)fail(403,'ROLE_FORBIDDEN','只有桌面最高权限可以审批维护者申请');
+        if(!isAdmin)fail(403,'ROLE_FORBIDDEN','只有具备题库维护者管理权限的账号可以审批维护者申请');
         const body=jsonBody(event,16384);if(!['approve','reject'].includes(body?.decision))fail(422,'DECISION_INVALID','审批决定无效');
         const result=await access.update(registry=>{
           const application=registry.maintainer_applications.find(a=>a.id===decisionMatch[1]);if(!application)fail(404,'APPLICATION_MISSING','维护者申请不存在');
@@ -328,7 +329,7 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
       }
       const revokeMatch=/^\/v1\/maintainer-accounts\/([0-9a-f-]{36})\/revoke$/.exec(path||'');
       if(revokeMatch&&method==='POST'){
-        if(!isAdmin)fail(403,'ROLE_FORBIDDEN','只有桌面最高权限可以撤销维护者账号');
+        if(!isAdmin)fail(403,'ROLE_FORBIDDEN','只有具备题库维护者管理权限的账号可以撤销维护者账号');
         const result=await access.update(registry=>{const account=registry.password_accounts.find(a=>a.id===revokeMatch[1]);if(!account)fail(404,'ACCOUNT_MISSING','手机号维护者记录不存在');if(account.status==='revoked')return;account.status='revoked';account.grants={};account.permissions=[];account.sessions=[];delete account.password_reset_sha256;delete account.password_reset_expires_at;delete account.password_reset_issued_at;account.revoked_at=new Date(clock()).toISOString();account.revoked_by=auth.maintainer_id;});
         const account=result.password_accounts.find(a=>a.id===revokeMatch[1]);
         return respond(200,{id:revokeMatch[1],status:account.status});
@@ -343,7 +344,7 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
       const body=jsonBody(event,LIMITS.requestBytes);
       if(!exact(body,['format','package'])||body.format!=='qbank-confirmed-upload-1')fail(422,'CONFIRMATION_INVALID','上传必须使用当前确认包格式');
       const { delta, envelope } = decodeUpload(body.package, parseDelta, parseModelReply);
-      if (!auth.grants[delta.bank_id]?.includes('upload')) fail(403, 'BANK_FORBIDDEN', '没有此题库的上传权限');
+      if (!auth.capabilities?.includes('maintainer:manage')&&!auth.grants[delta.bank_id]?.includes('upload')) fail(403, 'BANK_FORBIDDEN', '没有此题库的上传权限');
       if (config.banks.find(b => b.bank_id === delta.bank_id)?.name !== delta.name)
         fail(422, 'BANK_NAME_MISMATCH', '题库名称与云端目录不一致，请先同步题库信息');
       // Do not reserve a submission before the formal bank exists. This keeps

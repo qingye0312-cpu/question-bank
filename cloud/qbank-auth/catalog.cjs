@@ -20,7 +20,7 @@ function createCatalog({store,validateStandardQuestion,clock,releaseName,manifes
  }
  async function promote(body,config,auth){
   if(!config.syncEnabled)fail(503,'SYNC_DISABLED','请先启用云端同步');
-  if(!auth.desktop||!auth.capabilities?.includes('cloud_bank:create'))fail(403,'CREATE_FORBIDDEN','只有桌面最高权限账号可以设置云端题库');
+  if(!auth.capabilities?.includes('cloud_bank:create'))fail(403,'CREATE_FORBIDDEN','只有具备云库创建权限的账号可以设置云端题库');
   if(!UUID.test(body?.operation_id))fail(422,'OPERATION_INVALID','转换任务标识无效');
   let data;try{data=JSON.parse(unpackText(body.package))}catch{fail(422,'PACKAGE_INVALID','完整题库压缩包校验失败');}
   const {bank_id:id,name,questions}=data||{};

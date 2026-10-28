@@ -35,11 +35,11 @@ function verify(token, config, now, registry) {
     const accountId=payload.sub.slice(2),account=(registry?.password_accounts||[]).find(a=>a.id===accountId);
     if(!account||account.status==='revoked'||account.status==='password_reset_required')fail(403,'MAINTAINER_REVOKED','维护者账号已撤销或需要重置，请重新登录');
     if(payload.password_version!==sha256(account.password_hash))fail(401,'SESSION_INVALID','登录已失效，请重新登录');
-    const approved=account.status==='approved',grants=approved&&object(account.grants)?account.grants:{};
+    const approved=account.status==='approved',grants=approved&&object(account.grants)?account.grants:{},permissions=approved&&Array.isArray(account.permissions)?account.permissions.filter(permission=>permission==='export'||permission==='maintainer:manage'):[],capabilities=permissions.includes('maintainer:manage')?['cloud_bank:create','maintainer:manage']:[];
     return {openid:payload.sub,banks:Object.keys(grants),grants,desktop:false,password_account:true,
       account_id:account.id,phone_masked:account.phone_masked||'',
       nickname:account.nickname||'',real_name:account.real_name||'',account_status:account.status||'pending',
-      permissions:approved&&Array.isArray(account.permissions)?account.permissions.filter(permission=>permission==='export'):[]};
+      permissions,capabilities};
   }
 }
 

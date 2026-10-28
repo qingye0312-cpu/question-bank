@@ -15,14 +15,14 @@ export function CloudLibrary({banks,onClose,onChanged,onDeleted,onCreated}:{bank
  const refresh=()=>promotionTasks().then(setTasks);
  useEffect(()=>{void refresh().catch(e=>setMessage(String(e)))},[]);
  useEffect(()=>{const escape=(e:KeyboardEvent)=>{if(e.key==='Escape'){e.preventDefault();e.stopImmediatePropagation();if(!busy)onClose()}};window.addEventListener('keydown',escape,true);return()=>window.removeEventListener('keydown',escape,true)},[busy,onClose]);
- const access=cloudAccess(),isHighestPrivilege=access?.auth_type==='key'&&access.capabilities?.includes('cloud_bank:create')&&access.capabilities.includes('maintainer:manage'),canCreate=access?.capabilities?.includes('cloud_bank:create');
- const selectedTab=isHighestPrivilege?tab:'local';
+ const access=cloudAccess(),canManageMaintainers=!!access?.capabilities?.includes('maintainer:manage'),canCreate=access?.capabilities?.includes('cloud_bank:create');
+ const selectedTab=canManageMaintainers?tab:'local';
  useEffect(()=>{
   let previous=cloudAccess();
   const timer=window.setInterval(()=>{const current=cloudAccess();if(current!==previous){previous=current;render(n=>n+1)}},5000);
   return()=>window.clearInterval(timer);
  },[]);
- useEffect(()=>{if(!isHighestPrivilege&&tab!=='local')setTab('local')},[isHighestPrivilege,tab]);
+ useEffect(()=>{if(!canManageMaintainers&&tab!=='local')setTab('local')},[canManageMaintainers,tab]);
  async function createLocalBank(){if(busy)return;const name=newBankName.trim();if(!name){setMessage('请输入题库名称。');return}setBusy('create');setMessage('正在创建本地题库…');try{const id=await invoke<string>('create_bank',{name});await onChanged();onCreated(id);setNewBankName('');setMessage(`已创建本地题库「${name}」。`)}catch(e){setMessage(String(e))}finally{setBusy('')}}
  async function run(bank:Bank,task?:PromotionTask){if(busy)return;
   if(!task&&!window.confirm(`将「${bank.name}」的 ${bank.count} 道题设为自动同步云端题库？首版将可供所有用户下载。会先保留本地备份，转换期间仅锁定这个题库。`))return;
@@ -34,8 +34,8 @@ export function CloudLibrary({banks,onClose,onChanged,onDeleted,onCreated}:{bank
  return <div className="modal-backdrop" onMouseDown={event=>{if(event.target===event.currentTarget&&!busy&&!deleting)onClose()}}><section className="modal large library-manager" role="dialog" aria-modal="true" aria-label="题库管理"><button className="close-modal" aria-label="关闭题库管理" disabled={!!busy||!!deleting} onClick={onClose}>×</button><h2>题库管理</h2><p>本地题库、副本、云端同步与维护者授权集中在这里。</p>
   <div className="library-tabs" role="tablist" aria-label="题库管理功能">
    <button role="tab" aria-selected={selectedTab==='local'} className={selectedTab==='local'?'active':''} onClick={()=>setTab('local')}>本地题库</button>
-   {isHighestPrivilege&&<button role="tab" aria-selected={selectedTab==='cloud'} className={selectedTab==='cloud'?'active':''} onClick={()=>setTab('cloud')}>云端同步与版本</button>}
-   {isHighestPrivilege&&<button role="tab" aria-selected={selectedTab==='maintainers'} className={selectedTab==='maintainers'?'active':''} onClick={()=>setTab('maintainers')}>权限管理</button>}
+   {canManageMaintainers&&<button role="tab" aria-selected={selectedTab==='cloud'} className={selectedTab==='cloud'?'active':''} onClick={()=>setTab('cloud')}>云端同步与版本</button>}
+   {canManageMaintainers&&<button role="tab" aria-selected={selectedTab==='maintainers'} className={selectedTab==='maintainers'?'active':''} onClick={()=>setTab('maintainers')}>权限管理</button>}
   </div>
   {message&&<p className="callout library-message" role="status">{message}</p>}
   {selectedTab==='local'&&<>
@@ -52,7 +52,7 @@ export function CloudLibrary({banks,onClose,onChanged,onDeleted,onCreated}:{bank
    </article>})}</div>
    {!banks.length&&<p className="callout">还没有本地题库，可在上方创建。</p>}
   </>}
-  {isHighestPrivilege&&selectedTab==='cloud'&&<CloudPanel embedded banks={banks} onBusy={value=>setBusy(value?'正在处理云端题库':'')} onChanged={onChanged} onClose={onClose}/>}
-  {isHighestPrivilege&&selectedTab==='maintainers'&&<MaintainerAdmin banks={banks.map(b=>({bank_id:b.id,name:b.name}))} onChange={()=>{render(n=>n+1);void onChanged()}}/>}
+  {canManageMaintainers&&selectedTab==='cloud'&&<CloudPanel embedded banks={banks} onBusy={value=>setBusy(value?'正在处理云端题库':'')} onChanged={onChanged} onClose={onClose}/>}
+  {canManageMaintainers&&selectedTab==='maintainers'&&<MaintainerAdmin banks={banks.map(b=>({bank_id:b.id,name:b.name}))} onChange={()=>{render(n=>n+1);void onChanged()}}/>}
  </section></div>;
 }

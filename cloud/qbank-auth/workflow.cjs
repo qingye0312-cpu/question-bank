@@ -150,11 +150,11 @@ function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission})
    const exportedMatch=/^\/v1\/banks\/([0-9a-f-]{36})\/history\/([0-9]+)\/questions$/.exec(path||'');
    const match=exportedMatch||new RegExp('^/v1/banks/([0-9a-f-]{36})/(seed|history|rollback)$').exec(path);
    const id=match[1],action=exportedMatch?'history_questions':match[2];
-   const b=bank(config,id),roles=auth.grants[id]||[];
-   const canViewHistory=(auth.desktop&&roles.includes('merge'))||roles.includes('upload')||auth.permissions?.includes('export');
+   const b=bank(config,id),roles=auth.grants[id]||[],globalAdmin=auth.capabilities?.includes('maintainer:manage');
+   const canViewHistory=globalAdmin||(auth.desktop&&roles.includes('merge'))||roles.includes('upload')||auth.permissions?.includes('export');
    if(action==='history_questions'||action==='history'){
     if(!canViewHistory)deny(403,'ROLE_FORBIDDEN','没有此题库的版本查看权限');
-   }else if(!auth.desktop||!roles.includes('merge'))deny(403,'ROLE_FORBIDDEN','没有此题库的合并发布权限');
+   }else if(!globalAdmin&&!roles.includes('merge'))deny(403,'ROLE_FORBIDDEN','没有此题库的合并发布权限');
    const s=await latest(b);
    if(action==='history_questions'&&method==='GET'){
     const revision=Number(exportedMatch[2]),entries=await formalHistory(b),entry=entries.find(item=>item.state.revision===revision),target=entry?.state||await atRevision(b,revision),previous=entry?entries[entries.indexOf(entry)-1]?.state:null;

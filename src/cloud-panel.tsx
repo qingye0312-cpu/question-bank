@@ -18,7 +18,7 @@ export function CloudPanel({banks,onChanged,onClose,onBusy,embedded=false}:{bank
  const [,render]=useState(0);
  const [busy,setBusy]=useState(false),[message,setMessage]=useState('');
  const initialRefresh=useRef(false);
- const access=cloudAccess(),roles=access?.grants[selected]||[],canMerge=roles.includes('merge');
+ const access=cloudAccess(),roles=access?.grants[selected]||[],canMerge=!!access?.capabilities?.includes('maintainer:manage')||roles.includes('merge');
  const task=async(fn:()=>Promise<void>)=>{if(busy)return;setBusy(true);onBusy(true);setMessage('');try{await fn()}catch(e){setMessage(String(e))}finally{setBusy(false);onBusy(false)}};
  const exportRevision=async(v:Version)=>{await task(async()=>{
   const expected=v.added_count||0;if(!expected)return;
