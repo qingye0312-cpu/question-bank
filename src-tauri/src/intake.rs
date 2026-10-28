@@ -289,6 +289,71 @@ fn add_entry(c: &Connection, bank: &str, batch: &str, q: &Question) -> Result<()
     .map_err(err)?;
     Ok(())
 }
+
+pub(crate) fn remove_uploaded_entries(
+    c: &Connection,
+    bank_id: &str,
+    entries: &[(String, String)],
+) -> Result<()> {
+    let mut batches = HashSet::new();
+    for (question_id, batch_id) in entries {
+        batches.insert(batch_id.clone());
+        c.execute(
+            "DELETE FROM intake_entries WHERE bank_id=?1 AND question_id=?2 AND upload_status IN ('uploaded','uploaded_manual')",
+            params![bank_id, question_id],
+        )
+        .map_err(err)?;
+        c.execute(
+            "DELETE FROM intake_originals WHERE bank_id=?1 AND question_id=?2 AND NOT EXISTS(SELECT 1 FROM intake_entries WHERE bank_id=?1 AND question_id=?2)",
+            params![bank_id, question_id],
+        )
+        .map_err(err)?;
+        c.execute(
+            "DELETE FROM draft_records WHERE bank_id=?1 AND id=?2",
+            params![bank_id, question_id],
+        )
+        .map_err(err)?;
+    }
+    for batch_id in batches {
+        c.execute(
+            "DELETE FROM intake_transfers WHERE batch_id=?1 AND NOT EXISTS(SELECT 1 FROM intake_entries WHERE batch_id=?1)",
+            [&batch_id],
+        )
+        .map_err(err)?;
+        c.execute(
+            "DELETE FROM intake_batches WHERE id=?1 AND NOT EXISTS(SELECT 1 FROM intake_entries WHERE batch_id=?1) AND NOT EXISTS(SELECT 1 FROM intake_transfers WHERE batch_id=?1)",
+            [&batch_id],
+        )
+        .map_err(err)?;
+    }
+    Ok(())
+}
+
+fn clear_orphaned_uploaded_entries(
+    c: &Connection,
+    bank_id: &str,
+    incoming_ids: &HashSet<String>,
+) -> Result<()> {
+    if incoming_ids.is_empty() {
+        return Ok(());
+    }
+    let mut stmt = c
+        .prepare("SELECT e.question_id,e.batch_id FROM intake_entries e WHERE e.bank_id=?1 AND e.upload_status IN ('uploaded','uploaded_manual') AND NOT EXISTS(SELECT 1 FROM questions q WHERE q.bank_id=e.bank_id AND q.id=e.question_id)")
+        .map_err(err)?;
+    let orphaned: Vec<(String, String)> = stmt
+        .query_map([bank_id], |row| Ok((row.get(0)?, row.get(1)?)))
+        .map_err(err)?
+        .filter_map(|row| match row {
+            Ok(entry) if incoming_ids.contains(&entry.0) => Some(Ok(entry)),
+            Ok(_) => None,
+            Err(error) => Some(Err(error)),
+        })
+        .collect::<std::result::Result<_, _>>()
+        .map_err(err)?;
+    drop(stmt);
+    remove_uploaded_entries(c, bank_id, &orphaned)
+}
+
 pub fn save(store: &Store, bank_id: &str, batch_id: &str, text: &str) -> Result<Saved> {
     save_with_metadata(store, bank_id, batch_id, text, Metadata::default())
 }
@@ -648,6 +713,8 @@ pub fn import(store: &Store, path: &Path) -> Result<Imported> {
         return Ok(result);
     }
     let old = all_questions(&tx, &d.bank_id)?;
+    let incoming_ids: HashSet<_> = qs.iter().map(|q| q.question_id.clone()).collect();
+    clear_orphaned_uploaded_entries(&tx, &d.bank_id, &incoming_ids)?;
     let mut by_id: HashMap<String, Question> = old
         .iter()
         .map(|(q, _)| (q.question_id.clone(), q.clone()))

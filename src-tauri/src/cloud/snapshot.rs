@@ -95,38 +95,7 @@ fn clear_rolled_back_uploaded_entries(
         .filter(|(question_id, _)| !formal_ids.contains(question_id.as_str()))
         .collect();
     drop(stmt);
-    let mut batches = HashSet::new();
-    for (question_id, batch_id) in stale {
-        batches.insert(batch_id);
-        c.execute(
-            "DELETE FROM intake_entries WHERE bank_id=?1 AND question_id=?2 AND upload_status IN ('uploaded','uploaded_manual')",
-            params![bank_id, question_id],
-        )
-        .map_err(err)?;
-        c.execute(
-            "DELETE FROM intake_originals WHERE bank_id=?1 AND question_id=?2 AND NOT EXISTS(SELECT 1 FROM intake_entries WHERE bank_id=?1 AND question_id=?2)",
-            params![bank_id, question_id],
-        )
-        .map_err(err)?;
-        c.execute(
-            "DELETE FROM draft_records WHERE bank_id=?1 AND id=?2",
-            params![bank_id, question_id],
-        )
-        .map_err(err)?;
-    }
-    for batch_id in batches {
-        c.execute(
-            "DELETE FROM intake_transfers WHERE batch_id=?1 AND NOT EXISTS(SELECT 1 FROM intake_entries WHERE batch_id=?1)",
-            [&batch_id],
-        )
-        .map_err(err)?;
-        c.execute(
-            "DELETE FROM intake_batches WHERE id=?1 AND NOT EXISTS(SELECT 1 FROM intake_entries WHERE batch_id=?1) AND NOT EXISTS(SELECT 1 FROM intake_transfers WHERE batch_id=?1)",
-            [&batch_id],
-        )
-        .map_err(err)?;
-    }
-    Ok(())
+    intake::remove_uploaded_entries(c, bank_id, &stale)
 }
 
 pub fn apply(store: &Store, payload: &str, digest: &str) -> Result<()> {

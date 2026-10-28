@@ -231,6 +231,49 @@ fn rollback_clears_manual_upload_entries_and_import_fingerprints() {
 }
 
 #[test]
+fn reimport_repairs_orphaned_manual_upload_entries_left_by_an_older_client() {
+    let (d, s, b) = setup();
+    let saved = intake::save(&s, &b, "", &reply()).unwrap();
+    let question = saved.comparison.question.clone();
+    intake::mark_upload(&s, &b, &question.question_id, true).unwrap();
+    let file = d.path().join("orphaned.qbank-delta.json");
+    intake::export(&s, &saved.batch_id, &file).unwrap();
+
+    let mut seed = question;
+    seed.status = "verified".into();
+    let initial = json!({
+        "format": "qbank-snapshot-2",
+        "bank_id": b,
+        "name": "测试题库",
+        "revision": 1,
+        "release_version": 1,
+        "updated_at": now(),
+        "formal": [seed],
+        "pending": [],
+        "removed": []
+    })
+    .to_string();
+    cloud::apply(&s, &initial, &hash(initial.as_bytes())).unwrap();
+
+    // Simulate an older client that applied the rollback without cleaning the
+    // uploaded-manual intake row. The import path must repair that state.
+    let rolled_back = json!({
+        "format": "qbank-snapshot-2",
+        "bank_id": b,
+        "name": "测试题库",
+        "revision": 2,
+        "release_version": 1,
+        "updated_at": now(),
+        "formal": [],
+        "pending": [],
+        "removed": []
+    })
+    .to_string();
+    cloud::apply(&s, &rolled_back, &hash(rolled_back.as_bytes())).unwrap();
+    assert_eq!(intake::import(&s, &file).unwrap().added, 1);
+}
+
+#[test]
 fn cloud_layers_swap_atomically_preserve_drafts_and_reject_bad_updates() {
     let (_d, s, b) = setup();
     s.save(&b, question("正式题")).unwrap();
