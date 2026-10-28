@@ -1,6 +1,7 @@
 'use strict';
 const {createHash}=require('node:crypto');
-const VERSION = '0.2.8';
+const {version:VERSION}=require('./package.json');
+if(!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(VERSION))throw new Error('Invalid qbank-auth service version');
 const LIMITS = Object.freeze({ requestBytes: 768 * 1024, compressedBytes: 512 * 1024,
   expandedBytes: 4 * 1024 * 1024, questions: 1000, sessionSeconds: 900 });
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;

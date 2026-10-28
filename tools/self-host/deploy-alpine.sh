@@ -1,9 +1,12 @@
 #!/bin/sh
 set -eu
 
+ROOT=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
+cd "$ROOT"
 HOST="${QBANK_SSH_HOST:-qbank-pve}"
-ARCHIVE="artifacts/self-host/qbank-auth-0.2.8.tar.gz"
-REMOTE_ARCHIVE="/tmp/qbank-auth-0.2.8.tar.gz"
+VERSION=$(node -p "require('./cloud/qbank-auth/package.json').version")
+ARCHIVE="artifacts/self-host/qbank-auth-$VERSION.tar.gz"
+REMOTE_ARCHIVE="/tmp/qbank-auth-$VERSION.tar.gz"
 REMOTE_QUESTIONS="/tmp/qbank-questions.json"
 
 pnpm build:self-host

@@ -23,11 +23,12 @@
     "prepare:ocr": "node scripts/prepare-ocr.mjs",
     "test:intake": "node scripts/sync-client-assets.mjs --check && node --test tests/intake.test.mjs",
     "build:self-host": "node scripts/build-self-host.mjs",
+    "release:self-host": "node scripts/release-self-host.mjs",
     "build:fastdownload": "node scripts/build-fastdownload.mjs",
     "test:fastdownload": "node --test tools/self-host/fastdownload-server/test/*.test.mjs",
     "self-host:fastdownload-deploy": "sh tools/self-host/deploy-fastdownload.sh",
     "test:self-host": "pnpm build:self-host && node --test tests/self-host.test.mjs tests/cloud-auth.test.mjs tests/cloud-workflow.test.mjs tests/password-maintainer.test.mjs",
-    "self-host:deploy": "sh tools/self-host/deploy-alpine.sh"
+    "self-host:deploy": "pnpm release:self-host && sh tools/self-host/deploy-alpine.sh"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

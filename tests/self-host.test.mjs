@@ -8,6 +8,7 @@ import {randomUUID} from 'node:crypto';
 import {sha256,parseDelta} from '../shared/intake.ts';
 import {readManifest,readSnapshot} from '../shared/sync.ts';
 import {encodeUpload} from '../tools/encode-upload.mjs';
+import servicePackage from '../cloud/qbank-auth/package.json' with {type:'json'};
 
 const runtime = '../artifacts/self-host/qbank-auth/';
 const { createFileStore } = await import(`${runtime}fs-store.cjs`);
@@ -58,6 +59,7 @@ test('local HTTP host handler preserves health and catalog routes', async () => 
   const health = await localRequest(server, 'GET', '/health');
   assert.equal(health.status, 200);
   assert.equal(health.data.service, 'qbank-auth');
+  assert.equal(health.data.version, servicePackage.version);
   assert.equal(health.data.auth_configured, true);
   const catalog = await localRequest(server, 'GET', '/v1/catalog');
   assert.equal(catalog.status, 200);

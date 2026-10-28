@@ -16,7 +16,7 @@ pnpm build:self-host
 pnpm self-host:deploy
 ```
 
-生成 `artifacts/self-host/qbank-auth-0.2.8.tar.gz`。部署脚本通过 SSH/SCP 将服务包放到 `/opt/qbank-auth/releases/`，解压到带时间戳的目录，再原子切换 `/opt/qbank-auth/current`，不会覆盖正在运行的目录。
+`pnpm release:self-host` 会自动将自托管服务的补丁版本加一并生成 `artifacts/self-host/qbank-auth-<版本>.tar.gz`；`pnpm self-host:deploy` 会先执行这一步，再通过 SSH/SCP 部署当前版本。普通的 `pnpm build:self-host` 和测试不会改版本号。服务健康接口、归档文件名和部署路径都使用同一个版本源。部署脚本将服务包放到 `/opt/qbank-auth/releases/`，解压到带时间戳的目录，再原子切换 `/opt/qbank-auth/current`，不会覆盖正在运行的目录。
 
 ## WebRTC 快速下载实验
 

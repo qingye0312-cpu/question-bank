@@ -7,6 +7,9 @@ import ts from 'typescript';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const source = path.join(root, 'cloud/qbank-auth');
 const output = path.join(root, 'artifacts/self-host/qbank-auth');
+const sourcePackage = JSON.parse(await fs.readFile(path.join(source, 'package.json'), 'utf8'));
+const version = sourcePackage.version;
+if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)) throw new Error(`无效的自托管服务版本号：${version}`);
 const files = ['service.cjs', 'workflow.cjs', 'codec.cjs', 'catalog.cjs', 'common.cjs', 'access.cjs', 'password.cjs',
   'config.cjs', 'auth.cjs', 'submission.cjs', 'projection.cjs', 'fs-store.cjs', 'local-server.cjs', 'intake.cjs', 'seed-bank.cjs','repair-bank-status.cjs'];
 
@@ -26,10 +29,10 @@ for (const name of files) {
   catch (error) { throw error; }
 }
 await fs.writeFile(path.join(output, 'package.json'), JSON.stringify({
-  name: 'qbank-auth-self-host', version: '0.2.8', private: true, type: 'commonjs',
+  name: 'qbank-auth-self-host', version, private: true, type: 'commonjs',
   engines: { node: '>=20' }, scripts: { start: 'node local-server.cjs' },
 }, null, 2) + '\n');
-const archive = path.join(root, 'artifacts/self-host/qbank-auth-0.2.8.tar.gz');
+const archive = path.join(root, `artifacts/self-host/qbank-auth-${version}.tar.gz`);
 await fs.rm(archive, { force: true });
 const result = spawnSync('tar', ['-czf', archive, '-C', output, ...files, 'package.json'], { encoding: 'utf8', env:{...process.env,COPYFILE_DISABLE:'1'} });
 if (result.status !== 0) throw new Error(result.stderr || '请安装 tar 命令后重新构建');
