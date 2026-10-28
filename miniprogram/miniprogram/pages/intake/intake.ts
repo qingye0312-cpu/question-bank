@@ -9,17 +9,17 @@ import {refreshCatalog} from '../../services/sync';
 import {copyPrompt} from '../../services/prompt';
 import {importDelta} from '../../services/intake';
 type MaintainerBankChoice={bank_id:string;name:string;checked:boolean};
-let controller:IntakeController|undefined,alive=false,poll:ReturnType<typeof setInterval>|undefined,previousType:ModelReply|null=null;
+let controller:IntakeController|undefined,alive=false,poll:ReturnType<typeof setInterval>|undefined,prepareTimer:ReturnType<typeof setTimeout>|undefined,exportGeneration=0,exportSignature='',previousType:ModelReply|null=null;
 Page({
-  data:{...themePageData(),currentId:'',banks:[] as BankSummary[],bankIndex:0,tab:'edit',busy:false,ready:false,reply:null as ModelReply|null,locked:false,raw:'',records:[] as any[],visibleRecords:[] as any[],jobs:[] as any[],pendingCount:0,issues:[] as any[],sourceIssues:[] as any[],saved:'',error:'',notice:'',more:false,tools:false,canUndoType:false,recordedAt:'',metadata:{} as any,editOptions:[] as any[],boolSelected:false,typeIndex:0,sourceIndex:2,warningsText:'',tagsText:'',difficultyIndex:0,filePath:'',fileName:'',query:'',loggedIn:false,hasExportPermission:false,pendingExportPermission:false,authMode:'login',maintainerPassword:'',maintainerPasswordRules:[] as PasswordRule[],maintainerPasswordConfirm:'',maintainerPasswordValid:false,maintainerPasswordsMatch:false,maintainerResetToken:'',maintainerAuthType:'',maintainerAccountStatus:'',maintainerPhone:'',maintainerPhoneDisplay:'',maintainerRealName:'',maintainerNickname:'',maintainerIdentity:'',applyExportPermission:false,maintainerBanks:[] as MaintainerBankChoice[],maintainerBankIds:[] as string[],maintainerBanksLoading:false,maintainerBanksError:'',maintainerApplication:'',applying:false,applicationMessage:'',applicationError:false,
+  data:{...themePageData(),currentId:'',banks:[] as BankSummary[],bankIndex:0,tab:'edit',busy:false,ready:false,reply:null as ModelReply|null,locked:false,raw:'',records:[] as any[],visibleRecords:[] as any[],jobs:[] as any[],pendingCount:0,issues:[] as any[],sourceIssues:[] as any[],saved:'',error:'',notice:'',more:false,tools:false,canUndoType:false,recordedAt:'',metadata:{} as any,editOptions:[] as any[],boolSelected:false,typeIndex:0,sourceIndex:2,warningsText:'',tagsText:'',difficultyIndex:0,filePath:'',fileName:'',exportPrepared:false,query:'',loggedIn:false,hasExportPermission:false,pendingExportPermission:false,authMode:'login',maintainerPassword:'',maintainerPasswordRules:[] as PasswordRule[],maintainerPasswordConfirm:'',maintainerPasswordValid:false,maintainerPasswordsMatch:false,maintainerResetToken:'',maintainerAuthType:'',maintainerAccountStatus:'',maintainerPhone:'',maintainerPhoneDisplay:'',maintainerRealName:'',maintainerNickname:'',maintainerIdentity:'',applyExportPermission:false,maintainerBanks:[] as MaintainerBankChoice[],maintainerBankIds:[] as string[],maintainerBanksLoading:false,maintainerBanksError:'',maintainerApplication:'',applying:false,applicationMessage:'',applicationError:false,
   types:['单选','多选','判断'],versionSources:['平台提供','用户提供','未知'],difficulties:['未设置','简单','中等','困难']},
- onLoad(){alive=true;previousType=null;controller=new IntakeController(view=>{if(!alive)return;const changed=view.currentId!==this.data.currentId||view.raw!==this.data.raw;if(changed)previousType=null;this.setData({...view,...(changed?{canUndoType:false}:{}),visibleRecords:view.records.filter(r=>!this.data.query||r.stem.includes(this.data.query))})});void this.run(async()=>{const banks=await listBanks(),bank=activeBankId();this.setData({banks,bankIndex:Math.max(0,banks.findIndex(b=>b.id===bank))});await controller!.open(bank);this.setData({ready:true});});},
+ onLoad(){alive=true;previousType=null;exportSignature='';controller=new IntakeController(view=>{if(!alive)return;const changed=view.currentId!==this.data.currentId||view.raw!==this.data.raw;const signature=[view.pendingCount,...view.records.map(r=>`${r.id}:${r.revision}:${r.status}`)].join('|');if(signature!==exportSignature){exportSignature=signature;this.queueExportPreparation(signature)}if(changed)previousType=null;this.setData({...view,...(changed?{canUndoType:false}:{}),visibleRecords:view.records.filter(r=>!this.data.query||r.stem.includes(this.data.query))})});void this.run(async()=>{const banks=await listBanks(),bank=activeBankId();this.setData({banks,bankIndex:Math.max(0,banks.findIndex(b=>b.id===bank))});await controller!.open(bank);this.setData({ready:true});});},
  onShow(){showPageTheme(this);alive=true;void cloud.restoreSession().catch(()=>{}).finally(()=>{if(alive){const access=cloud.state();this.setData({loggedIn:access.loggedIn,hasExportPermission:access.permissions.includes('export'),pendingExportPermission:access.pendingPermissions.includes('export'),maintainerPhoneDisplay:access.phone||'',maintainerAuthType:access.authType||'',maintainerAccountStatus:access.status||''})}});poll=setInterval(()=>void controller?.refreshJobs().catch(()=>{}),3000)},
  onHide(){hidePageTheme(this);if(poll)clearInterval(poll);void controller?.flush().catch(()=>{})},
- onUnload(){hidePageTheme(this);alive=false;if(poll)clearInterval(poll);controller?.dispose();controller=undefined},
+ onUnload(){hidePageTheme(this);alive=false;exportGeneration++;if(prepareTimer)clearTimeout(prepareTimer);prepareTimer=undefined;if(poll)clearInterval(poll);controller?.dispose();controller=undefined},
  async run(fn:()=>Promise<void>){if(this.data.busy||this.data.applying)return;this.setData({busy:true,error:'',notice:''});try{await fn()}catch(e){if(alive&&controller){controller.error=e instanceof Error?e.message:(e as any)?.errMsg||String(e);controller.render()}}finally{if(alive){const access=cloud.state();this.setData({busy:false,loggedIn:access.loggedIn,hasExportPermission:access.permissions.includes('export'),pendingExportPermission:access.pendingPermissions.includes('export')})}}},
  onTab(e:WechatMiniprogram.TouchEvent){void this.run(async()=>{await controller!.flush();this.setData({tab:e.currentTarget.dataset.tab})})},
- onBankChange(e:WechatMiniprogram.PickerChange){const index=Number(e.detail.value),bank=this.data.banks[index];void this.run(async()=>{await controller!.open(bank.id);selectBank(bank.id);this.setData({bankIndex:index,filePath:'',query:''})})},
+ onBankChange(e:WechatMiniprogram.PickerChange){const index=Number(e.detail.value),bank=this.data.banks[index];void this.run(async()=>{await controller!.open(bank.id);selectBank(bank.id);this.setData({bankIndex:index,filePath:'',fileName:'',exportPrepared:false,query:''})})},
  onSearch(e:WechatMiniprogram.Input){const query=e.detail.value;this.setData({query,visibleRecords:this.data.records.filter(r=>!query||r.stem.includes(query))})},
  onCopyPrompt(){copyPrompt()},
  onPaste(){if(this.data.locked||this.data.busy)return;const record=controller?.current;wx.getClipboardData({success:r=>{if(alive&&!this.data.busy&&controller?.current===record)controller?.paste(r.data)},fail:()=>{if(alive)this.setData({error:'无法读取剪贴板，请重试'})}})},
@@ -30,7 +30,7 @@ Page({
  onNext(){void this.run(async()=>{await controller!.next();previousType=null;this.setData({tab:'edit',canUndoType:false})})},
  onEdit(e:WechatMiniprogram.TouchEvent){void this.run(async()=>{await controller!.select(e.currentTarget.dataset.id);previousType=null;this.setData({tab:'edit',canUndoType:false})})},
  onRemove(e:WechatMiniprogram.TouchEvent){void this.run(()=>controller!.remove(e.currentTarget.dataset.id))},
- onMore(){this.setData({more:!this.data.more})},onTools(){this.setData({tools:!this.data.tools})},
+ onMore(){this.setData({more:!this.data.more})},onTools(){const tools=!this.data.tools;this.setData({tools});if(tools)void this.prepareExportFile(exportSignature)},
  onField(e:WechatMiniprogram.Input){const r=controller?.current?.reply;if(!r||this.data.locked||this.data.busy)return;const key=e.currentTarget.dataset.field,v=e.detail.value;
   if(key==='stem'||key==='explanation')controller!.change({reply:{...r,[key]:v}});
   else if(key==='name'||key==='version')controller!.change({reply:{...r,model:{...r.model,[key]:v}}});
@@ -153,13 +153,42 @@ Page({
  },
  onSync(){void this.run(()=>controller!.sync())},
  onLogout(){void cloud.logout();void pauseUploads().catch(e=>{controller!.error=String(e);controller!.render()});this.setData({loggedIn:false,hasExportPermission:false,pendingExportPermission:false,maintainerPhone:'',maintainerPhoneDisplay:'',maintainerPassword:'',maintainerPasswordConfirm:'',maintainerPasswordValid:false,maintainerPasswordsMatch:false,maintainerResetToken:'',maintainerAccountStatus:'',maintainerAuthType:'',applicationMessage:'已退出登录'})},
- async shareExportFile(filePath:string,fileName:string){
+ queueExportPreparation(signature:string){
+  if(prepareTimer)clearTimeout(prepareTimer);
+  exportGeneration++;
+  if(!this.data.pendingCount){this.setData({filePath:'',fileName:'',exportPrepared:false});return;}
+  this.setData({exportPrepared:false});
+  prepareTimer=setTimeout(()=>{prepareTimer=undefined;void this.prepareExportFile(signature)},280);
+ },
+ async prepareExportFile(signature:string){
+  if(!alive||!controller||!this.data.pendingCount)return;
+  if(prepareTimer)clearTimeout(prepareTimer);prepareTimer=undefined;
+  const generation=++exportGeneration;
+  try{
+   const file=await controller.export();
+   if(!alive||generation!==exportGeneration||signature!==exportSignature)return;
+   this.setData({...file,exportPrepared:true});
+  }catch{/* The button will retry preparation after the draft becomes valid. */}
+ },
+ shareExportFile(filePath:string,fileName:string){
   const wxApi=wx as WechatMiniprogram.Wx & {shareFileMessage?: (options:{filePath:string;fileName:string;success?:()=>void;fail:(e:{errMsg:string})=>void})=>void};
   if(typeof wxApi.shareFileMessage!=='function'){this.setData({notice:'文件已导出，请点击“转发导出 JSON”选择聊天发送'});return;}
-  await new Promise<void>((resolve,reject)=>wxApi.shareFileMessage!({filePath,fileName,success:resolve,fail:reject}));
+  wxApi.shareFileMessage({filePath,fileName,
+   success:()=>this.setData({notice:'已打开聊天分享面板，选择联系人即可发送 JSON'}),
+   fail:e=>this.setData({error:e.errMsg||'打开聊天分享失败，请重试'})});
  },
- onExport(){void this.run(async()=>{const file=await controller!.export();this.setData({...file,notice:'正在打开聊天分享面板…'});await this.shareExportFile(file.filePath,file.fileName);this.setData({notice:'已打开聊天分享面板，选择联系人即可发送 JSON'})})},
- onShare(){if(!this.data.filePath)return;void this.shareExportFile(this.data.filePath,this.data.fileName).catch(error=>this.setData({error:error instanceof Error?error.message:(error as any)?.errMsg||String(error)}))},
+ onExport(){
+  if(this.data.busy||this.data.applying)return;
+  if(!this.data.exportPrepared||!this.data.filePath){this.setData({notice:'正在准备导出文件，请稍后再点一次“导出并打开聊天发送”'});void this.prepareExportFile(exportSignature);return;}
+  this.setData({error:'',notice:'正在打开聊天分享面板…'});
+  // Keep this call directly in the tap handler. WeChat rejects calls made
+  // after an awaited export because the user gesture has already ended.
+  this.shareExportFile(this.data.filePath,this.data.fileName);
+ },
+ onShare(){
+  if(!this.data.filePath||!this.data.exportPrepared){this.setData({notice:'正在准备导出文件，请稍后再试'});void this.prepareExportFile(exportSignature);return;}
+  this.shareExportFile(this.data.filePath,this.data.fileName);
+ },
  onCreateBank(){wx.showModal({title:'新建私人本地题库',editable:true,placeholderText:'题库名称',success:r=>{if(r.confirm)void this.run(async()=>{const id=await createBank(r.content||''),banks=await listBanks();await controller!.open(id);this.setData({banks,bankIndex:banks.findIndex(b=>b.id===id),tab:'edit'})})}})},
  onImport(){wx.chooseMessageFile({count:1,type:'file',extension:['json'],success:r=>{void this.run(async()=>{const path=r.tempFiles[0].path;const text=await new Promise<string>((resolve,reject)=>wx.getFileSystemManager().readFile({filePath:path,encoding:'utf8',success:v=>resolve(v.data as string),fail:reject}));const result=await importDelta(text);const banks=await listBanks();await controller!.open(result.bankId);this.setData({banks,bankIndex:banks.findIndex(b=>b.id===result.bankId),tab:'records',notice:`已导入 ${result.added} 题，未上传`})})}})},
 });
