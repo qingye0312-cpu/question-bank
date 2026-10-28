@@ -132,6 +132,8 @@
 .maintainer-editor-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;padding-bottom:.8rem;border-bottom:1px solid var(--border)}
 .maintainer-editor-heading h3{margin:.55rem 0 .15rem}
 .maintainer-editor-heading p{margin:0;color:var(--muted)}
+.maintainer-editor-identity{max-width:42rem;margin-top:.55rem!important;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
+.maintainer-editor-identity strong{color:var(--secondary);font-weight:650}
 .maintainer-editor-heading>span{color:var(--muted);overflow-wrap:anywhere;text-align:right}
 .maintainer-back-button{padding:.35rem .6rem;color:var(--secondary)}
 .maintainer-permission-fieldset{display:grid;grid-template-columns:repeat(auto-fit,minmax(14rem,1fr));align-content:start;gap:.55rem;margin:0;padding:.9rem 1rem 1rem;border:1px solid var(--border);border-radius:.65rem}
