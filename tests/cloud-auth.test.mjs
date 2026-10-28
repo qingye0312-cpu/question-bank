@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import { randomUUID } from 'node:crypto';
-import { parseDelta, validateStandardQuestion, parseModelReply, sha256 } from '../shared/intake.ts';
+import { parseDelta, validateStandardQuestion, parseModelReply, sha256 } from '../desktop/shared/intake.ts';
 import { encodeUpload } from '../tools/encode-upload.mjs';
 
 const require = createRequire(import.meta.url);

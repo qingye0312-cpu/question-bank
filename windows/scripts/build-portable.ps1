@@ -11,7 +11,7 @@ try {
     & node scripts/tauri.mjs build --target x86_64-pc-windows-msvc --no-bundle -- --locked
     if ($LASTEXITCODE -ne 0) { throw "Tauri build failed ($LASTEXITCODE)." }
 
-    $metadataText = & cargo metadata --no-deps --format-version 1 --locked --manifest-path src-tauri/Cargo.toml
+    $metadataText = & cargo metadata --no-deps --format-version 1 --locked --manifest-path desktop/src-tauri/Cargo.toml
     if ($LASTEXITCODE -ne 0) { throw 'Could not locate the Cargo output directory.' }
     $metadata = $metadataText | ConvertFrom-Json
     $source = Join-Path $metadata.target_directory 'x86_64-pc-windows-msvc\release\question-bank.exe'

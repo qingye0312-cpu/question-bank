@@ -1,8 +1,9 @@
-/* A stable 4:3 canvas on desktop; the body alone scrolls on smaller windows. */
+/* Export uses the shared dialog geometry; the body alone scrolls when content is long. */
 .modal-backdrop.question-export-backdrop { padding:1.5rem; }
 .modal.question-export-panel {
-  width:min(46rem,calc(100vw - 3rem),calc((100dvh - 3rem) * 4 / 3));
-  aspect-ratio:4 / 3;
+  width:var(--dialog-wide-width);
+  height:var(--dialog-wide-height);
+  aspect-ratio:var(--dialog-wide-ratio);
   max-height:calc(100dvh - 3rem);
   padding:0;
   border:1px solid var(--line);
@@ -71,7 +72,7 @@
 .question-export-confirm p { color:var(--secondary); font-size:.9rem; line-height:1.8; overflow-wrap:anywhere; }
 .question-export-confirm-actions { display:flex; justify-content:flex-end; gap:.6rem; margin-top:1.1rem; }
 @media(max-width:760px) {
-  .modal.question-export-panel { width:calc(100vw - 2rem); aspect-ratio:auto; height:min(30rem,calc(100dvh - 2rem)); max-height:calc(100dvh - 2rem); }
+  .modal.question-export-panel { width:calc(100vw - 2rem); aspect-ratio:auto; height:min(36rem,calc(100dvh - 2rem)); max-height:calc(100dvh - 2rem); }
   .modal-backdrop.question-export-backdrop { padding:1rem; }
   .question-export-heading { padding:1.15rem; }
   .question-export-body { padding:0 1.15rem 1rem; }

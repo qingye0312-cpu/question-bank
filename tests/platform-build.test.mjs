@@ -42,7 +42,7 @@ test('platform packaging retains the validated installers, deployment target and
   assert.equal(mac.bundle.macOS.minimumSystemVersion, '13.0');
   assert.deepEqual(windows.bundle.targets, ['nsis']);
   assert.deepEqual(windows.build.additionalWatchFolders, ['../windows']);
-  assert.deepEqual(windows.bundle.windows.webviewInstallMode, {type: 'offlineInstaller', silent: true});
+  assert.deepEqual(windows.bundle.windows.webviewInstallMode, {type: 'downloadBootstrapper', silent: true});
   assert.deepEqual(windows.bundle.windows.nsis, {
     installMode: 'currentUser',
     installerIcon: '../windows/icons/icon.ico',
@@ -51,10 +51,15 @@ test('platform packaging retains the validated installers, deployment target and
     languages: ['SimpChinese', 'English'],
   });
   for (const settings of [mac, windows]) {
-    for (const icon of settings.bundle.icon) assert.ok(fs.existsSync(path.resolve(root, 'src-tauri', icon)), icon);
+    for (const icon of settings.bundle.icon) {
+      const asset = icon.startsWith('../') ? icon.slice(3) : path.join('desktop/src-tauri', icon);
+      assert.ok(fs.existsSync(path.resolve(root, asset)), icon);
+    }
   }
-  assert.ok(fs.existsSync(path.resolve(root, 'src-tauri', windows.bundle.windows.nsis.installerHooks)));
-  const installerHooks = fs.readFileSync(path.resolve(root, 'src-tauri', windows.bundle.windows.nsis.installerHooks), 'utf8');
+  const hook = windows.bundle.windows.nsis.installerHooks.startsWith('../') ? windows.bundle.windows.nsis.installerHooks.slice(3) : path.join('desktop/src-tauri', windows.bundle.windows.nsis.installerHooks);
+  const installerHook = path.resolve(root, hook);
+  assert.ok(fs.existsSync(installerHook));
+  const installerHooks = fs.readFileSync(installerHook, 'utf8');
   assert.match(installerHooks, /NSIS_HOOK_POSTINSTALL[\s\S]*Call CreateOrUpdateDesktopShortcut/);
   assert.match(installerHooks, /\$UpdateMode = 1[\s\S]*\$NoShortcutMode = 0[\s\S]*IfFileExists[\s\S]*CreateShortcut/);
 });

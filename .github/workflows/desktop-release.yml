@@ -52,16 +52,16 @@ jobs:
 
           output="$RUNNER_TEMP/qbank-release/macos"
           mkdir -p "$output"
-          built="src-tauri/target/release/bundle/macos/题库.app.tar.gz"
+          built="desktop/src-tauri/target/release/bundle/macos/题库.app.tar.gz"
           if [ ! -s "$built" ]; then
-            built="$(find src-tauri/target/release/bundle/macos -maxdepth 1 -type f -name '*.app.tar.gz' -print -quit)"
+            built="$(find desktop/src-tauri/target/release/bundle/macos -maxdepth 1 -type f -name '*.app.tar.gz' -print -quit)"
           fi
           [ -n "$built" ] && [ -s "$built" ] || { echo 'macOS updater archive missing' >&2; exit 1; }
           [ -s "$built.sig" ] || { echo 'macOS updater signature missing' >&2; exit 1; }
           name="qbank-macos-arm64-${version}.app.tar.gz"
           cp "$built" "$output/$name"
           cp "$built.sig" "$output/$name.sig"
-          dmg="$(find src-tauri/target/release/bundle/dmg -maxdepth 1 -type f -name '*.dmg' -print -quit)"
+          dmg="$(find desktop/src-tauri/target/release/bundle/dmg -maxdepth 1 -type f -name '*.dmg' -print -quit)"
           [ -n "$dmg" ] && [ -s "$dmg" ] || { echo 'macOS DMG missing' >&2; exit 1; }
           cp "$dmg" "$output/题库_${version}_macOS_arm64.dmg"
 
@@ -96,7 +96,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri -> target
+          workspaces: desktop/src-tauri -> desktop/src-tauri/target
           shared-key: windows-portable-2025-x86_64-pc-windows-msvc-release
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
@@ -126,7 +126,7 @@ jobs:
           pnpm tauri build --target x86_64-pc-windows-msvc --no-bundle --config $env:QBANK_TAURI_SKIP_FRONTEND_CONFIG -- --locked
           if ($LASTEXITCODE -ne 0) { throw "Portable build failed ($LASTEXITCODE)." }
 
-          $source = 'src-tauri/target/x86_64-pc-windows-msvc/release/question-bank.exe'
+          $source = 'desktop/src-tauri/target/x86_64-pc-windows-msvc/release/question-bank.exe'
           if (-not (Test-Path -LiteralPath $source)) { throw "Portable executable missing: $source" }
           $output = Join-Path $env:RUNNER_TEMP 'qbank-release/windows-portable'
           New-Item -ItemType Directory -Force -Path $output | Out-Null
@@ -164,7 +164,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri -> target
+          workspaces: desktop/src-tauri -> desktop/src-tauri/target
           shared-key: windows-installer-2025-x86_64-pc-windows-msvc-release
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
@@ -225,7 +225,7 @@ jobs:
           pnpm tauri build --target x86_64-pc-windows-msvc --config $env:QBANK_TAURI_SKIP_FRONTEND_CONFIG --config $configPath -- --locked
           if ($LASTEXITCODE -ne 0) { throw "NSIS build failed ($LASTEXITCODE)." }
 
-          $bundle = 'src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis'
+          $bundle = 'desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis'
           $archives = @(Get-ChildItem -LiteralPath $bundle -Filter '*.nsis.zip' -File)
           if ($archives.Count -ne 1) { throw "Expected one NSIS updater archive, found $($archives.Count)." }
           $archive = $archives[0]

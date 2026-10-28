@@ -1,6 +1,17 @@
 @import "./generated/appearance.css";
 /* Standard matches the former 1.4x type; layout scales through rem. */
-:root { --font-scale:1.4; }
+:root {
+  --font-scale:1.4;
+  /* All full-screen dialogs share one geometry so switching between features
+     does not move the user's visual focus. Individual dialogs may opt into
+     the wide size while keeping the same ratio and viewport caps. */
+  --dialog-width:min(52rem,calc(100vw - 2rem));
+  --dialog-wide-width:min(68rem,calc(100vw - 2rem));
+  --dialog-height:min(36rem,calc(100dvh - 2rem));
+  --dialog-wide-height:min(42rem,calc(100dvh - 2rem));
+  --dialog-ratio:1.45;
+  --dialog-wide-ratio:1.62;
+}
 :root {
   font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
   color:var(--ink);
@@ -792,13 +803,17 @@ mark[data-term="11"] { background:var(--highlight-11); }
   border:solid var(--surface);
   border-width:var(--modal-inset-block) var(--modal-inset-inline);
   box-shadow:0 1.923077rem 6.153846rem var(--shadow);
-  width:min(41.538462rem,calc(100vw - 2rem));
-  max-height:90vh;
+  width:var(--dialog-width);
+  height:var(--dialog-height);
+  max-height:calc(100dvh - 2rem);
+  aspect-ratio:var(--dialog-ratio);
   overflow:auto;
   padding:calc(var(--modal-padding) - var(--modal-inset-block)) calc(var(--modal-padding) - var(--modal-inset-inline));
   position:relative}
 .modal.large {
-  width:min(56.923077rem,calc(100vw - 2rem))}
+  width:var(--dialog-wide-width);
+  height:var(--dialog-wide-height);
+  aspect-ratio:var(--dialog-wide-ratio)}
 .modal>h2 {
   font-size:1.692308rem;
   margin:1.230769rem 0 0.769231rem;
@@ -1148,6 +1163,8 @@ mark[data-term="11"] { background:var(--highlight-11); }
 .pane-heading,.detail-toolbar { height:auto; min-height:3.307692rem; padding-block:.5rem; }
 input,select,textarea,fieldset { min-width:0; }
 .modal { max-width:calc(100vw - 2rem); }
+.modal.question-export-panel,
+.modal.ocr-modal { width:var(--dialog-wide-width); height:var(--dialog-wide-height); aspect-ratio:var(--dialog-wide-ratio); }
 .modal-footer,.ocr-footer { flex-wrap:wrap; }
 .font-options { grid-template-columns:repeat(4,minmax(0,1fr)); }
 .lucide { width:1.3em; height:1.3em; }

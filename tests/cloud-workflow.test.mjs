@@ -4,8 +4,8 @@ import fs from 'node:fs';
 import {createRequire} from 'node:module';
 import {randomUUID} from 'node:crypto';
 import {gzipSync} from 'node:zlib';
-import {parseDelta,validateStandardQuestion,parseModelReply,sha256,deltaPackage} from '../shared/intake.ts';
-import {readManifest,readSnapshot} from '../shared/sync.ts';
+import {parseDelta,validateStandardQuestion,parseModelReply,sha256,deltaPackage} from '../desktop/shared/intake.ts';
+import {readManifest,readSnapshot} from '../desktop/shared/sync.ts';
 import {encodeUpload} from '../tools/encode-upload.mjs';
 
 const require=createRequire(import.meta.url);

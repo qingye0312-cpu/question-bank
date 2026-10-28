@@ -2,20 +2,18 @@
 
 ## 每轮开始前保存本地版本
 
-- 用户要求：每一次对话开始前，先做一次本地 Git 提交。
-- 在本项目开始处理新一轮用户请求时，先检查仓库、当前分支和 `git status`，在修改文件前保存已有工作。
-- 存在未提交改动时，检查变更范围后，将应纳入版本控制的已有改动提交为一次本地快照，包括已暂存、未暂存以及符合项目规则的新文件。提交说明应明确这是本轮开始前的快照，并简述内容。
-- 工作区干净时，以当前 HEAD 作为本轮起点，不创建空提交。同一轮中的补充消息、工具调用和上下文恢复不重复创建快照。
-- 遵守 `.gitignore`，不强行纳入本机数据库、生成的交付包、依赖、构建产物或凭据。
-- 此授权仅涉及本地提交，不包含自动推送、改写历史、重置或清理用户文件。
-- 遇到未解决冲突或提交失败时，保留现场并说明原因，不通过丢弃改动来完成提交。
+- 每一轮新请求开始时先检查仓库、分支和 `git status`。
+- 有未提交工作时先做一次本地快照提交，说明中写明本轮开始前快照和范围；工作区干净时不创建空提交。
+- 遵守 `.gitignore`，不提交数据库、密钥、依赖、构建缓存、发布包和本机证据。
+- 仅允许本地提交；不自动 push、不改写历史、不用重置或清理用户文件解决冲突。
 
-## Mac App 构建输出
+## 目录和产物
 
-- 普通 Mac App 构建的唯一 `.app` 输出位置是仓库根目录 `build/题库.app`。
-- 统一使用 `sh mac/scripts/env.sh pnpm tauri build --bundles app`；不要在 `src-tauri/target`、`交付/`、`artifacts/` 或 `.local/` 留存副本或旧包。
-- 普通构建的临时前端与 Rust 构建缓存放在 `build/`，打包后清除；仅保留 `build/题库.app`。`build/` 不放置说明文件。
-- `pnpm release:mac` 是单独的更新发布流程，不作为普通 App 构建出口。
+- 桌面端源代码统一放在 `desktop/`：`desktop/src/` 是前端，`desktop/shared/` 是跨桌面/小程序共享层，`desktop/src-tauri/` 是 Rust/Tauri 层。平台专用代码仍在根目录 `mac/` 与 `windows/`。
+- 普通 macOS App 的唯一输出是仓库根目录 `build/题库.app`，命令为 `sh mac/scripts/env.sh pnpm tauri build --bundles app`。
+- 临时前端与 Rust 缓存只放在 `build/` 或被忽略的 `desktop/src-tauri/target/`，完成后清理；`build/` 不放说明文件。
+- `pnpm release:mac` 是独立的更新发布流程，不作为普通 App 构建出口。
 
 ## 代理使用
-- 登录github或其他github的活动 用沙箱机制允许的方式 通过 clash-verge 的7897端口连接github 无需判断代理是否开启 我已经配置了永久打开
+
+GitHub 相关活动通过已配置的 Clash Verge `7897` 端口执行，不自动推送。

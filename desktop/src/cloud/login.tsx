@@ -4,8 +4,8 @@ import {open} from '@tauri-apps/plugin-dialog';
 import {FileKey} from 'lucide-react';
 import {cloudAccess,cloudCall,cloudLogin,cloudLoginPassword,cloudLogout,cloudOrigin,setCloudOrigin,fetchCatalog,refreshAccess} from '../cloud-client';
 import {parseMaintainerCertificate} from './session-service';
-import {maintainerPasswordRules,passwordMeetsPolicy} from '../../miniprogram/miniprogram/services/maintainer-password-policy';
-import {registrationFields} from '../../miniprogram/miniprogram/services/maintainer-application';
+import {maintainerPasswordRules,passwordMeetsPolicy} from '../../../miniprogram/miniprogram/services/maintainer-password-policy';
+import {registrationFields} from '../../../miniprogram/miniprogram/services/maintainer-application';
 
 type LoginMode='account'|'register'|'key'|'reset';
 type BankChoice={bank_id:string;name:string};

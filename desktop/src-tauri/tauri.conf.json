@@ -7,7 +7,7 @@
     "beforeDevCommand": "node scripts/sync-client-assets.mjs && node scripts/prepare-ocr.mjs && node node_modules/vite/bin/vite.js --host 127.0.0.1",
     "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "node scripts/sync-client-assets.mjs && node scripts/prepare-ocr.mjs && node node_modules/typescript/bin/tsc --noEmit && node node_modules/vite/bin/vite.js build",
-    "frontendDist": "../dist"
+    "frontendDist": "../../dist"
   },
   "app": {
     "windows": [

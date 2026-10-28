@@ -7,9 +7,9 @@ if (!version || !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version) || t
 }
 
 const packageJson = JSON.parse(await fs.readFile('package.json', 'utf8'));
-const tauri = JSON.parse(await fs.readFile('src-tauri/tauri.conf.json', 'utf8'));
-const cargoToml = await fs.readFile('src-tauri/Cargo.toml', 'utf8');
-const cargoLock = await fs.readFile('src-tauri/Cargo.lock', 'utf8');
+const tauri = JSON.parse(await fs.readFile('desktop/src-tauri/tauri.conf.json', 'utf8'));
+const cargoToml = await fs.readFile('desktop/src-tauri/Cargo.toml', 'utf8');
+const cargoLock = await fs.readFile('desktop/src-tauri/Cargo.lock', 'utf8');
 const cargoVersion = cargoToml.match(/^version\s*=\s*"([^"]+)"/m)?.[1];
 const lockPackage = cargoLock.match(/\[\[package\]\]\s*name = "question-bank"\s*version = "([^"]+)"/);
 const lockVersion = lockPackage?.[1];

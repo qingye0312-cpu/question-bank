@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {rowOffsets, rowAtOffset, revealRow} from '../src/variable-rows.ts';
+import {rowOffsets, rowAtOffset, revealRow} from '../desktop/src/variable-rows.ts';
 
 test('mixed short and long questions occupy their measured heights without gaps', () => {
   const offsets = rowOffsets([82.5, 151, 940, 99]);

@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
-import * as syncCore from '../shared/sync.ts';
-import {packText} from '../shared/codec.ts';
-import {sha256} from '../shared/intake.ts';
+import * as syncCore from '../desktop/shared/sync.ts';
+import {packText} from '../desktop/shared/codec.ts';
+import {sha256} from '../desktop/shared/intake.ts';
 
 const first='ad50971f-66af-51c2-bb0e-dc798b03b369',second='c86104f7-4570-4089-9338-7989ce528a9d';
 function version(bank_id,name,revision=1){

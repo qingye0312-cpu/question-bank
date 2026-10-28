@@ -6,7 +6,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 import ts from 'typescript';
 import {fileURLToPath} from 'node:url';
-import {parseModelReply,toQuestion,identityKey,sameAnswer,deltaPackage,parseDelta,sha256,uuidFromBytes,intakeMetadata} from '../shared/intake.ts';
+import {parseModelReply,toQuestion,identityKey,sameAnswer,deltaPackage,parseDelta,sha256,uuidFromBytes,intakeMetadata} from '../desktop/shared/intake.ts';
 const reply={format:'qbank-photo-question-1',type:'single',stem:'此 API 返回什么？',options:[{key:'A',content:'中文 🧪'},{key:'B',content:'字符串 "A"'}],answer:['B'],answer_origin:'inferred',explanation:'测试作答依据。',model:{name:'测试模型',version:'test-1',version_source:'user'},warnings:[]};
 const id=()=>uuidFromBytes(randomBytes(16));
 test('copyable single JSON reply validates independently and rejects incomplete answers/photos',()=>{
@@ -86,7 +86,7 @@ test('manual metadata survives mobile persistence and compressed exchange withou
 });
 
 test('partial replies are editable while submission remains strict; answer dots distinguish unset from false',async()=>{
- const {parseDraft,toggleAnswer,emptyReply,recordedTime,resultName,withRecordedTime}=await import('../shared/intake.ts');
+ const {parseDraft,toggleAnswer,emptyReply,recordedTime,resultName,withRecordedTime}=await import('../desktop/shared/intake.ts');
  const partial=parseDraft(JSON.stringify({stem:'未完成判断',type:'true_false'}));assert.equal(partial.stem,'未完成判断');assert.deepEqual(partial.answer,[]);assert.throws(()=>parseModelReply(JSON.stringify(partial)));
  assert.deepEqual(parseDraft(JSON.stringify({...reply,options:[{key:'B',content:'二'},{key:'A',content:'一'}],answer:['A']})).answer,['B']);
  const yes=toggleAnswer(partial,false);assert.equal(yes.answer,false);assert.deepEqual(toggleAnswer(yes,false).answer,[]);

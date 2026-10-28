@@ -45,11 +45,11 @@ if (process.platform !== 'darwin' || process.arch !== 'arm64') {
 }
 if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error(`Expected a stable SemVer version, got ${version}`);
 
-const cargoToml = await fs.readFile(path.join(root, 'src-tauri/Cargo.toml'), 'utf8');
-const tauriConfig = JSON.parse(await fs.readFile(path.join(root, 'src-tauri/tauri.conf.json'), 'utf8'));
+const cargoToml = await fs.readFile(path.join(root, 'desktop/src-tauri/Cargo.toml'), 'utf8');
+const tauriConfig = JSON.parse(await fs.readFile(path.join(root, 'desktop/src-tauri/tauri.conf.json'), 'utf8'));
 if (!new RegExp(`^version\\s*=\\s*"${version.replaceAll('.', '\\.') }"$`, 'm').test(cargoToml)
   || tauriConfig.version !== version) {
-  throw new Error('package.json, src-tauri/Cargo.toml, and tauri.conf.json versions must match.');
+  throw new Error('package.json, desktop/src-tauri/Cargo.toml, and tauri.conf.json versions must match.');
 }
 
 const bundlePath = path.join(releaseDir, assetName);
@@ -75,7 +75,7 @@ const updaterConfigPath = path.join(root, '.local/macos-updater-tauri.json');
 await fs.writeFile(updaterConfigPath, JSON.stringify({ plugins: { updater: { pubkey: publicKey, endpoints: [endpoint] } } }, null, 2), { mode: 0o600 });
 run(process.execPath, ['scripts/tauri.mjs', 'build', '--config', updaterConfigPath, '--bundles', 'app'], { env });
 
-const builtApp = path.join(root, 'src-tauri/target/release/bundle/macos/题库.app');
+const builtApp = path.join(root, 'desktop/src-tauri/target/release/bundle/macos/题库.app');
 if (!(await exists(builtApp))) throw new Error(`Tauri did not create ${builtApp}`);
 if (appVersion(builtApp) !== version) throw new Error('Built app version does not match the release version.');
 const bundleDir = path.dirname(builtApp);

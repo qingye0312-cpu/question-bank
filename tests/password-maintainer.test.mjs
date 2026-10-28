@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
-import {parseDelta,validateStandardQuestion,parseModelReply,sha256} from '../shared/intake.ts';
-import {hasWordExportPermission} from '../shared/export-permission.ts';
+import {parseDelta,validateStandardQuestion,parseModelReply,sha256} from '../desktop/shared/intake.ts';
+import {hasWordExportPermission} from '../desktop/shared/export-permission.ts';
 
 const require=createRequire(import.meta.url),{createHandler}=require('../cloud/qbank-auth/service.cjs');
 const bankId='ad50971f-66af-51c2-bb0e-dc798b03b369',key='d'.repeat(64);

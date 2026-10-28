@@ -4,7 +4,7 @@ import {build} from 'vite';
 
 const root = new URL('../', import.meta.url);
 const result = await build({configFile:false, logLevel:'silent', build:{write:false, target:'es2020',
-  lib:{entry:fileURLToPath(new URL('shared/gzip.ts', root)), formats:['cjs'], fileName:()=> 'gzip.js'},
+  lib:{entry:fileURLToPath(new URL('desktop/shared/gzip.ts', root)), formats:['cjs'], fileName:()=> 'gzip.js'},
   minify:'esbuild', sourcemap:false}});
 const output = (Array.isArray(result) ? result[0] : result).output.find(item => item.type === 'chunk');
 const version = JSON.parse(await readFile(new URL('node_modules/fflate/package.json', root), 'utf8')).version;

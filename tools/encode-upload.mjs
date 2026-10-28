@@ -2,7 +2,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import { pathToFileURL } from 'node:url';
-import { parseDelta } from '../shared/intake.ts';
+import { parseDelta } from '../desktop/shared/intake.ts';
 
 export function encodeUpload(text) {
   const { questions } = parseDelta(text);

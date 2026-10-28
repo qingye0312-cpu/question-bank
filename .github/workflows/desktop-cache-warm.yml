@@ -12,9 +12,9 @@ on:
       - 'index.html'
       - 'vite.config.ts'
       - 'tsconfig.json'
-      - 'src/**'
-      - 'src-tauri/**'
-      - 'shared/**'
+      - 'desktop/src/**'
+      - 'desktop/src-tauri/**'
+      - 'desktop/shared/**'
       - 'windows/**'
       - 'mac/**'
       - 'public/**'
@@ -72,7 +72,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri -> target
+          workspaces: desktop/src-tauri -> desktop/src-tauri/target
           shared-key: windows-2025-x86_64-pc-windows-msvc-release
           save-if: ${{ github.ref == 'refs/heads/main' }}
 

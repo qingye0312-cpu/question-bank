@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {hasWordExportPermission} from '../shared/export-permission.ts';
+import {hasWordExportPermission} from '../desktop/shared/export-permission.ts';
 
 test('Word export requires explicit approval and known authentication state',()=>{
  assert.equal(hasWordExportPermission(undefined),false);

@@ -105,7 +105,7 @@ export async function prepare({check = false, sourceDirectory} = {}) {
     payload = await readFile(resolve(sourceDirectory, 'questions.jsonl'));
     manifest = JSON.parse(await readFile(resolve(sourceDirectory, 'manifest.json'), 'utf8'));
   } else {
-    const seed = JSON.parse(await readFile(resolve(root, 'src-tauri/resources/seed.json'), 'utf8'));
+    const seed = JSON.parse(await readFile(resolve(root, 'desktop/src-tauri/resources/seed.json'), 'utf8'));
     payload = Buffer.from(seedPayload(seed));
     manifest = {
       schema_version: '1.0', bank_id: 'ad50971f-66af-51c2-bb0e-dc798b03b369', name: 'HarmonyOS 初级认证',

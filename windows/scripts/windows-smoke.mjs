@@ -9,7 +9,7 @@ import net from 'node:net';
 import {gunzipSync} from 'node:zlib';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const executable = path.resolve(process.argv[2] || path.join(root, 'src-tauri/target/release/question-bank.exe'));
+const executable = path.resolve(process.argv[2] || path.join(root, 'desktop/src-tauri/target/release/question-bank.exe'));
 const stamp = new Date().toISOString().replace(/[:.]/g, '-');
 const output = path.join(root, 'artifacts', `windows-smoke-${stamp}`);
 const data = path.join(output, '测试数据 data');
@@ -260,7 +260,7 @@ try {
   });
   await check('edit history, delete, package export and index rebuild', async () => {
     const bankId=await invoke('create_bank',{name:'Windows 验证 test'});
-    const question=JSON.parse(await fs.readFile(path.join(root,'src-tauri/resources/examples.json'),'utf8'))[0];
+    const question=JSON.parse(await fs.readFile(path.join(root,'desktop/src-tauri/resources/examples.json'),'utf8'))[0];
     question.question_id=''; question.base_revision=1; question.stem='Windows 验证 初稿';
     await invoke('save_question',{bankId,question});
     let hit=(await search('',bankId)).items[0];

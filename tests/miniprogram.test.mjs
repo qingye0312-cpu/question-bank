@@ -5,14 +5,14 @@ import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import vm from 'node:vm';
 import ts from 'typescript';
-import * as intakeCore from '../shared/intake.ts';
-import * as answerPresentationCore from '../shared/answer-presentation.ts';
+import * as intakeCore from '../desktop/shared/intake.ts';
+import * as answerPresentationCore from '../desktop/shared/answer-presentation.ts';
 import {applicationFields,passwordMeetsPolicy,registrationFields} from '../miniprogram/miniprogram/services/maintainer-application.ts';
 import * as core from '../miniprogram/miniprogram/core/search.ts';
 import * as compact from '../miniprogram/miniprogram/core/compact.ts';
 import {brotliDecompressSync} from 'node:zlib';
 import {prepareBundle} from '../tools/mobile-index/build.mjs';
-import {normalize as desktopNormalize, queryTerms as desktopTerms} from '../src/search-presentation.ts';
+import {normalize as desktopNormalize, queryTerms as desktopTerms} from '../desktop/src/search-presentation.ts';
 
 const base = new URL('../miniprogram/miniprogram/', import.meta.url);
 const embeddedText = await readFile(new URL('data/questions.json', base), 'utf8');
@@ -89,8 +89,8 @@ async function loadService(readResource, extra = {}) {
   const source = await readFile(new URL('services/bank.ts', base), 'utf8');
   const {outputText} = ts.transpileModule(source, {compilerOptions: {module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020}});
   const exports = {};
-  const intake = await import('../shared/intake.ts');
-  const sync = await import('../shared/sync.ts');
+  const intake = await import('../desktop/shared/intake.ts');
+  const sync = await import('../desktop/shared/sync.ts');
   vm.runInNewContext(outputText, {exports, require: name => name==='./draft-repository'?{readDraftFile:async()=>[]}:name==='./sync'?{cachedSnapshot:async()=>null,cloudCatalog:()=>[],restoreCatalog:async()=>{}}:name.endsWith('/core/sync')||name==='../core/sync'?sync:name.endsWith('/manifest') ? {bundledManifest: manifest, bundledManifests: allManifests} : name.endsWith('/compact') ? compact : name.endsWith('/intake-store') ? {readLocal:async()=>({version:1,banks:[],entries:[],batches:[]})} : name.endsWith('/intake') ? intake : core,
     wx: {env: {USER_DATA_PATH: '/cache'}, getFileSystemManager: () => ({readFile: readResource, readCompressedFile: readCompressed(readResource)}), ...extra}, console: {error() {}, info() {}, warn() {}}, Error});
   return exports;

@@ -5,8 +5,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {randomUUID} from 'node:crypto';
-import {sha256,parseDelta} from '../shared/intake.ts';
-import {readManifest,readSnapshot} from '../shared/sync.ts';
+import {sha256,parseDelta} from '../desktop/shared/intake.ts';
+import {readManifest,readSnapshot} from '../desktop/shared/sync.ts';
 import {encodeUpload} from '../tools/encode-upload.mjs';
 import servicePackage from '../cloud/qbank-auth/package.json' with {type:'json'};
 

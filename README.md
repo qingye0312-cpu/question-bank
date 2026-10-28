@@ -1,50 +1,66 @@
 # 题库
 
-<div align="center">
-  <img src="src-tauri/icons/icon.svg" alt="题库图标" width="104" />
-  <p><strong>本地优先的题目检索、整理与复习工具</strong></p>
-  <p>macOS · Windows · 微信小程序</p>
-</div>
+本项目是一个本地优先的题目检索、录入、复习和云端协作工具，包含桌面端、微信小程序和自托管云服务。题库正式历史版本属于业务数据，保留在云端存储与题库数据中；代码、构建产物和运行证据只维护当前实现。
 
-题库把常用题库保存在本机，支持快速搜索题干与选项、查看答案和解析、整理自己的题目，并按需同步获授权的云端题库。桌面端提供详细与极速两种浏览方式；微信小程序可以随时检索、阅读和录题。
+## 先看哪里
 
-## 界面预览
-
-以下界面图只使用虚构的演示题库与示例题目，不包含项目当前题库内容。
-
-| 桌面端：搜索与题目详情 | 桌面端：极速浏览 |
+| 目标 | 入口 |
 | --- | --- |
-| ![桌面端搜索与题目详情界面预览，使用虚构示例数据](docs/screenshots/desktop-search.svg) | ![桌面端极速浏览界面预览，使用虚构示例数据](docs/screenshots/desktop-speed.svg) |
+| 桌面端界面与业务 | [`desktop/`](desktop/)、[`desktop/README.md`](desktop/README.md) |
+| 桌面端共用逻辑 | [`desktop/shared/`](desktop/shared/README.md) |
+| Tauri/Rust 本机能力 | [`desktop/src-tauri/`](desktop/src-tauri/README.md) |
+| 微信小程序 | [`miniprogram/`](miniprogram/README.md) |
+| 自托管云服务 | [`cloud/`](cloud/README.md) |
+| macOS / Windows 专用代码 | [`mac/`](mac/README.md)、[`windows/`](windows/README.md) |
+| 构建、同步和部署脚本 | [`scripts/`](scripts/README.md)、[`tools/`](tools/README.md) |
+| 自动化测试 | [`tests/`](tests/README.md) |
+| 设计、发布与运维说明 | [`docs/`](docs/README.md) |
 
-| 桌面端：录题与导入 | 微信小程序：选择申请维护的题库 |
-| --- | --- |
-| ![录题与导入界面预览，使用虚构示例数据](docs/screenshots/desktop-intake.svg) | ![小程序注册选择维护题库界面预览，使用虚构示例数据](docs/screenshots/miniprogram-register.svg) |
+完整的当前架构和数据边界见 [`开发文档.md`](开发文档.md)。
 
-## 功能
+## 当前实现边界
 
-- **本机检索**：按题干、选项、标签、章节或编号搜索；答案与解析在详情面板中查看。
-- **两种浏览方式**：详细模式适合阅读题目内容，极速模式适合连续刷题。
-- **本地录题**：支持手动录入、粘贴大模型整理结果、草稿自动保存，以及 JSON 增量合并。
-- **图片识题**：桌面端可截图或粘贴图片，识别后匹配本机已有题目。
-- **多端使用**：桌面端适用于 macOS 与 Windows；微信小程序提供搜索、详情和录题流程。
-- **按需云端协作**：小程序注册维护者时可选择申请维护的题库；登录并获得对应题库授权后，可提交待上传题目。桌面维护者还可管理云端题库与历史版本。
-- **本地维护**：桌面端支持题库导出、数据库备份恢复、主题与托盘图标设置。
-
-普通搜索和本地录题无需登录。云端同步与上传按账号、题库和权限分别控制；题库内容默认保存在本机。
+- 桌面端使用 React、TypeScript、Vite、Tauri 2、Rust 和 SQLite，支持 macOS 与 Windows。
+- 小程序使用原生页面和 TypeScript；共享题目协议、压缩、同步和外观代码从 `desktop/shared/` 生成到小程序 `core/`。
+- 云服务使用 `cloud/qbank-auth/` 的 Node.js 服务和文件存储，桌面端、小程序共用 HTTPS API。
+- 正式题库内容只由云端发布流程改变；客户端同步时按目录修订号和摘要更新本地快照并重建索引，待上传草稿单独保存。
+- 电话号码账号同一账号最多保留一个桌面会话和一个小程序会话；同类新登录会使旧会话失效。
+- 所有全屏弹窗使用 `desktop/src/styles.css` 的统一宽度、比例和视口上限；具体页面只负责内容布局。
 
 ## 本地开发
 
-桌面端使用 React、TypeScript、Vite、Tauri 2、Rust 与 SQLite；微信小程序使用原生页面和 TypeScript。桌面开发环境需要 Node.js 22.18 或更新版本、pnpm 11。
+需要 Node.js 22.18+ 和 pnpm 11。
 
 ```sh
 pnpm install
 pnpm tauri dev
 ```
 
-macOS `.app` 构建：
+常用检查：
+
+```sh
+sh mac/scripts/env.sh pnpm exec tsc --noEmit
+sh mac/scripts/env.sh pnpm test:platforms
+sh mac/scripts/env.sh pnpm test:ui
+sh mac/scripts/env.sh pnpm test:desktop
+sh mac/scripts/env.sh pnpm test:intake
+sh mac/scripts/env.sh pnpm test:self-host
+sh mac/scripts/env.sh pnpm check:miniprogram
+```
+
+macOS 普通 App 构建的唯一输出是根目录 [`build/题库.app`](build/题库.app)：
 
 ```sh
 sh mac/scripts/env.sh pnpm tauri build --bundles app
 ```
 
-更多模块说明、数据格式和开发命令见[开发文档](开发文档.md)。
+不要把 `desktop/src-tauri/target/`、`dist/`、临时前端目录或旧 App 副本提交到仓库。正式跨平台发布由 [`desktop-release.yml`](.github/workflows/desktop-release.yml) 完成，macOS、Windows 便携版和 Windows 安装版三个构建 job 独立并行，`publish` 统一组装签名、清单和校验和。
+
+## AI 修改检查清单
+
+1. 先读本文件、目标目录 README、[`AGENTS.md`](AGENTS.md)，确认源文件与生成文件边界。
+2. 先检查 Git 状态；本轮已有工作先保存为本地快照，不自动 push。
+3. 只改 canonical source；`desktop/src/generated/` 和 `miniprogram/miniprogram/core/` 的生成文件通过 `node scripts/sync-client-assets.mjs` 更新。
+4. 修改路径、协议或构建配置后，运行对应目录 README 中的最小检查，再运行 `git diff --check`。
+5. 分开记录代码、构建包、GitHub Release、自托管清单、安装后的更新和浏览器/设备验证结果。
+6. 变更正式题库历史时，保留每个正式版本及其修订记录；不要用代码清理动作删除业务历史。

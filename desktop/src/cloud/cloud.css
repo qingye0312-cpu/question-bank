@@ -168,7 +168,7 @@
 .maintainer-editor-actions{display:flex;justify-content:flex-end;gap:.6rem;flex-wrap:wrap;padding-top:.2rem}
 .maintainer-editor-hint{margin:0;color:var(--muted);font-size:.8rem}
 .maintainer-permission-confirm-layer{position:fixed;inset:0;z-index:40;display:grid;place-items:center;padding:1.5rem;background:var(--overlay);backdrop-filter:blur(.25rem)}
-.maintainer-permission-confirm{width:min(28rem,100%);padding:1.5rem;border:1px solid var(--line);border-radius:.9rem;background:var(--surface);box-shadow:0 1rem 3rem var(--shadow)}
+.maintainer-permission-confirm{width:min(30rem,calc(100vw - 2rem));height:min(20rem,calc(100dvh - 2rem));aspect-ratio:1.5;overflow:auto;padding:1.5rem;border:1px solid var(--line);border-radius:.9rem;background:var(--surface);box-shadow:0 1rem 3rem var(--shadow)}
 .maintainer-permission-confirm h3{margin:.1rem 0 .7rem}
 .maintainer-permission-confirm p{margin:0;color:var(--secondary);line-height:1.8;overflow-wrap:anywhere}
 .maintainer-permission-confirm-actions{display:flex;justify-content:flex-end;gap:.6rem;margin-top:1.1rem}

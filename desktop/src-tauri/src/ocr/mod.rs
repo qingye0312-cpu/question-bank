@@ -1,9 +1,9 @@
 #[cfg(target_os = "macos")]
-#[path = "../../../mac/src/ocr.rs"]
+#[path = "../../../../mac/src/ocr.rs"]
 mod mac;
 pub mod matching;
 #[cfg(target_os = "windows")]
-#[path = "../../../windows/src/ocr.rs"]
+#[path = "../../../../windows/src/ocr.rs"]
 mod windows;
 
 use crate::model::{err, Result};

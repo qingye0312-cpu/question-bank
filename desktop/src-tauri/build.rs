@@ -1,4 +1,4 @@
-#[path = "../mac/build.rs"]
+#[path = "../../mac/build.rs"]
 mod mac;
 
 fn main() {
@@ -7,12 +7,12 @@ fn main() {
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let platform_config = match target_os.as_str() {
         "macos" => Some((
-            "../mac/tauri.conf.json",
-            include_str!("../mac/tauri.conf.json"),
+            "../../mac/tauri.conf.json",
+            include_str!("../../mac/tauri.conf.json"),
         )),
         "windows" => Some((
-            "../windows/tauri.conf.json",
-            include_str!("../windows/tauri.conf.json"),
+            "../../windows/tauri.conf.json",
+            include_str!("../../windows/tauri.conf.json"),
         )),
         _ => None,
     };

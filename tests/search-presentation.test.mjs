@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {matchRange, matchRanges, queryTerms, searchSnippet} from '../src/search-presentation.ts';
+import {matchRange, matchRanges, queryTerms, searchSnippet} from '../desktop/src/search-presentation.ts';
 
 const question = {
   stem: '关于页面导航，下列描述正确的是？',

@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
 import {gzipSync} from 'node:zlib';
-import {parseDelta,sha256} from '../shared/intake.ts';
+import {parseDelta,sha256} from '../desktop/shared/intake.ts';
 
 const root=new URL('../miniprogram/miniprogram/',import.meta.url);
 const fixture=fs.readFileSync(new URL('fixtures/intake/mobile-delta.json',import.meta.url),'utf8');

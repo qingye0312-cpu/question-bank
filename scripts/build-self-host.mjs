@@ -19,7 +19,7 @@ for (const name of files) {
   const from = name === 'intake.cjs' ? null
     : ['seed-bank.cjs','repair-bank-status.cjs'].includes(name) ? path.join(root, 'tools/self-host', name) : path.join(source, name);
   if (name === 'intake.cjs') {
-    const sourceText = await fs.readFile(path.join(root, 'shared/intake.ts'), 'utf8');
+    const sourceText = await fs.readFile(path.join(root, 'desktop/shared/intake.ts'), 'utf8');
     await fs.writeFile(path.join(output, name), ts.transpileModule(sourceText, {
       compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
     }).outputText);

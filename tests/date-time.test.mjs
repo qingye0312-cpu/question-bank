@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {calendarDate, calendarDays, localDateTime, moveCalendarDate, moveCalendarMonth, parseCalendarDate} from '../src/date-time.ts';
+import {calendarDate, calendarDays, localDateTime, moveCalendarDate, moveCalendarMonth, parseCalendarDate} from '../desktop/src/date-time.ts';
 
 test('calendar weeks start on Monday and include leap days and adjacent months', () => {
   const days = calendarDays('2024-02');

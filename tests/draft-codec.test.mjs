@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import {randomUUID,createHash} from 'node:crypto';
 import {createRequire} from 'node:module';
 import {gzipSync} from 'node:zlib';
-import {packText,unpackText} from '../shared/codec.ts';
-import {newDraft,pasteDraft,reviseDraft,DraftAutosave,migrationId} from '../shared/draft.ts';
-import {failedJob,UploadError} from '../shared/queue.ts';
+import {packText,unpackText} from '../desktop/shared/codec.ts';
+import {newDraft,pasteDraft,reviseDraft,DraftAutosave,migrationId} from '../desktop/shared/draft.ts';
+import {failedJob,UploadError} from '../desktop/shared/queue.ts';
 const nodeCodec=createRequire(import.meta.url)('../cloud/qbank-auth/codec.cjs');
 const reply={format:'qbank-photo-question-1',type:'single',stem:'题干',options:[{key:'A',content:'一'},{key:'B',content:'二'}],answer:['A'],answer_origin:'inferred',explanation:'解析',model:{name:'test',version:'1',version_source:'user'},warnings:[]};
 test('cloud gzip+Base64 is cross-runtime, bounded and detects size, hash, CRC and UTF-8 corruption',()=>{

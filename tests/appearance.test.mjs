@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
-import * as appearance from '../shared/appearance.ts';
-import {loadPreferences,preferenceKey,defaults} from '../src/preferences.ts';
-import {applyAppearance,systemScheme,watchSystemScheme} from '../src/appearance.ts';
+import * as appearance from '../desktop/shared/appearance.ts';
+import {loadPreferences,preferenceKey,defaults} from '../desktop/src/preferences.ts';
+import {applyAppearance,systemScheme,watchSystemScheme} from '../desktop/src/appearance.ts';
 const {themes,themeTokens,themeStyle,appearanceDefaults,normalizeAppearance,resolveAppearance}=appearance;
 
 function contrast(a,b){

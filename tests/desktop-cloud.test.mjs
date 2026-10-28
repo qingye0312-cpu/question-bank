@@ -5,10 +5,10 @@ import vm from 'node:vm';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import ts from 'typescript';
-import * as queue from '../shared/queue.ts';
+import * as queue from '../desktop/shared/queue.ts';
 import {randomUUID} from 'node:crypto';
-import * as sync from '../shared/sync.ts';
-import {packText} from '../shared/codec.ts';
+import * as sync from '../desktop/shared/sync.ts';
+import {packText} from '../desktop/shared/codec.ts';
 
 const bank='ad50971f-66af-51c2-bb0e-dc798b03b369';
 const payload=JSON.stringify({format:'qbank-snapshot-2',bank_id:bank,name:'测试库',revision:1,release_version:1,updated_at:'2026-10-17T00:00:00Z',formal:[],pending:[],removed:[]});
@@ -28,7 +28,7 @@ function client(invoke, state=new Map(), storage=new Map(), initialOrigin='https
   const require=name=>name==='@tauri-apps/api/core'?{invoke}:name.endsWith('shared/queue')?queue:name.endsWith('shared/sync')?sync:name.endsWith('.json')?JSON.parse(fs.readFileSync(path.resolve(path.dirname(file),name),'utf8')):load(path.resolve(path.dirname(file),name+'.ts'));
   vm.runInContext('(function(module,exports,require){'+compiled+'\n})',context)(entry,entry.exports,require);return entry.exports;
  }
- module.exports=load(path.join(root,'src/cloud-client.ts'));
+ module.exports=load(path.join(root,'desktop/src/cloud-client.ts'));
  if(initialOrigin)module.exports.setCloudOrigin(initialOrigin);return module.exports;
 }
 
