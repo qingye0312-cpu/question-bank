@@ -178,7 +178,14 @@ function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission})
     if(!questions.length&&fallback.length&&(!declaredAdded||declaredAdded===fallback.length))questions=fallback;
     const addedCount=declaredAdded===null?fallback.length:declaredAdded||fallback.length;
     if(questions.length!==addedCount)deny(502,'INCREMENTAL_JSON_INCOMPLETE','此修订的新增题目记录不完整');
-    return {revision,batch_id:merge?.batch_id||null,question_count:Number.isSafeInteger(merge?.question_count)?merge.question_count:questions.length,added_count:addedCount,questions};
+    const currentFormal=Array.isArray(s.formal)?s.formal:[],currentById=new Map(currentFormal.map(question=>[question.question_id,question])),currentByKey=new Map();
+    for(const question of currentFormal){try{currentByKey.set(key(question),question);}catch{/* Keep ID matching for malformed legacy records. */}}
+    const latestQuestions=questions.map(question=>{
+     const current=currentById.get(question.question_id)||(()=>{try{return currentByKey.get(key(question));}catch{return undefined;}})();
+     if(!current)deny(409,'REVISION_NOT_CURRENT','所选修订中的题目已不在最新正式题库中，请重新选择修订导出');
+     return safeQuestion(current);
+    });
+    return {revision,batch_id:merge?.batch_id||null,question_count:Number.isSafeInteger(merge?.question_count)?merge.question_count:latestQuestions.length,added_count:addedCount,questions:latestQuestions};
    }
    if(action==='history'&&method==='GET'){const formalLabel=s.release_version_label||`v${s.release_version}`;return {current_revision:s.revision,current_formal_revision:formalLabel.slice(1),release_version:s.release_version,release_version_label:formalLabel,versions:await history(b)};}
    if(method!=='POST')deny(405,'METHOD_NOT_ALLOWED','不支持此请求方法');
