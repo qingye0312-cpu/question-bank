@@ -78,9 +78,12 @@ fn clear_rolled_back_uploaded_entries(
     bank_id: &str,
     formal: &[Question],
 ) -> Result<()> {
+    // A package imported from disk can be marked uploaded manually, while a
+    // cloud receipt uses the `uploaded` status. Both are safe to discard when
+    // rollback removes the question; `pending` entries remain as local drafts.
     let formal_ids: HashSet<_> = formal.iter().map(|q| q.question_id.as_str()).collect();
     let mut stmt = c
-        .prepare("SELECT question_id,batch_id FROM intake_entries WHERE bank_id=?1 AND upload_status='uploaded'")
+        .prepare("SELECT question_id,batch_id FROM intake_entries WHERE bank_id=?1 AND upload_status IN ('uploaded','uploaded_manual')")
         .map_err(err)?;
     let all_entries: Vec<(String, String)> = stmt
         .query_map([bank_id], |row| Ok((row.get(0)?, row.get(1)?)))
@@ -96,7 +99,7 @@ fn clear_rolled_back_uploaded_entries(
     for (question_id, batch_id) in stale {
         batches.insert(batch_id);
         c.execute(
-            "DELETE FROM intake_entries WHERE bank_id=?1 AND question_id=?2 AND upload_status='uploaded'",
+            "DELETE FROM intake_entries WHERE bank_id=?1 AND question_id=?2 AND upload_status IN ('uploaded','uploaded_manual')",
             params![bank_id, question_id],
         )
         .map_err(err)?;

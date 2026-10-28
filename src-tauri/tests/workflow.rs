@@ -5,6 +5,7 @@ use question_bank::{
     model::*,
 };
 use serde_json::json;
+use rusqlite::OptionalExtension;
 use std::io::Read;
 fn setup() -> (tempfile::TempDir, Store, String) {
     let d = tempfile::tempdir().unwrap();
@@ -169,6 +170,66 @@ fn compressed_exchange_freezes_identity_and_receipt_cannot_be_forged_by_mismatch
     broken["uncompressed_size"] = json!(1);
     assert!(cloud::decode(&serde_json::to_vec(&broken).unwrap()).is_err());
 }
+
+#[test]
+fn rollback_clears_manual_upload_entries_and_import_fingerprints() {
+    let (d, s, b) = setup();
+    let saved = intake::save(&s, &b, "", &reply()).unwrap();
+    let question = saved.comparison.question.clone();
+    intake::mark_upload(&s, &b, &question.question_id, true).unwrap();
+    let file = d.path().join("rollback.qbank-delta.json");
+    intake::export(&s, &saved.batch_id, &file).unwrap();
+
+    // Record the package fingerprint while its question is still present.
+    let imported = intake::import(&s, &file).unwrap();
+    assert_eq!(imported.added, 0);
+    assert_eq!(imported.skipped, 1);
+
+    let mut seed = question.clone();
+    seed.status = "verified".into();
+    let initial = json!({
+        "format": "qbank-snapshot-2",
+        "bank_id": b,
+        "name": "测试题库",
+        "revision": 1,
+        "release_version": 1,
+        "updated_at": now(),
+        "formal": [seed],
+        "pending": [],
+        "removed": []
+    })
+    .to_string();
+    cloud::apply(&s, &initial, &hash(initial.as_bytes())).unwrap();
+
+    let rolled_back = json!({
+        "format": "qbank-snapshot-2",
+        "bank_id": b,
+        "name": "测试题库",
+        "revision": 2,
+        "release_version": 1,
+        "updated_at": now(),
+        "rollback_of": 1,
+        "formal": [],
+        "pending": [],
+        "removed": []
+    })
+    .to_string();
+    cloud::apply(&s, &rolled_back, &hash(rolled_back.as_bytes())).unwrap();
+
+    let status: Option<String> = s
+        .conn()
+        .unwrap()
+        .query_row(
+            "SELECT upload_status FROM intake_entries WHERE bank_id=?1 AND question_id=?2",
+            rusqlite::params![b, question.question_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .unwrap();
+    assert_eq!(status, None);
+    assert_eq!(intake::import(&s, &file).unwrap().added, 1);
+}
+
 #[test]
 fn cloud_layers_swap_atomically_preserve_drafts_and_reject_bad_updates() {
     let (_d, s, b) = setup();
