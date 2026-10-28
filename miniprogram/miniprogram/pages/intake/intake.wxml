@@ -32,7 +32,7 @@
   <view wx:else class="empty"><view class="empty-icon">＋</view><view>从一道题开始</view><view class="muted">粘贴后直接核对并编辑整道题</view><button bindtap="onManual" disabled="{{busy}}">手工录题</button></view>
  </view>
  <view wx:elif="{{tab==='records'}}" class="records"><input placeholder-class="theme-placeholder" placeholder="搜索待上传题目" value="{{query}}" bindinput="onSearch"/><view wx:for="{{visibleRecords}}" wx:key="id" class="record"><view data-id="{{item.id}}" bindtap="onEdit"><view class="record-title">{{item.stem}}</view><view class="muted {{item.invalid?'warning':''}}">{{item.status}} · {{item.recordedAt}}</view><view wx:if="{{item.invalid}}" class="warning">{{item.issue}}</view></view><view class="record-actions"><button size="mini" data-id="{{item.id}}" bindtap="onEdit" disabled="{{busy}}">{{item.editable?'修改':'查看'}}</button><button wx:if="{{item.editable}}" class="record-delete" size="mini" data-id="{{item.id}}" bindtap="onRemove" disabled="{{busy}}">删除</button></view></view><view wx:if="{{!records.length}}" class="empty">当前没有待上传题目</view>
-  <button class="disclosure" bindtap="onTools">JSON 导入与导出 {{tools?'⌃':'⌄'}}</button><view wx:if="{{tools}}" class="file-tools"><button bindtap="onExport">导出待上传题目 JSON</button><button wx:if="{{filePath}}" bindtap="onShare">转发导出 JSON</button><button bindtap="onImport">从聊天导入 JSON</button></view>
+  <button class="disclosure" bindtap="onTools">JSON 导入与导出 {{tools?'⌃':'⌄'}}</button><view wx:if="{{tools}}" class="file-tools"><button bindtap="onExport">导出并打开聊天发送</button><button wx:if="{{filePath}}" bindtap="onShare">转发导出 JSON</button><button bindtap="onImport">从聊天导入 JSON</button></view>
  </view>
  <view wx:else class="uploads"><view class="muted">每次点击上传只发送一个压缩包，重试使用原包。成功批次会从待上传列表清除。</view><view wx:for="{{jobs}}" wx:key="id" class="record"><view><view class="record-title">{{item.label}}</view><view class="muted">{{item.time}}</view><view class="warning">{{item.error}}</view><view wx:if="{{item.syncError}}" class="warning">已上传，下载尚未完成：{{item.syncError}}<button bindtap="onSync" disabled="{{busy}}">重试下载</button></view></view></view><view wx:if="{{!jobs.length}}" class="empty">当前没有待处理的云端任务</view><button wx:if="{{jobs.length}}" bindtap="onRetry" disabled="{{busy}}">恢复待处理任务</button><view class="maintainer-apply">
   <view class="label">题库维护者</view>
@@ -70,13 +70,16 @@
     <view class="label identity-label">身份说明（必填）</view>
     <textarea class="identity-input" placeholder-class="theme-placeholder" value="{{maintainerIdentity}}" bindinput="onMaintainerIdentity" maxlength="500" auto-height="{{true}}" placeholder="班级/单位或与题库的关系，方便管理员核实" disabled="{{busy || applying}}"/>
     <view class="muted identity-count">{{maintainerIdentity.length}} / 500</view>
-    <view class="label identity-label">申请维护的题库（可多选）</view>
+    <view class="permission-section-title">申请维护的题库</view>
+    <view class="permission-section-hint">可多选；提交后由桌面管理员核实并授权。</view>
     <view wx:if="{{maintainerBanksLoading}}" class="muted">正在读取可申请的云端题库…</view>
     <view wx:elif="{{maintainerBanksError}}" class="issue">{{maintainerBanksError}}<button size="mini" bindtap="onRefreshMaintainerBanks" disabled="{{busy || applying || maintainerBanksLoading}}">重新获取</button></view>
     <checkbox-group wx:elif="{{maintainerBanks.length}}" class="maintainer-bank-list" bindchange="onMaintainerBanksChange">
-     <label wx:for="{{maintainerBanks}}" wx:key="bank_id" class="maintainer-bank-option {{item.checked?'checked':''}}"><checkbox value="{{item.bank_id}}" checked="{{item.checked}}" disabled="{{busy || applying}}"/><text>{{item.name}}</text></label>
+     <label wx:for="{{maintainerBanks}}" wx:key="bank_id" class="maintainer-bank-option {{item.checked?'checked':''}}"><checkbox value="{{item.bank_id}}" checked="{{item.checked}}" disabled="{{busy || applying}}"/><view class="maintainer-bank-copy"><text class="maintainer-bank-name">{{item.name}}</text><text class="maintainer-bank-hint">题库维护权限</text></view><text class="maintainer-bank-check">{{item.checked?'已选择':'选择'}}</text></label>
     </checkbox-group>
-    <checkbox-group class="permission-list" bindchange="onToggleExportPermission"><label><checkbox value="export" checked="{{applyExportPermission}}" disabled="{{busy || applying}}"/><text>申请 Word 导出权限</text></label></checkbox-group>
+    <view class="permission-section-title permission-section-title-export">其他权限</view>
+    <view class="permission-section-hint">需要把题库整理成 Word 时再申请即可。</view>
+    <checkbox-group class="permission-list" bindchange="onToggleExportPermission"><label class="permission-option {{applyExportPermission?'checked':''}}"><view class="permission-icon">W</view><view class="permission-copy"><text class="permission-title">Word 导出权限</text><text class="permission-subtitle">导出题库为可编辑的 Word 文档</text></view><checkbox value="export" checked="{{applyExportPermission}}" disabled="{{busy || applying}}"/><text class="permission-badge">{{applyExportPermission?'已选择':'申请'}}</text></label></checkbox-group>
     <view class="label identity-label">密码</view>
     <input password placeholder-class="theme-placeholder" value="{{maintainerPassword}}" bindinput="onMaintainerPassword" placeholder="8–128 个字符，含大小写字母和数字" disabled="{{busy || applying}}"/>
     <view wx:for="{{maintainerPasswordRules}}" wx:key="key" class="password-check {{item.valid?'valid':'invalid'}}">{{item.valid?'✓':'○'}} {{item.label}}</view>

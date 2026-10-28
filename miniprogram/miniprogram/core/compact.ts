@@ -3,17 +3,36 @@ import type {Question} from './search';
 
 // Mobile read-only projection. Editorial provenance and option UUIDs stay in desktop source.
 export type CompactBank = {v: 1|2; release: string; dict: string[]; rows: unknown[][]};
+export type CompactBundle = {
+  v: 3;
+  dict: string[];
+  banks: Record<string, {release: string; rows: unknown[][]}>;
+};
 const types = ['single', 'multiple', 'true_false', 'programming'] as const;
-export function encodeCompact(questions: Question[], release: string): CompactBank {
+const repeatedDictionary = (banks: Question[][]): string[] => {
   const counts = new Map<string, number>();
   const strings = (q: Question): string[] => [q.chapter, ...q.tags, q.explanation, ...q.options.map(o => o.content)];
-  for (const q of questions) for (const s of strings(q)) counts.set(s, (counts.get(s) || 0) + 1);
-  const dict = [...counts].filter(([s, n]) => n > 1 && s.length > 3).map(([s]) => s).sort();
+  for (const questions of banks) for (const q of questions) for (const s of strings(q)) counts.set(s, (counts.get(s) || 0) + 1);
+  return [...counts].filter(([s, n]) => n > 1 && s.length > 3).map(([s]) => s).sort();
+};
+const encodeRows = (questions: Question[], dict: string[]): unknown[][] => {
   const lookup = new Map(dict.map((s, i) => [s, i]));
   const ref = (s: string): string | number => lookup.has(s) ? lookup.get(s)! : s;
-  return {v: 2, release, dict, rows: questions.map(q => [q.question_id, q.external_id,
+  return questions.map(q => [q.question_id, q.external_id,
     types.indexOf(q.type), q.stem, q.options.map(o => [o.key, ref(o.content)]), q.answer,
-    ref(q.chapter), q.tags.map(ref), ref(q.explanation), recordedTime(q), q.recorded_at_source||(recordedTime(q)?'source':'unknown'),q.updated_at||null])};
+    ref(q.chapter), q.tags.map(ref), ref(q.explanation), recordedTime(q), q.recorded_at_source||(recordedTime(q)?'source':'unknown'),q.updated_at||null]);
+};
+export function encodeCompact(questions: Question[], release: string): CompactBank {
+  const dict = repeatedDictionary([questions]);
+  return {v: 2, release, dict, rows: encodeRows(questions, dict)};
+}
+export function encodeCompactBundle(entries: {bankId: string; release: string; questions: Question[]}[]): CompactBundle {
+  if (!entries.length || new Set(entries.map(entry => entry.bankId)).size !== entries.length) {
+    throw new Error('压缩题库包必须包含至少一个且不重复的题库');
+  }
+  const dict = repeatedDictionary(entries.map(entry => entry.questions));
+  return {v: 3, dict, banks: Object.fromEntries(entries.map(entry => [entry.bankId,
+    {release: entry.release, rows: encodeRows(entry.questions, dict)}]))};
 }
 
 export function decodeCompact(value: CompactBank, release: string, count: number): string[] {
@@ -42,6 +61,21 @@ export function decodeCompact(value: CompactBank, release: string, count: number
       stem, options: restored, answer, external_id: number, bank: '', chapter: str(chapter),
       tags: tags.map(str), explanation: str(explanation), status: answer === null ? 'needs_review' : 'unreviewed'});
   });
+}
+
+export function decodeCompactBundle(value: CompactBundle, manifests: {bank_id: string; release_id: string; question_count: number}[]): Map<string, string[]> {
+  if (!value || value.v !== 3 || !Array.isArray(value.dict) || !value.dict.every(s => typeof s === 'string')
+      || !value.banks || typeof value.banks !== 'object') throw new Error('压缩题库包格式无效或版本不一致');
+  const decoded = new Map<string, string[]>();
+  for (const manifest of manifests) {
+    const bank = value.banks[manifest.bank_id];
+    if (!bank || bank.release !== manifest.release_id) throw new Error('压缩题库包缺少题库或版本不一致');
+    const lines = decodeCompact({v: 2, release: bank.release, dict: value.dict, rows: bank.rows},
+      manifest.release_id, manifest.question_count);
+    decoded.set(manifest.bank_id, lines);
+  }
+  if (Object.keys(value.banks).length !== manifests.length) throw new Error('压缩题库包包含未知题库');
+  return decoded;
 }
 
 export function decodeUtf8(buffer: ArrayBuffer): string {

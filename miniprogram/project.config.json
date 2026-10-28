@@ -56,6 +56,14 @@
         "type": "file"
       },
       {
+        "value": "data/bundle-manifest.json",
+        "type": "file"
+      },
+      {
+        "value": "data/bundle-index.json",
+        "type": "file"
+      },
+      {
         "value": "pages/logs",
         "type": "folder"
       },

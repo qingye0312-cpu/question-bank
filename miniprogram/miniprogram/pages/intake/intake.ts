@@ -153,8 +153,13 @@ Page({
  },
  onSync(){void this.run(()=>controller!.sync())},
  onLogout(){void cloud.logout();void pauseUploads().catch(e=>{controller!.error=String(e);controller!.render()});this.setData({loggedIn:false,hasExportPermission:false,pendingExportPermission:false,maintainerPhone:'',maintainerPhoneDisplay:'',maintainerPassword:'',maintainerPasswordConfirm:'',maintainerPasswordValid:false,maintainerPasswordsMatch:false,maintainerResetToken:'',maintainerAccountStatus:'',maintainerAuthType:'',applicationMessage:'已退出登录'})},
- onExport(){void this.run(async()=>{const file=await controller!.export();this.setData({...file,notice:'已导出，题目仍可修改；未触发上传'})})},
- onShare(){if(!this.data.filePath)return;(wx as WechatMiniprogram.Wx & {shareFileMessage:(options:{filePath:string;fileName:string;fail:(e:{errMsg:string})=>void})=>void}).shareFileMessage({filePath:this.data.filePath,fileName:this.data.fileName,fail:e=>this.setData({error:e.errMsg})})},
+ async shareExportFile(filePath:string,fileName:string){
+  const wxApi=wx as WechatMiniprogram.Wx & {shareFileMessage?: (options:{filePath:string;fileName:string;success?:()=>void;fail:(e:{errMsg:string})=>void})=>void};
+  if(typeof wxApi.shareFileMessage!=='function'){this.setData({notice:'文件已导出，请点击“转发导出 JSON”选择聊天发送'});return;}
+  await new Promise<void>((resolve,reject)=>wxApi.shareFileMessage!({filePath,fileName,success:resolve,fail:reject}));
+ },
+ onExport(){void this.run(async()=>{const file=await controller!.export();this.setData({...file,notice:'正在打开聊天分享面板…'});await this.shareExportFile(file.filePath,file.fileName);this.setData({notice:'已打开聊天分享面板，选择联系人即可发送 JSON'})})},
+ onShare(){if(!this.data.filePath)return;void this.shareExportFile(this.data.filePath,this.data.fileName).catch(error=>this.setData({error:error instanceof Error?error.message:(error as any)?.errMsg||String(error)}))},
  onCreateBank(){wx.showModal({title:'新建私人本地题库',editable:true,placeholderText:'题库名称',success:r=>{if(r.confirm)void this.run(async()=>{const id=await createBank(r.content||''),banks=await listBanks();await controller!.open(id);this.setData({banks,bankIndex:banks.findIndex(b=>b.id===id),tab:'edit'})})}})},
  onImport(){wx.chooseMessageFile({count:1,type:'file',extension:['json'],success:r=>{void this.run(async()=>{const path=r.tempFiles[0].path;const text=await new Promise<string>((resolve,reject)=>wx.getFileSystemManager().readFile({filePath:path,encoding:'utf8',success:v=>resolve(v.data as string),fail:reject}));const result=await importDelta(text);const banks=await listBanks();await controller!.open(result.bankId);this.setData({banks,bankIndex:banks.findIndex(b=>b.id===result.bankId),tab:'records',notice:`已导入 ${result.added} 题，未上传`})})}})},
 });

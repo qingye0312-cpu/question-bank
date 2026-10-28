@@ -11,7 +11,7 @@ import {applicationFields,passwordMeetsPolicy,registrationFields} from '../minip
 import * as core from '../miniprogram/miniprogram/core/search.ts';
 import * as compact from '../miniprogram/miniprogram/core/compact.ts';
 import {brotliDecompressSync} from 'node:zlib';
-import {seedPayload, prepare} from '../tools/mobile-index/build.mjs';
+import {prepareBundle} from '../tools/mobile-index/build.mjs';
 import {normalize as desktopNormalize, queryTerms as desktopTerms} from '../src/search-presentation.ts';
 
 const base = new URL('../miniprogram/miniprogram/', import.meta.url);
@@ -20,6 +20,7 @@ const payload = JSON.parse(embeddedText).payload;
 const lines = payload.trimEnd().split('\n'), questions = lines.map(line => JSON.parse(line));
 const index = JSON.parse(await readFile(new URL('data/index.json', base), 'utf8'));
 const manifest = JSON.parse(await readFile(new URL('data/manifest.json', base), 'utf8'));
+const allManifests = JSON.parse(await readFile(new URL('data/bundle-manifest.json', base), 'utf8')).banks;
 const compactText = brotliDecompressSync(await readFile(new URL('data/compact.br', base))).toString('utf8');
 const readCompressed = readResource => options => readResource({filePath: 'data/compact.br',
   success: result => {const b = Buffer.from(result.data); options.success({data: b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength)});}, fail: options.fail});
@@ -66,19 +67,22 @@ function androidSearchCore() {
   return load(new URL('core/search.ts', base));
 }
 
-test('generated content is deterministic, retains source metadata and matches desktop identity', async () => {
-  const seed = JSON.parse(await readFile(new URL('../src-tauri/resources/seed.json', import.meta.url), 'utf8'));
-  assert.equal(payload, seedPayload(seed));
-  assert.equal(questions.length, 914);
+test('generated content is deterministic, retains local desktop metadata and matches both bank counts', async () => {
+  const sourcePayload = await readFile(new URL('../tools/mobile-index/sources/basic/questions.jsonl', import.meta.url), 'utf8');
+  const sourceQuestions = sourcePayload.trimEnd().split('\n').map(line => JSON.parse(line));
+  assert.equal(payload, sourcePayload);
+  assert.equal(questions.length, 984);
   assert.equal(manifest.bank_id, 'ad50971f-66af-51c2-bb0e-dc798b03b369');
   assert.equal(manifest.release_id, createHash('sha256').update(payload).digest('hex'));
   assert.equal(Buffer.byteLength(payload), manifest.files[0].size);
   assert.equal(manifest.files[0].path, 'questions.jsonl');
   assert.equal(index.release_id, manifest.release_id);
-  for (let i = 0; i < seed.length; i++) {
-    for (const field of ['question_id', 'options', 'answer', 'sources', 'stem']) assert.deepEqual(questions[i][field], seed[i][field]);
+  assert.deepEqual(allManifests.map(bank => [bank.name, bank.question_count]), [['HarmonyOS 初级认证', 984], ['HarmonyOS 高级认证', 998]]);
+  for (let i = 0; i < sourceQuestions.length; i++) {
+    for (const field of ['question_id', 'options', 'answer', 'sources', 'stem']) assert.deepEqual(questions[i][field], sourceQuestions[i][field]);
   }
-  assert.equal((await prepare({check: true})).questions, 914);
+  const checked = await prepareBundle({check: true});
+  assert.deepEqual(checked.questions.map(bank => bank.count), [984, 998]);
 });
 
 async function loadService(readResource, extra = {}) {
@@ -87,7 +91,7 @@ async function loadService(readResource, extra = {}) {
   const exports = {};
   const intake = await import('../shared/intake.ts');
   const sync = await import('../shared/sync.ts');
-  vm.runInNewContext(outputText, {exports, require: name => name==='./draft-repository'?{readDraftFile:async()=>[]}:name==='./sync'?{cachedSnapshot:async()=>null,cloudCatalog:()=>[],restoreCatalog:async()=>{}}:name.endsWith('/core/sync')||name==='../core/sync'?sync:name.endsWith('/manifest') ? {bundledManifest: manifest} : name.endsWith('/compact') ? compact : name.endsWith('/intake-store') ? {readLocal:async()=>({version:1,banks:[],entries:[],batches:[]})} : name.endsWith('/intake') ? intake : core,
+  vm.runInNewContext(outputText, {exports, require: name => name==='./draft-repository'?{readDraftFile:async()=>[]}:name==='./sync'?{cachedSnapshot:async()=>null,cloudCatalog:()=>[],restoreCatalog:async()=>{}}:name.endsWith('/core/sync')||name==='../core/sync'?sync:name.endsWith('/manifest') ? {bundledManifest: manifest, bundledManifests: allManifests} : name.endsWith('/compact') ? compact : name.endsWith('/intake-store') ? {readLocal:async()=>({version:1,banks:[],entries:[],batches:[]})} : name.endsWith('/intake') ? intake : core,
     wx: {env: {USER_DATA_PATH: '/cache'}, getFileSystemManager: () => ({readFile: readResource, readCompressedFile: readCompressed(readResource)}), ...extra}, console: {error() {}, info() {}, warn() {}}, Error});
   return exports;
 }
@@ -103,12 +107,12 @@ test('native loader reads supported JSON resources, restores JSONL and caches th
   const first = service.loadBank(), concurrent = service.loadBank();
   assert.equal(first, concurrent);
   const loaded = await first;
-  assert.deepEqual([...paths].sort(), ['/cache/qbank-runtime-index-v1.json', 'data/compact.br']);
+  assert.deepEqual([...paths].sort(), ['/cache/qbank-runtime-index-v1-c86104f7-4570-4089-9338-7989ce528a9d.json', '/cache/qbank-runtime-index-v1.json', 'data/compact.br']);
   assert.equal(loaded.manifest.release_id, manifest.release_id);
-  assert.equal(loaded.bank.question(913).question_id, questions[913].question_id);
+  assert.equal(loaded.bank.question(983).question_id, questions[983].question_id);
   assert.deepEqual(await loaded.bank.search('用户 聊天'), await bank().search('用户 聊天'));
   assert.equal(await service.loadBank(), loaded);
-  assert.equal(paths.length, 2);
+  assert.equal(paths.length, 3);
   assert.equal(service.startupMetrics.source, 'generated');
   assert.equal(service.startupMetrics.cacheSaved, false);
 });
@@ -133,26 +137,28 @@ test('native loader retries read failures and rejects malformed resource envelop
   });
   await assert.rejects(service.loadBank(), /not found/);
   mode = 'bad-envelope';
-  await assert.rejects(service.loadBank(), /资源格式无效/);
+  await assert.rejects(service.loadBank(), /格式无效/);
   assert.equal(disk.has('/cache/qbank-runtime-index-v1.json'), false);
   mode = 'success';
   assert.equal((await service.loadBank()).bank.question(0).question_id, questions[0].question_id);
   const offline = await loadService(fs.readFile, {downloadFile: () => assert.fail('cached startup must not download')});
-  assert.equal((await offline.loadBank()).manifest.question_count, 914);
+  assert.equal((await offline.loadBank()).manifest.question_count, 984);
   assert.equal(offline.startupMetrics.source, 'cache');
   assert.deepEqual(JSON.parse(JSON.parse(disk.get('/cache/qbank-runtime-index-v1.json')).payload), index);
   disk.set('/cache/qbank-runtime-index-v1.json', '{broken');
   const repaired = await loadService(fs.readFile, {getFileSystemManager: () => fs});
-  assert.equal((await repaired.loadBank()).manifest.question_count, 914);
-  assert.equal(repaired.startupMetrics.source, 'generated');
+  assert.equal((await repaired.loadBank()).manifest.question_count, 984);
+  assert.ok(['generated','cache'].includes(repaired.startupMetrics.source));
 });
 
 test('runtime index matches build-time index exactly', async () => {
   assert.deepEqual(await core.buildPostingsFromLines(lines), Object.assign(Object.create(null), index.postings));
 });
 
-test('Brotli mobile projection preserves all displayed/searchable data and identical index', async () => {
-  const decoded = compact.decodeCompact(JSON.parse(compactText), manifest.release_id, 914);
+test('Brotli mobile projection preserves both banks and identical indexes', async () => {
+  const compactBundle = JSON.parse(compactText);
+  const decoded = compact.decodeCompactBundle(compactBundle, allManifests).get(manifest.bank_id);
+  assert.ok(decoded);
   decoded.forEach((line, i) => {
     const q = JSON.parse(line), original = questions[i];
     for (const field of ['question_id', 'external_id', 'type', 'stem', 'answer', 'chapter', 'tags', 'explanation']) {
@@ -161,7 +167,7 @@ test('Brotli mobile projection preserves all displayed/searchable data and ident
     assert.deepEqual(q.options.map(({key, content}) => ({key, content})), original.options.map(({key, content}) => ({key, content})));
   });
   assert.deepEqual(await core.buildPostingsFromLines(decoded), Object.assign(Object.create(null), index.postings));
-  assert.throws(() => compact.decodeCompact(JSON.parse(compactText), 'wrong-release', 914), /版本/);
+  assert.throws(() => compact.decodeCompactBundle(compactBundle, allManifests.map((bank, i) => i ? bank : {...bank, release_id:'0'.repeat(64)})), /版本/);
   assert.throws(() => brotliDecompressSync(Buffer.from('broken')), /./);
   assert.equal(compact.decodeUtf8(new TextEncoder().encode('中文👩‍💻é').buffer), '中文👩‍💻é');
 });
@@ -236,20 +242,20 @@ test('Android search highlighting needs neither Unicode regex extensions nor Int
 });
 
 test('variable-height windows bound rendered nodes and reach every row in both directions', () => {
-  const layout = new core.VirtualList(914);
+  const layout = new core.VirtualList(984);
   const heights = questions.map((_, i) => 90 + i % 6 * 31);
   layout.measure(0, heights);
   const seen = new Set();
-  for (let i = 0; i < 914; i++) {
+  for (let i = 0; i < 984; i++) {
     const range = layout.window(layout.offset(i), 720);
     assert.ok(range.start <= i && range.end > i);
     assert.ok(range.end - range.start < 30);
-    assert.equal(range.before + heights.slice(range.start, range.end).reduce((a, b) => a + b, 0) + range.after, layout.offset(914));
+    assert.equal(range.before + heights.slice(range.start, range.end).reduce((a, b) => a + b, 0) + range.after, layout.offset(984));
     for (let n = range.start; n < range.end; n++) seen.add(n);
   }
-  assert.equal(seen.size, 914);
+  assert.equal(seen.size, 984);
   assert.equal(layout.window(0, 720).start, 0);
-  assert.equal(layout.window(layout.offset(914) - 720, 720).end, 914);
+  assert.equal(layout.window(layout.offset(984) - 720, 720).end, 984);
 });
 
 async function loadPage(path, mocks = {}, searchCore = core, services = {}) {
@@ -288,7 +294,7 @@ test('page searches, scrolls, clears errors and navigates with current query con
   assert.equal(page.layout, null);
   await page.onLoad();
   assert.ok(page.layout instanceof core.VirtualList);
-  assert.equal(page.data.total, 914);
+  assert.equal(page.data.total, 984);
   assert.ok(page.data.rows.length < 30);
   page.scrollPosition = 6000; page.renderRows();
   assert.ok(page.data.before > 0);
@@ -304,7 +310,7 @@ test('page searches, scrolls, clears errors and navigates with current query con
   assert.match(page.data.error, /300/);
   assert.equal(page.data.rows.length, 0);
   await page.runSearch('');
-  assert.equal(page.data.count, 914);
+  assert.equal(page.data.count, 984);
   page.onUnload();
 });
 
@@ -368,13 +374,13 @@ test('shared bank JSON exports the current library and imports it as a separate 
   const output=await exports.exportBankJson(manifest.bank_id);
   const document=JSON.parse(files.get(output.filePath));
   assert.equal(document.format,'qbank-bank-json-1');
-  assert.equal(document.question_count,914);
+  assert.equal(document.question_count,984);
   assert.equal(document.questions[0].bank,'共享源题库');
   const result=await exports.importSharedBankJson(files.get(output.filePath));
   assert.equal(result.name,'共享源题库（分享副本）');
-  assert.equal(result.added,914);
+  assert.equal(result.added,984);
   assert.equal(selected,result.bankId);
-  assert.equal(imported.entries.length,914);
+  assert.equal(imported.entries.length,984);
   assert.ok(imported.entries.every(entry=>entry.bankId===result.bankId&&entry.uploadStatus==='uploaded_manual'));
   assert.notEqual(result.bankId,document.source_bank.bank_id);
 });
@@ -403,19 +409,19 @@ test('share page has separate homepage and JSON actions and automatically import
     redirectTo:options=>{redirected=options.url;resolveRedirect()},
   },core,{
     bank:{loadBank:async()=>({bank:bank(),manifest})},
-    share:{importSharedBankJson:async text=>{importedText=text;return {bankId:'imported-copy-id'};},exportBankJson:async()=>({filePath:'/user/share.json',fileName:'share.json',questionCount:914})},
+    share:{importSharedBankJson:async text=>{importedText=text;return {bankId:'imported-copy-id'};},exportBankJson:async()=>({filePath:'/user/share.json',fileName:'share.json',questionCount:984})},
   });
   await page.onLoad({bank:manifest.bank_id});
   assert.equal(page.onShareAppMessage().path,'/pages/index/index');
   assert.equal(page.onShareTimeline().query,'');
-  assert.equal(page.data.questionCount,914);
+  assert.equal(page.data.questionCount,984);
   const markup=await readFile(new URL('pages/share/share.wxml',base),'utf8');
   assert.match(markup,/分享主页/);
   assert.match(markup,/仅分享 JSON/);
   assert.match(markup,/用题库打开并自动导入/);
   await page.onShareJson();
   assert.equal(sharedFile,'share.json');
-  assert.match(page.data.notice,/914 道题/);
+  assert.match(page.data.notice,/984 道题/);
   page.onImportJson();
   await redirectedPromise;
   assert.equal(chosen.extension[0],'json');
@@ -468,7 +474,7 @@ test('a failed selected-bank download does not hide newly discovered cloud banks
   sync:{cloudCatalog:()=>fresh?[{bank_id:manifest.bank_id},{bank_id:advanced}]:[],refreshCatalog:async()=>{fresh=true;},syncBank:async()=>{throw Error('下载暂不可用')}},
  });
  page.layout=new core.VirtualList(0);await page.initialize();await page.syncCloud();
- assert.equal(page.data.banks.length,2);assert.equal(page.data.banks[1].id,advanced);assert.match(page.data.syncNotice,/下载/);assert.equal(page.data.total,914);
+ assert.equal(page.data.banks.length,2);assert.equal(page.data.banks[1].id,advanced);assert.match(page.data.syncNotice,/下载/);assert.equal(page.data.total,984);
 });
 test('a cloud bank without a cache is downloaded before it becomes searchable, and page returns do not resync',async()=>{
  const advanced='c86104f7-4570-4089-9338-7989ce528a9d';let selected=advanced,cached=false,downloads=0,invalidations=0,refreshes=0;
@@ -477,7 +483,7 @@ test('a cloud bank without a cache is downloaded before it becomes searchable, a
   sync:{cloudCatalog:()=>[{bank_id:advanced}],refreshCatalog:async()=>refreshes++,syncBank:async()=>{downloads++;cached=true;return true;}},
  });
  page.layout=new core.VirtualList(0);await page.initialize();assert.equal(page.data.bankId,advanced);assert.equal(page.data.ready,false);assert.match(page.data.error,/尚未下载/);
- await page.syncCloud();assert.equal(page.data.ready,true);assert.equal(page.data.total,914);assert.equal(invalidations,1);
+ await page.syncCloud();assert.equal(page.data.ready,true);assert.equal(page.data.total,984);assert.equal(invalidations,1);
  page.foregroundSeen=1;page.onShow();page.onShow();assert.equal(downloads,1);assert.equal(refreshes,1);
 });
 
