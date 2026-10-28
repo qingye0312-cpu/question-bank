@@ -522,3 +522,12 @@ test('maintainer registration validates required information, shows progress and
  const markup=await readFile(new URL('pages/intake/intake.wxml',base),'utf8');assert.ok(!markup.includes('getPhoneNumber'));assert.match(markup,/真实姓名（必填）/);assert.match(markup,/昵称（必填，用于记录上传者）/);
  page.onUnload();
 });
+
+test('intake export button shares a prepared file directly from the tap handler',async()=>{
+ let shared=0;
+ const page=await loadPage('pages/intake/intake.ts',{shareFileMessage:options=>{shared++;options.success?.()}},core,{controller:{IntakeController:class{}}});
+ page.setData({pendingCount:1,filePath:'/user/export.json',fileName:'export.json',exportPrepared:true});
+ page.onExport();
+ assert.equal(shared,1);
+ assert.match(page.data.notice,/已打开聊天分享面板/);
+});
