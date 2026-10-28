@@ -276,6 +276,13 @@ pub fn apply(store: &Store, payload: &str, digest: &str) -> Result<()> {
         params![s.bank_id, s.revision as i64, payload, digest],
     )
     .map_err(err)?;
+    // A rollback can make a previously imported package valid again. The
+    // question-level checks above still prevent current formal questions from
+    // being added twice, so clear only the bank's package fingerprints.
+    if s.rollback_of.is_some() {
+        tx.execute("DELETE FROM delta_imports WHERE bank_id=?1", [&s.bank_id])
+            .map_err(err)?;
+    }
     if let (Some(name), Some(digest)) = (&s.release_name, &s.release_id) {
         let result_at = s.rollback_at.as_deref().or(s.merged_at.as_deref());
         db::set_result(&tx, &s.bank_id, result_at, name, digest)?;

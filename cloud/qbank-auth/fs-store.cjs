@@ -97,6 +97,8 @@ function createFileStore({ root = process.env.QBANK_STORAGE_ROOT || '/var/lib/qb
       formal,
       pending: [],
       resolved: structuredClone(target.resolved || []),
+      batches: structuredClone(target.batches || []),
+      merge_history: structuredClone(target.merge_history || []),
       updated_at: ref.updated_at,
       merged_at: ref.merged_at,
       release_id: ref.release_id,
