@@ -151,7 +151,7 @@ export function QuestionExport({banks, defaultBankId, busy, onClose, onExport}: 
               {revisionLoading ? <p className="question-export-range-note">正在读取修订记录…</p> : !revisions.length ? <p className="question-export-range-note">当前题库暂无可用修订记录。</p> : <>
                 <div className="question-export-revision-table-wrap"><table className="question-export-revision-table"><thead><tr><th scope="col">选择</th><th scope="col">正式版</th><th scope="col">提交者</th><th scope="col">题目数量</th><th scope="col">提交时间</th></tr></thead><tbody>{revisions.map(row => {
                   const added = row.added_count || 0, canSelect = !!(row.has_revision_questions ?? row.has_incremental_json) && added > 0, checked = selectedRevisions.includes(row.revision);
-                  const displayRevision = row.formal_revision || String(row.revision);
+                  const displayRevision = String(row.revision);
                   return <tr key={row.revision} className={!canSelect ? 'unavailable' : ''}><td><input type="checkbox" checked={checked} disabled={busy || !canSelect} aria-label={`选择修订 ${displayRevision}`} onChange={() => setSelectedRevisions(current => checked ? current.filter(value => value !== row.revision) : [...current, row.revision])}/></td><td>修订 {displayRevision} · {row.release_version_label || `v${row.release_version}`}</td><td>{displayUploader(row.uploader_real_name,row.uploader_nickname)}</td><td>{added.toLocaleString()} 题</td><td>{new Date(row.updated_at).toLocaleString()}</td></tr>;
                 })}</tbody></table></div>
                 <p className="question-export-range-note">可多选有新增题目的正式修订；回退记录已隐藏，不会重复计入导出。</p>
