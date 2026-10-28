@@ -513,7 +513,7 @@ test('maintainer registration validates required information, shows progress and
  page.onLoad();await new Promise(r=>setTimeout(r,0));
  page.setData({maintainerPassword:'StrongPass123',maintainerPasswordConfirm:'StrongPass123'});
  await page.onRegisterMaintainer();assert.match(page.data.applicationMessage,/手机号/);assert.equal(submits,0);assert.equal(page.data.applying,false);
- page.setData({maintainerPhone:'13812345678',maintainerRealName:'张三',maintainerIdentity:'课程助教',maintainerPassword:'StrongPass123',maintainerPasswordConfirm:'StrongPass123'});
+ page.setData({maintainerPhone:'13812345678',maintainerRealName:'张三',maintainerNickname:'star',maintainerIdentity:'课程助教',maintainerPassword:'StrongPass123',maintainerPasswordConfirm:'StrongPass123'});
  await page.onRegisterMaintainer();assert.match(page.data.applicationMessage,/HTTPS/);assert.equal(submits,0);
  configured=true;page.setData({maintainerPassword:'StrongPass123',maintainerPasswordConfirm:'StrongPass123'});const pending=page.onRegisterMaintainer();await new Promise(r=>setTimeout(r,0));
  assert.equal(page.data.applying,true);assert.match(page.data.applicationMessage,/正在创建账号/);await page.onRegisterMaintainer();assert.equal(submits,1);

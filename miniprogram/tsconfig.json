@@ -3,6 +3,7 @@
     "strictNullChecks": true,
     "noImplicitAny": true,
     "module": "CommonJS",
+    "allowImportingTsExtensions": true,
     "target": "ES2020",
     "allowJs": true,
     "allowSyntheticDefaultImports": true,

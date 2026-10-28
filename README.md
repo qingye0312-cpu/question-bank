@@ -1,6 +1,6 @@
 # 题库
 
-本项目是一个本地优先的题目检索、录入、复习和云端协作工具，包含桌面端、微信小程序和自托管云服务。题库正式历史版本属于业务数据，保留在云端存储与题库数据中；代码、构建产物和运行证据只维护当前实现。
+本项目是一个本地优先的题目检索、录入、复习和云端协作工具，包含桌面端、微信小程序和自托管云服务。题库正式历史版本属于业务数据，保留在云端存储、题库数据和 [`data/formal-history/`](data/formal-history/) 原始资料中；代码、构建产物和运行证据只维护当前实现。
 
 ## 先看哪里
 
@@ -14,6 +14,7 @@
 | macOS / Windows 专用代码 | [`mac/`](mac/README.md)、[`windows/`](windows/README.md) |
 | 构建、同步和部署脚本 | [`scripts/`](scripts/README.md)、[`tools/`](tools/README.md) |
 | 自动化测试 | [`tests/`](tests/README.md) |
+| 正式题库原始版本资料 | [`data/formal-history/`](data/formal-history/README.md) |
 | 设计、发布与运维说明 | [`docs/`](docs/README.md) |
 
 完整的当前架构和数据边界见 [`开发文档.md`](开发文档.md)。
