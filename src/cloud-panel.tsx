@@ -6,7 +6,7 @@ import {cloudAccess,cloudCall,fetchCatalog,syncDesktop,cloudMutation} from './cl
 import type {CloudManifest} from '../shared/sync';
 import type {Bank,Question} from './types';
 
-type Version={revision:number;formal_revision?:string;release_version:number;release_version_label?:string|null;updated_at:string;merged_at?:string|null;release_name?:string|null;release_id?:string|null;rollback_at?:string|null;rollback_of?:number|null;merge_count:number;batch_id?:string|null;question_count?:number;added_count?:number;has_incremental_json?:boolean;has_revision_questions?:boolean;uploader_account_id?:string|null;uploader_real_name?:string|null;uploader_nickname?:string|null;uploader_auth_type?:'password'|'key'|null};
+type Version={revision:number;formal_revision?:string;release_version:number;release_version_label?:string|null;updated_at:string;merged_at?:string|null;release_name?:string|null;release_id?:string|null;rollback_at?:string|null;rollback_of?:number|null;rollback_to_release_version_label?:string|null;merge_count:number;batch_id?:string|null;question_count?:number;added_count?:number;has_incremental_json?:boolean;has_revision_questions?:boolean;uploader_account_id?:string|null;uploader_real_name?:string|null;uploader_nickname?:string|null;uploader_auth_type?:'password'|'key'|null};
 type History={current_revision:number;current_formal_revision?:string;release_version:number;release_version_label?:string|null;versions:Version[]};
 type RevisionQuestions={revision:number;batch_id?:string|null;question_count:number;added_count:number;questions:Question[]};
 const displayUploader=(...values:Array<string|null|undefined>)=>values.map(value=>value?.trim()).find(value=>value&&value!=='未记录')||'star';
@@ -50,7 +50,8 @@ export function CloudPanel({banks,onChanged,onClose,onBusy,embedded=false}:{bank
   return ()=>{active=false};
  },[selected,access?.openid,canMerge]);
  const selectedBank=catalog.find(bank=>bank.bank_id===selected);
- const panel=<section className={`modal large cloud-maintenance${embedded?' cloud-maintenance-embedded':''}`} role={embedded?'region':'dialog'} aria-label="云端题库维护">
+ const returnToCatalog=()=>{setSelected('');setHistory(null);setMessage('')};
+ const panel=<section className={embedded?'cloud-maintenance cloud-maintenance-embedded':'modal large cloud-maintenance'} role={embedded?'region':'dialog'} aria-label="云端题库维护">
   {!embedded&&<><button className="close-modal" disabled={busy} onClick={onClose}>×</button><h2>云端题库与维护</h2></>}
   {!selected?<>
    <div className="cloud-catalog-list">
@@ -59,17 +60,19 @@ export function CloudPanel({banks,onChanged,onClose,onBusy,embedded=false}:{bank
    </div>
    <div className="cloud-catalog-footer"><button className="cloud-refresh-button" disabled={busy} onClick={()=>void task(checkUpdates)}>{busy?'正在检查…':'检查更新'}</button>{message&&<p className="callout cloud-catalog-status" role="status">{message}</p>}</div>
   </>:<>
-   <button type="button" disabled={busy} onClick={()=>{setSelected('');setHistory(null);setMessage('')}}>返回云端题库目录</button>
-   <h3>{selectedBank?.name||'题库历史版本'}</h3>
+   <div className="cloud-history-bank-header">
+    <button type="button" className="cloud-history-back-button" disabled={busy} onClick={returnToCatalog}><span aria-hidden="true">←</span><span>返回</span></button>
+    <div className="cloud-history-bank-copy"><h3>{selectedBank?.name||'题库历史版本'}</h3>{history&&<p className="cloud-history-summary">正式版本 {history.release_version_label||`v${history.release_version}`} · 修订 {history.current_revision} · 新上传会直接合并</p>}</div>
+   </div>
    {!canMerge?<p className="callout">当前账号没有此题库的版本历史查看权限。</p>:historyLoading?<p>正在读取历史版本…</p>:null}
   </>}
-  {selected&&history&&<><p>正式版本 {history.release_version_label||`v${history.release_version}`} · 修订 {history.current_revision} · 新上传会直接合并</p>
+  {selected&&history&&<>
    {history.current_revision===0&&access?.capabilities?.includes('cloud_bank:create')&&<button disabled={busy||!banks.some(b=>b.id===selected)} onClick={()=>void task(async()=>{
     const questions=await invoke<Question[]>('bank_questions',{bankId:selected});
     if(!window.confirm('将本机「'+(banks.find(b=>b.id===selected)?.name||'')+'」的 '+questions.length+' 道正式题初始化为云端首版？'))return;
     await cloudMutation('/v1/banks/'+selected+'/seed',{base_revision:history.current_revision,questions});await refreshHistory();await syncDesktop(selected);await onChanged();setMessage('云端正式首版已创建');
    })}>从本机正式题初始化首版</button>}
-  {!!history.versions.length?<section className="cloud-history"><div className="cloud-history-heading"><h3>版本历史与回退</h3><span>最新修订在前</span></div>{[...history.versions].sort((left,right)=>right.revision-left.revision).map(v=>{const added=v.added_count||0;const label=v.release_version_label||`v${v.release_version}`,displayRevision=String(v.revision),uploader=displayUploader(v.uploader_real_name,v.uploader_nickname);const canExport=!!(v.has_revision_questions??v.has_incremental_json)&&added>0;return <article className="cloud-history-item" key={v.revision}><div className="cloud-history-main"><div className="cloud-history-title"><b>修订 {displayRevision}</b><span>{label}</span></div><div className="cloud-history-meta"><span>上传者 <strong title={v.uploader_account_id?'上传账号 ID：'+v.uploader_account_id:undefined}>{uploader}</strong></span><span>新增 <strong>{added.toLocaleString()} 题</strong></span><time dateTime={v.updated_at}>{new Date(v.updated_at).toLocaleString()}</time></div></div><div className="cloud-history-actions"><button disabled={busy||v.revision>=history.current_revision} onClick={()=>void task(async()=>{if(!window.confirm('确认将正式题库回退到修订 '+displayRevision+'？当前版本会保留为历史记录。'))return;await cloudMutation('/v1/banks/'+selected+'/rollback',{base_revision:history.current_revision,target_revision:v.revision});await refreshHistory();await syncDesktop(selected);await onChanged();setMessage('已创建回退修订')})}>回退到此版本</button><button disabled={busy||!canExport} title={!canExport?'此修订没有可导出的新增题目记录':undefined} onClick={()=>void exportRevision(v)}>导出此次修订新增题目</button></div></article>})}</section>:<p className="callout">当前暂无可回退的历史版本。</p>}
+  {!!history.versions.length?<section className="cloud-history"><div className="cloud-history-heading"><h3>版本历史与回退</h3><span>最新修订在前</span></div>{[...history.versions].sort((left,right)=>right.revision-left.revision).map(v=>{const added=v.added_count||0;const label=v.release_version_label||`v${v.release_version}`,displayRevision=String(v.revision),uploader=displayUploader(v.uploader_real_name,v.uploader_nickname);const canExport=!!(v.has_revision_questions??v.has_incremental_json)&&added>0;return <article className="cloud-history-item" key={v.revision}><div className="cloud-history-main"><div className="cloud-history-title"><b>修订 {displayRevision}</b><span className="cloud-history-release">{label}</span>{v.rollback_to_release_version_label&&<span className="cloud-history-rollback">回退到正式版 {v.rollback_to_release_version_label}</span>}</div><div className="cloud-history-meta"><span>上传者 <strong title={v.uploader_account_id?'上传账号 ID：'+v.uploader_account_id:undefined}>{uploader}</strong></span><span>新增 <strong>{added.toLocaleString()} 题</strong></span><time dateTime={v.updated_at}>{new Date(v.updated_at).toLocaleString()}</time></div></div><div className="cloud-history-actions"><button disabled={busy||v.revision>=history.current_revision} onClick={()=>void task(async()=>{if(!window.confirm('确认将正式题库回退到修订 '+displayRevision+'？当前版本会保留为历史记录。'))return;await cloudMutation('/v1/banks/'+selected+'/rollback',{base_revision:history.current_revision,target_revision:v.revision});await refreshHistory();await syncDesktop(selected);await onChanged();setMessage('已创建回退修订')})}>回退到此版本</button><button disabled={busy||!canExport} title={!canExport?'此修订没有可导出的新增题目记录':undefined} onClick={()=>void exportRevision(v)}>导出此次修订新增题目</button></div></article>})}</section>:<p className="callout">当前暂无可回退的历史版本。</p>}
   </>}
   {selected&&message&&<p className="callout" role="status">{message}</p>}{busy&&<p>正在处理…</p>}
  </section>;

@@ -51,16 +51,17 @@ function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission})
   return labels.map((label,index)=>({state:byLabel.get(label),formal_revision:String(index+1),release_version_label:label}));
  }
  async function history(b){
-  const entries=await formalHistory(b);
+  const entries=await formalHistory(b),allStates=await store.listStates(b.bank_id);
+  const rollbackEvents=allStates.filter(state=>state.rollback&&Number.isSafeInteger(state.revision)).sort((left,right)=>left.revision-right.revision);
   return entries.map(({state:s,formal_revision,release_version_label},index)=>{
-   const previous=entries[index-1]?.state||null,derived=stateDiff(previous,s),merge=(s.merge_history||[]).find(m=>m.release_version_label===release_version_label&&Number.isSafeInteger(m.added_count)&&m.added_count===derived.length&&m.added_count>0),seeded=index===0&&!merge&&Array.isArray(s.formal);
+   const previous=entries[index-1]?.state||null,previousRevision=previous?.revision||0,rollbackEvent=rollbackEvents.filter(event=>event.revision>previousRevision&&event.revision<s.revision).at(-1),rollbackTarget=rollbackEvent?.rollback?.target_revision||s.rollback?.target_revision||null,rollbackTargetState=rollbackTarget?allStates.find(state=>state.revision===rollbackTarget):null,rollbackLabel=rollbackEvent?.release_version_label||(rollbackTargetState?revisionLabel(rollbackTargetState):null),derived=stateDiff(previous,s),merge=(s.merge_history||[]).find(m=>m.release_version_label===release_version_label&&Number.isSafeInteger(m.added_count)&&m.added_count===derived.length&&m.added_count>0),seeded=index===0&&!merge&&Array.isArray(s.formal);
    const declaredAdded=Number.isSafeInteger(merge?.added_count)?merge.added_count:null;
    const addedCount=declaredAdded===null?(seeded?s.formal.length:derived.length):declaredAdded||derived.length;
    const declaredQuestions=Number.isSafeInteger(merge?.question_count)?merge.question_count:null;
    const formalLabel=release_version_label;
    return {revision:s.revision,formal_revision,release_version:s.release_version,release_version_label:formalLabel,updated_at:s.updated_at,merged_at:s.merged_at||null,
-    release_name:s.release_name||null,release_id:s.release_id||null,rollback_at:s.rollback_at||null,
-    rollback_of:s.rollback?.target_revision||null,merge_count:Array.isArray(s.merge_history)?s.merge_history.length:0,
+    release_name:s.release_name||null,release_id:s.release_id||null,rollback_at:rollbackEvent?.rollback_at||s.rollback_at||null,
+    rollback_of:rollbackTarget,rollback_to_release_version_label:rollbackLabel,merge_count:Array.isArray(s.merge_history)?s.merge_history.length:0,
     batch_id:merge?.batch_id||null,question_count:declaredQuestions===null?(seeded?s.formal.length:addedCount):declaredQuestions,
     added_count:addedCount,
     uploader_account_id:merge?.uploader_account_id||s.seed_uploader_account_id||null,
