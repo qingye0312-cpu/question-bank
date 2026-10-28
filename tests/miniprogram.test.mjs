@@ -530,4 +530,6 @@ test('intake export button shares a prepared file directly from the tap handler'
  page.onExport();
  assert.equal(shared,1);
  assert.match(page.data.notice,/已打开聊天分享面板/);
+ const markup=await readFile(new URL('pages/intake/intake.wxml',base),'utf8');
+ assert.ok(!markup.includes('转发导出 JSON'));
 });

@@ -172,7 +172,7 @@ Page({
  },
  shareExportFile(filePath:string,fileName:string){
   const wxApi=wx as WechatMiniprogram.Wx & {shareFileMessage?: (options:{filePath:string;fileName:string;success?:()=>void;fail:(e:{errMsg:string})=>void})=>void};
-  if(typeof wxApi.shareFileMessage!=='function'){this.setData({notice:'文件已导出，请点击“转发导出 JSON”选择聊天发送'});return;}
+  if(typeof wxApi.shareFileMessage!=='function'){this.setData({notice:'当前微信版本不支持直接分享文件，请升级微信后重试'});return;}
   wxApi.shareFileMessage({filePath,fileName,
    success:()=>this.setData({notice:'已打开聊天分享面板，选择联系人即可发送 JSON'}),
    fail:e=>this.setData({error:e.errMsg||'打开聊天分享失败，请重试'})});
@@ -183,10 +183,6 @@ Page({
   this.setData({error:'',notice:'正在打开聊天分享面板…'});
   // Keep this call directly in the tap handler. WeChat rejects calls made
   // after an awaited export because the user gesture has already ended.
-  this.shareExportFile(this.data.filePath,this.data.fileName);
- },
- onShare(){
-  if(!this.data.filePath||!this.data.exportPrepared){this.setData({notice:'正在准备导出文件，请稍后再试'});void this.prepareExportFile(exportSignature);return;}
   this.shareExportFile(this.data.filePath,this.data.fileName);
  },
  onCreateBank(){wx.showModal({title:'新建私人本地题库',editable:true,placeholderText:'题库名称',success:r=>{if(r.confirm)void this.run(async()=>{const id=await createBank(r.content||''),banks=await listBanks();await controller!.open(id);this.setData({banks,bankIndex:banks.findIndex(b=>b.id===id),tab:'edit'})})}})},
