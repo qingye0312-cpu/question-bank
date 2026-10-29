@@ -1,9 +1,9 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "build": {
-    "additionalWatchFolders": ["../mac"],
-    "beforeBuildCommand": "node scripts/sync-client-assets.mjs && node scripts/prepare-ocr.mjs && node node_modules/typescript/bin/tsc --noEmit && node node_modules/vite/bin/vite.js build --outDir build/.frontend-dist",
-    "frontendDist": "../build/.frontend-dist"
+    "additionalWatchFolders": ["../../mac"],
+    "beforeBuildCommand": "node scripts/sync-client-assets.mjs && node scripts/prepare-ocr.mjs && node node_modules/typescript/bin/tsc --noEmit && node node_modules/vite/bin/vite.js build --outDir build/frontend-dist",
+    "frontendDist": "../../build/frontend-dist"
   },
   "bundle": {
     "targets": ["app"],
@@ -16,7 +16,7 @@
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
-      "../mac/icons/icon.icns"
+      "../../mac/icons/icon.icns"
     ]
   }
 }

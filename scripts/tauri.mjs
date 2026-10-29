@@ -85,7 +85,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       await rm(cargoTarget, {recursive: true, force: true});
     }
     if (macBuild) {
-      await rm(path.join(buildRoot, '.frontend-dist'), {recursive: true, force: true});
+      await rm(path.join(buildRoot, 'frontend-dist'), {recursive: true, force: true});
     }
   }
 }
