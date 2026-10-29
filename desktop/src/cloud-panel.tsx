@@ -4,6 +4,7 @@ import {invoke} from '@tauri-apps/api/core';
 import {save} from '@tauri-apps/plugin-dialog';
 import {cloudAccess,cloudCall,fetchCatalog,syncDesktop,cloudMutation} from './cloud-client';
 import type {CloudManifest} from '../shared/sync';
+import {hasPermission} from '../shared/export-permission';
 import type {Bank,Question} from './types';
 
 type Version={revision:number;formal_revision?:string;release_version:number;release_version_label?:string|null;updated_at:string;merged_at?:string|null;release_name?:string|null;release_id?:string|null;rollback_at?:string|null;rollback_of?:number|null;rollback_to_release_version_label?:string|null;merge_count:number;batch_id?:string|null;question_count?:number;added_count?:number;has_incremental_json?:boolean;has_revision_questions?:boolean;uploader_account_id?:string|null;uploader_real_name?:string|null;uploader_nickname?:string|null;uploader_auth_type?:'password'|'key'|null};
@@ -20,7 +21,7 @@ export function CloudPanel({banks,onChanged,onClose,onBusy,embedded=false}:{bank
  const [,render]=useState(0);
  const [busy,setBusy]=useState(false),[message,setMessage]=useState('');
  const initialRefresh=useRef(false);
- const access=cloudAccess(),roles=access?.grants[selected]||[],canMerge=!!access?.capabilities?.includes('maintainer:manage')||roles.includes('merge');
+ const access=cloudAccess(),roles=access?.grants[selected]||[],canMerge=hasPermission(access?.capabilities,'maintainer:manage')||roles.includes('merge'),canCreate=hasPermission(access?.capabilities,'cloud_bank:create');
  const task=async(fn:()=>Promise<void>)=>{if(busy)return;setBusy(true);onBusy(true);setMessage('');try{await fn()}catch(e){setMessage(String(e))}finally{setBusy(false);onBusy(false)}};
  const exportRevision=async(v:Version)=>{await task(async()=>{
   const expected=v.added_count||0;if(!expected)return;
@@ -69,7 +70,7 @@ export function CloudPanel({banks,onChanged,onClose,onBusy,embedded=false}:{bank
    {!canMerge?<p className="callout">当前账号没有此题库的版本历史查看权限。</p>:historyLoading?<p>正在读取历史版本…</p>:null}
   </>}
   {selected&&history&&<>
-   {history.current_revision===0&&access?.capabilities?.includes('cloud_bank:create')&&<button disabled={busy||!banks.some(b=>b.id===selected)} onClick={()=>void task(async()=>{
+   {history.current_revision===0&&canCreate&&<button disabled={busy||!banks.some(b=>b.id===selected)} onClick={()=>void task(async()=>{
     const questions=await invoke<Question[]>('bank_questions',{bankId:selected});
     if(!window.confirm('将本机「'+(banks.find(b=>b.id===selected)?.name||'')+'」的 '+questions.length+' 道正式题初始化为云端首版？'))return;
     await cloudMutation('/v1/banks/'+selected+'/seed',{base_revision:history.current_revision,questions});await refreshHistory();await syncDesktop(selected);await onChanged();setMessage('云端正式首版已创建');

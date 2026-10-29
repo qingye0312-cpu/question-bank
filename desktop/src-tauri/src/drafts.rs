@@ -234,7 +234,9 @@ pub fn commit_local(store: &Store, bank: &str, expected: Value) -> Result<usize>
             r["removed"] != true
                 && r["submissionId"] == ""
                 && r["publishedAt"].as_str().unwrap_or("").is_empty()
-                && r["issues"].as_array().is_some_and(|issues| issues.is_empty())
+                && r["issues"]
+                    .as_array()
+                    .is_some_and(|issues| issues.is_empty())
         })
         .collect();
     let versions: Vec<Value> = completed
@@ -252,8 +254,7 @@ pub fn commit_local(store: &Store, bank: &str, expected: Value) -> Result<usize>
         let id = record["id"].as_str().unwrap_or_default();
         let revision = record["revision"].as_u64().unwrap_or_default();
         let revision_sql = i64::try_from(revision).map_err(err)?;
-        let question: Question =
-            serde_json::from_value(record["question"].clone()).map_err(err)?;
+        let question: Question = serde_json::from_value(record["question"].clone()).map_err(err)?;
         question.validate(false)?;
         if question.question_id != id || question.base_revision != revision {
             return Err("题目身份或修订版本无效，请重新打开后提交".into());
@@ -348,7 +349,9 @@ pub fn enqueue(
             r["removed"] != true
                 && r["submissionId"] == ""
                 && r["publishedAt"].as_str().unwrap_or("").is_empty()
-                && r["issues"].as_array().is_some_and(|issues| issues.is_empty())
+                && r["issues"]
+                    .as_array()
+                    .is_some_and(|issues| issues.is_empty())
         })
         .collect();
     let versions: Vec<Value> = completed

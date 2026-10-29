@@ -2,6 +2,7 @@ import './cloud.css';
 import {useEffect,useState} from 'react';
 import {invoke} from '@tauri-apps/api/core';
 import {cloudAccess} from '../cloud-client';
+import {hasPermission} from '../../shared/export-permission';
 import {promoteBank,promotionTasks,type PromotionTask} from './promotion';
 import {CloudPanel} from '../cloud-panel';
 import {MaintainerAdmin} from './maintainers';
@@ -15,7 +16,7 @@ export function CloudLibrary({banks,onClose,onChanged,onDeleted,onCreated}:{bank
  const refresh=()=>promotionTasks().then(setTasks);
  useEffect(()=>{void refresh().catch(e=>setMessage(String(e)))},[]);
  useEffect(()=>{const escape=(e:KeyboardEvent)=>{if(e.key==='Escape'){e.preventDefault();e.stopImmediatePropagation();if(!busy)onClose()}};window.addEventListener('keydown',escape,true);return()=>window.removeEventListener('keydown',escape,true)},[busy,onClose]);
- const access=cloudAccess(),canManageMaintainers=!!access?.capabilities?.includes('maintainer:manage'),canCreate=access?.capabilities?.includes('cloud_bank:create');
+ const access=cloudAccess(),canManageMaintainers=hasPermission(access?.capabilities,'maintainer:manage'),canCreate=hasPermission(access?.capabilities,'cloud_bank:create');
  const selectedTab=canManageMaintainers?tab:'local';
  useEffect(()=>{
   let previous=cloudAccess();

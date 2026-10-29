@@ -47,7 +47,12 @@ pub fn login(origin: &str) -> Result<Value> {
 pub fn resume(origin: &str) -> Result<Value> {
     let id = account(origin)?;
     if let Some(refresh) = platform::read(&format!("{id}:password-refresh"))? {
-        let mut response = cloud::request(origin, "/v1/auth/refresh", Some(json!({"refresh_token":refresh})), None)?;
+        let mut response = cloud::request(
+            origin,
+            "/v1/auth/refresh",
+            Some(json!({"refresh_token":refresh})),
+            None,
+        )?;
         let status = response["status"].as_u64().unwrap_or(0);
         if (200..300).contains(&status) {
             response["auth_type"] = json!("password");
@@ -62,16 +67,24 @@ pub fn resume(origin: &str) -> Result<Value> {
         platform::save(&format!("{id}:password-refresh"), None)?;
     }
     if let Some(key) = platform::read(&id)? {
-        let mut response = cloud::request(origin, "/v1/auth/desktop", Some(json!({"key":key})), None)?;
+        let mut response =
+            cloud::request(origin, "/v1/auth/desktop", Some(json!({"key":key})), None)?;
         response["auth_type"] = json!("key");
         return Ok(response);
     }
-    Ok(json!({"status":401,"auth_type":"","body":{"error":{"message":"本机没有保存登录凭据，请使用手机号和密码登录"}}}))
+    Ok(
+        json!({"status":401,"auth_type":"","body":{"error":{"message":"本机没有保存登录凭据，请使用手机号和密码登录"}}}),
+    )
 }
 pub fn logout(origin: &str) -> Result<()> {
     let id = account(origin)?;
     if let Some(refresh) = platform::read(&format!("{id}:password-refresh"))? {
-        let _ = cloud::request(origin, "/v1/auth/logout", Some(json!({"refresh_token":refresh})), None);
+        let _ = cloud::request(
+            origin,
+            "/v1/auth/logout",
+            Some(json!({"refresh_token":refresh})),
+            None,
+        );
     }
     platform::save(&id, None)?;
     platform::save(&format!("{id}:password-refresh"), None)

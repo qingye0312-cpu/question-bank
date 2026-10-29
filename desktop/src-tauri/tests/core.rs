@@ -50,42 +50,40 @@ fn ordered_fts_matches_a_full_scan_with_mixed_terms_filters_and_cursors() {
         "=不存在",
     ] {
         for bank in ["", banks[0].as_str(), banks[1].as_str()] {
-                let terms = db::query_terms(&normalize(text));
-                let expected: Vec<_> = corpus
-                    .iter()
-                    .filter(|(_, b, d, t)| {
-                        !*d
-                            && (bank.is_empty() || b == bank)
-                            && terms.iter().all(|s| t.contains(s))
+            let terms = db::query_terms(&normalize(text));
+            let expected: Vec<_> = corpus
+                .iter()
+                .filter(|(_, b, d, t)| {
+                    !*d && (bank.is_empty() || b == bank) && terms.iter().all(|s| t.contains(s))
+                })
+                .map(|(row, _, _, _)| *row)
+                .collect();
+            for loaded in [0, 50, 100] {
+                let after_rowid = if loaded == 0 {
+                    0
+                } else {
+                    expected.get(loaded - 1).copied().unwrap_or(i64::MAX)
+                };
+                let result = store
+                    .search(&Query {
+                        text: text.into(),
+                        bank_id: bank.into(),
+                        after_rowid,
+                        ..Default::default()
                     })
-                    .map(|(row, _, _, _)| *row)
-                    .collect();
-                for loaded in [0, 50, 100] {
-                    let after_rowid = if loaded == 0 {
-                        0
-                    } else {
-                        expected.get(loaded - 1).copied().unwrap_or(i64::MAX)
-                    };
-                    let result = store
-                        .search(&Query {
-                            text: text.into(),
-                            bank_id: bank.into(),
-                            after_rowid,
-                            ..Default::default()
-                        })
-                        .unwrap();
-                    assert_eq!(
-                        result.items.iter().map(|h| h.rowid).collect::<Vec<_>>(),
-                        expected
-                            .iter()
-                            .copied()
-                            .skip(loaded)
-                            .take(50)
-                            .collect::<Vec<_>>(),
-                        "{text} {bank} {after_rowid}"
-                    );
-                    assert_eq!(result.has_more, expected.len() > loaded + 50);
-                }
+                    .unwrap();
+                assert_eq!(
+                    result.items.iter().map(|h| h.rowid).collect::<Vec<_>>(),
+                    expected
+                        .iter()
+                        .copied()
+                        .skip(loaded)
+                        .take(50)
+                        .collect::<Vec<_>>(),
+                    "{text} {bank} {after_rowid}"
+                );
+                assert_eq!(result.has_more, expected.len() > loaded + 50);
+            }
         }
     }
 }
@@ -204,7 +202,10 @@ fn explanation_is_preserved_but_not_searched_after_edits_reindex_or_package_expo
         .read_to_string(&mut payload)
         .unwrap();
     let exported: Question = serde_json::from_str(payload.lines().next().unwrap()).unwrap();
-    assert_eq!(exported.explanation, s.questions(&b).unwrap()[0].explanation);
+    assert_eq!(
+        exported.explanation,
+        s.questions(&b).unwrap()[0].explanation
+    );
 }
 
 fn put_legacy_index(store: &Store) {
@@ -353,15 +354,26 @@ fn offline_package_export_preserves_bank_identity_and_questions() {
     let bank = store.create("离线发布").unwrap();
     store.save(&bank, sample()).unwrap();
     let path = dir.path().join("release.qbank.zip");
-    assert_eq!(exchange::export(&store, &bank, &path, "package").unwrap(), 1);
+    assert_eq!(
+        exchange::export(&store, &bank, &path, "package").unwrap(),
+        1
+    );
     let mut archive = zip::ZipArchive::new(Cursor::new(std::fs::read(path).unwrap())).unwrap();
     let mut manifest = String::new();
-    archive.by_name("manifest.json").unwrap().read_to_string(&mut manifest).unwrap();
+    archive
+        .by_name("manifest.json")
+        .unwrap()
+        .read_to_string(&mut manifest)
+        .unwrap();
     let manifest: serde_json::Value = serde_json::from_str(&manifest).unwrap();
     assert_eq!(manifest["bank_id"], bank);
     assert_eq!(manifest["question_count"], 1);
     let mut payload = String::new();
-    archive.by_name("questions.jsonl").unwrap().read_to_string(&mut payload).unwrap();
+    archive
+        .by_name("questions.jsonl")
+        .unwrap()
+        .read_to_string(&mut payload)
+        .unwrap();
     let exported: Question = serde_json::from_str(payload.lines().next().unwrap()).unwrap();
     assert_eq!(exported.stem, store.questions(&bank).unwrap()[0].stem);
 }
@@ -371,9 +383,21 @@ fn supported_exports_write_package_jsonl_and_print_formats() {
     let (dir, store) = setup();
     let bank = store.create("导出格式").unwrap();
     store.save(&bank, sample()).unwrap();
-    for format in ["package", "jsonl", "docx", "xlsx", "docx-study", "docx-exam", "docx-answers"] {
+    for format in [
+        "package",
+        "jsonl",
+        "docx",
+        "xlsx",
+        "docx-study",
+        "docx-exam",
+        "docx-answers",
+    ] {
         let path = dir.path().join(format!("export-{format}"));
-        assert_eq!(exchange::export(&store, &bank, &path, format).unwrap(), 1, "{format}");
+        assert_eq!(
+            exchange::export(&store, &bank, &path, format).unwrap(),
+            1,
+            "{format}"
+        );
         assert!(!std::fs::read(path).unwrap().is_empty(), "{format}");
     }
 }
@@ -438,7 +462,10 @@ fn migrated_bank_exports_all_supported_formats_without_losing_uncertain_answers(
     assert_eq!(original.iter().filter(|q| q.answer.is_null()).count(), 3);
     for format in ["package", "jsonl", "docx", "xlsx"] {
         let path = dir.path().join(format!("seed.{format}"));
-        assert_eq!(exchange::export(&store, &bank, &path, format).unwrap(), original.len());
+        assert_eq!(
+            exchange::export(&store, &bank, &path, format).unwrap(),
+            original.len()
+        );
         assert!(!std::fs::read(path).unwrap().is_empty(), "{format}");
     }
 }

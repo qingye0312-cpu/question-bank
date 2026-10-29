@@ -175,7 +175,10 @@ pub fn write_recommended_docx(qs: &[Question]) -> Result<Vec<u8>> {
 
         if matches!(q.kind.as_str(), "single" | "multiple") {
             for option in &q.options {
-                body.push_str(&text_paragraph(&format!("{}.{}", option.key, option.content), false));
+                body.push_str(&text_paragraph(
+                    &format!("{}.{}", option.key, option.content),
+                    false,
+                ));
             }
         }
 
@@ -384,7 +387,12 @@ fn strip_export_links(line: &str) -> String {
 fn text_run(text: &str, bold: bool) -> String {
     let value = text
         .chars()
-        .filter(|c| *c == '\t' || *c == '\n' || *c == '\r' || (*c >= '\u{20}' && *c != '\u{fffe}' && *c != '\u{ffff}'))
+        .filter(|c| {
+            *c == '\t'
+                || *c == '\n'
+                || *c == '\r'
+                || (*c >= '\u{20}' && *c != '\u{fffe}' && *c != '\u{ffff}')
+        })
         .collect::<String>()
         .replace("\r\n", "\n")
         .replace('\r', "\n");
@@ -408,7 +416,13 @@ fn text_run(text: &str, bold: bool) -> String {
 fn docx_body(body: &str) -> Result<Vec<u8>> {
     docx_body_with_margins(body, 1000, 1000, 1000, 1000)
 }
-fn docx_body_with_margins(body: &str, top: u32, bottom: u32, left: u32, right: u32) -> Result<Vec<u8>> {
+fn docx_body_with_margins(
+    body: &str,
+    top: u32,
+    bottom: u32,
+    left: u32,
+    right: u32,
+) -> Result<Vec<u8>> {
     let doc=format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?><w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:body>{body}<w:sectPr><w:pgSz w:w=\"11906\" w:h=\"16838\"/><w:pgMar w:top=\"{top}\" w:right=\"{right}\" w:bottom=\"{bottom}\" w:left=\"{left}\"/></w:sectPr></w:body></w:document>");
     let mut z = ZipWriter::new(Cursor::new(Vec::new()));
     for (n,s) in [("[Content_Types].xml","<?xml version=\"1.0\"?><Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/><Override PartName=\"/word/document.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml\"/></Types>"),("_rels/.rels","<?xml version=\"1.0\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"word/document.xml\"/></Relationships>"),("word/document.xml",doc.as_str())]{z.start_file(n,SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated)).map_err(err)?;z.write_all(s.as_bytes()).map_err(err)?;}

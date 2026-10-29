@@ -1,11 +1,11 @@
 use question_bank::{
-    backup, cloud, drafts, exchange,
+    backup, cloud,
     db::{self, Query, Store},
-    intake,
+    drafts, exchange, intake,
     model::*,
 };
-use serde_json::json;
 use rusqlite::OptionalExtension;
+use serde_json::json;
 use std::io::Read;
 fn setup() -> (tempfile::TempDir, Store, String) {
     let d = tempfile::tempdir().unwrap();
@@ -305,7 +305,14 @@ fn reimport_reuses_orphaned_pending_entry_after_rollback() {
     let imported = intake::import(&s, &file).unwrap();
     assert_eq!(imported.added, 1);
     assert_eq!(intake::entries(&s, &imported.batch_id).unwrap().len(), 1);
-    assert_eq!(intake::batches(&s).unwrap().iter().filter(|batch| batch.pending > 0).count(), 1);
+    assert_eq!(
+        intake::batches(&s)
+            .unwrap()
+            .iter()
+            .filter(|batch| batch.pending > 0)
+            .count(),
+        1
+    );
     assert_eq!(drafts::list(&s, &b).unwrap().len(), 1);
 }
 

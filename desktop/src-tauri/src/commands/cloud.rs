@@ -43,7 +43,10 @@ pub(crate) async fn credential_login(origin: String) -> Result<serde_json::Value
     blocking(move || credentials::login(&origin)).await
 }
 #[tauri::command]
-pub(crate) async fn credential_refresh_save(origin: String, refresh_token: Option<String>) -> Result<()> {
+pub(crate) async fn credential_refresh_save(
+    origin: String,
+    refresh_token: Option<String>,
+) -> Result<()> {
     blocking(move || credentials::save_refresh(&origin, refresh_token)).await
 }
 #[tauri::command]

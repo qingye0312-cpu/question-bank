@@ -1,7 +1,10 @@
 mod document;
 mod jsonl;
 mod package;
-use crate::{db::{self, Store}, model::*};
+use crate::{
+    db::{self, Store},
+    model::*,
+};
 pub use document::{write_docx, write_print_docx, write_recommended_docx, write_xlsx};
 pub(crate) use jsonl::jsonl;
 pub use package::{export_name, package_bytes};
@@ -9,9 +12,27 @@ use std::{io::Write, path::Path};
 use zip::{write::SimpleFileOptions, ZipWriter};
 
 pub const HEADERS: [&str; 21] = [
-    "外部编号", "题型", "题库", "章节", "题干", "选项A", "选项B", "选项C", "选项D",
-    "选项E", "选项F", "选项G", "选项H", "答案", "解析", "标签", "难度", "适用版本",
-    "来源说明", "系统ID", "基准修订号",
+    "外部编号",
+    "题型",
+    "题库",
+    "章节",
+    "题干",
+    "选项A",
+    "选项B",
+    "选项C",
+    "选项D",
+    "选项E",
+    "选项F",
+    "选项G",
+    "选项H",
+    "答案",
+    "解析",
+    "标签",
+    "难度",
+    "适用版本",
+    "来源说明",
+    "系统ID",
+    "基准修订号",
 ];
 pub(crate) const MAX_FILE: u64 = 256 * 1024 * 1024;
 pub(crate) const MAX_PAYLOAD: u64 = 512 * 1024 * 1024;

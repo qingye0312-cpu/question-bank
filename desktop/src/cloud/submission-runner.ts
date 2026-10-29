@@ -1,11 +1,12 @@
 import {invoke} from '@tauri-apps/api/core';
 import {failedJob,readyJob,UploadError,type UploadJob} from '../../shared/queue';
+import {hasPermission} from '../../shared/export-permission';
 import {cloudOrigin,cloudCall,cloudAccess,resumeDesktop,sessionGeneration,setLogoutHandler,type Access} from './session-service';
 import {syncDesktop} from './sync-service';
 export async function uploadDesktop(batchId:string,bankId:string){
  const origin=cloudOrigin(),attempt=sessionGeneration();
  const check=()=>{if(origin!==cloudOrigin()||attempt!==sessionGeneration())throw Error("服务地址或登录已改变，请重试原批次");};
- const me=await cloudCall<Access>('/v1/me',undefined,true);if(!me.grants[bankId]?.includes('upload'))throw new UploadError('没有当前题库的上传权限',403);
+ const me=await cloudCall<Access>('/v1/me',undefined,true);if(!hasPermission(me.grants[bankId],'upload'))throw new UploadError('没有当前题库的上传权限',403);
  if(!me.uploads_enabled)throw new UploadError('云端尚未启用上传',503);
  check();
  const transfer=await invoke<{envelope:unknown;receipt:unknown}>('cloud_transfer',{batchId,endpoint:origin});
@@ -25,9 +26,9 @@ export async function enqueueDesktop(_batches:string[],bankId:string){
 }
 export async function enqueueDrafts(bankId:string,expected:{id:string;revision:number}[]){
  const attempt=sessionGeneration(),origin=cloudOrigin(),me=await cloudCall<Access>('/v1/me',undefined,true);
- if(!me.openid||!me.grants[bankId]?.includes('upload'))throw new UploadError('请先登录有此题库上传权限的维护者',403);
+ if(!me.openid||!hasPermission(me.grants[bankId],'upload'))throw new UploadError('请先登录有此题库上传权限的维护者',403);
  const health=await cloudCall<{capabilities?:string[]}>('/health');
- if(!health.capabilities?.includes('session-upload-v1'))throw new UploadError('云端需更新后才能提交',409,'UPGRADE_REQUIRED');
+ if(!hasPermission(health.capabilities,'session-upload-v1'))throw new UploadError('云端需更新后才能提交',409,'UPGRADE_REQUIRED');
  if(attempt!==sessionGeneration()||origin!==cloudOrigin())throw Error('登录或服务地址已改变，未提交');
  // Queue updates and native preparation share this writer, so a background
  // receipt cannot overwrite the transaction that appends a newly confirmed job.

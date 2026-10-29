@@ -1,6 +1,7 @@
 import {useEffect,useRef,useState} from 'react';
 import {Check,KeyRound,RefreshCw,Shield,X} from 'lucide-react';
 import {cloudAccess,cloudCall} from './session-service';
+import {hasPermission} from '../../shared/export-permission';
 
 type Application={id:string;auth_type:'password';password_reset?:boolean;password_reset_required?:boolean;phone:string;real_name:string;phone_source:string;nickname:string;identity_description:string;bank_ids:string[];permissions?:string[];created_at:string;status:string};
 type Account={id:string;auth_type:'password';phone:string;real_name:string;phone_source:string;nickname:string;identity_description:string;openid:string;grants:Record<string,string[]>;permissions?:string[];status:string;created_at:string;approved_at?:string|null;revoked_at?:string|null};
@@ -20,7 +21,7 @@ export function MaintainerAdmin({banks,onChange}:{banks:Bank[];onChange?:()=>voi
  const [applications,setApplications]=useState<Application[]>([]),[accounts,setAccounts]=useState<Account[]>([]),[busy,setBusy]=useState(false),[message,setMessage]=useState(''),[resetCode,setResetCode]=useState('');
  const [editingId,setEditingId]=useState<string|null>(null),[draftBankIds,setDraftBankIds]=useState<string[]>([]),[draftPermissions,setDraftPermissions]=useState<string[]>([]),[maintainerPermissionConfirm,setMaintainerPermissionConfirm]=useState(false);
  const refreshing=useRef(false);
- const access=cloudAccess(),admin=!!access?.capabilities?.includes(MAINTAINER_MANAGEMENT_PERMISSION),canManageMaintainerPermission=access?.auth_type==='key'&&admin;
+ const access=cloudAccess(),admin=hasPermission(access?.capabilities,MAINTAINER_MANAGEMENT_PERMISSION),canManageMaintainerPermission=access?.auth_type==='key'&&admin;
  async function refresh(){
   if(!admin||refreshing.current)return;
   refreshing.current=true;
@@ -46,13 +47,13 @@ export function MaintainerAdmin({banks,onChange}:{banks:Bank[];onChange?:()=>voi
  }
  function openPermissions(account:Account){
   setEditingId(account.id);
-  setDraftBankIds(Object.keys(account.grants||{}).filter(id=>account.grants[id]?.includes('upload')));
+  setDraftBankIds(Object.keys(account.grants||{}).filter(id=>hasPermission(account.grants[id],'upload')));
   setDraftPermissions((account.permissions||[]).filter(permission=>permission==='export'||(permission===MAINTAINER_MANAGEMENT_PERMISSION&&canManageMaintainerPermission)));
   setMaintainerPermissionConfirm(false);
   setResetCode('');setMessage('');
  }
  const editingAccount=accounts.find(account=>account.id===editingId)||null;
- const originalBankIds=editingAccount?Object.keys(editingAccount.grants||{}).filter(id=>editingAccount.grants[id]?.includes('upload')):[];
+ const originalBankIds=editingAccount?Object.keys(editingAccount.grants||{}).filter(id=>hasPermission(editingAccount.grants[id],'upload')):[];
  const originalPermissions=editingAccount?(editingAccount.permissions||[]).filter(permission=>permission==='export'||(permission===MAINTAINER_MANAGEMENT_PERMISSION&&canManageMaintainerPermission)):[];
  const permissionsChanged=!!editingAccount&&(!sameValues(draftBankIds,originalBankIds)||!sameValues(draftPermissions,originalPermissions));
  function leavePermissions(){
@@ -81,7 +82,7 @@ export function MaintainerAdmin({banks,onChange}:{banks:Bank[];onChange?:()=>voi
    {!permissionsChanged&&<p className="maintainer-editor-hint">修改权限后会显示“确认修改”按钮。</p>}
   </section>:<>
   <div className="maintainer-section-heading"><h3>待审批申请 · {applications.length}</h3>{applications.length===0&&<p className="maintainer-empty">暂无待审批申请。</p>}</div>{applications.map(app=><article className="maintainer-row" key={app.id}><div><b>{app.real_name} · {app.phone}</b><span>{app.nickname||'未填写昵称'}</span><p className="maintainer-requested-permissions"><strong>申请权限</strong><span>{requestedPermissions(app,banks)}</span></p>{app.password_reset&&<small>密码重置后需重新授权</small>}{app.password_reset_required&&<small className="warning">申请人尚未完成密码重置，暂不能处理</small>}<p className="maintainer-identity"><strong>身份说明：</strong>{app.identity_description}</p><small>手机号由申请人填写 · {new Date(app.created_at).toLocaleString()}</small></div><div><button disabled={busy||!!app.password_reset_required} onClick={()=>void decide(app,'approve')}><Check size={15}/>批准</button><button disabled={busy||!!app.password_reset_required} onClick={()=>void decide(app,'reject')}><X size={15}/>拒绝</button></div></article>)}
-  <h3>已授权账号 · {approvedAccounts.length}</h3>{approvedAccounts.map(account=><article className="maintainer-row" key={account.id}><div><div className="maintainer-account-heading"><button type="button" className="maintainer-account-name" disabled={busy} onClick={()=>openPermissions(account)}>{account.real_name}</button><span> · {account.phone}</span><small className="maintainer-approved-at">批准于 {account.approved_at?new Date(account.approved_at).toLocaleString():'未知'}</small></div><span>{account.nickname||'未填写昵称'} · 权限：{[...Object.keys(account.grants).map(id=>banks.find(b=>b.bank_id===id)?.name||id),...((account.permissions||[]).includes('export')?['Word 导出（全部题库）']:[]),...((account.permissions||[]).includes(MAINTAINER_MANAGEMENT_PERMISSION)?['题库维护者管理']:[])].join('、')||'无'}</span></div><div><button disabled={busy} onClick={()=>void resetPassword(account)}><KeyRound size={15}/>重置密码</button><button disabled={busy} onClick={()=>void revoke(account)}>撤销</button></div></article>)}
+  <h3>已授权账号 · {approvedAccounts.length}</h3>{approvedAccounts.map(account=><article className="maintainer-row" key={account.id}><div><div className="maintainer-account-heading"><button type="button" className="maintainer-account-name" disabled={busy} onClick={()=>openPermissions(account)}>{account.real_name}</button><span> · {account.phone}</span><small className="maintainer-approved-at">批准于 {account.approved_at?new Date(account.approved_at).toLocaleString():'未知'}</small></div><span>{account.nickname||'未填写昵称'} · 权限：{[...Object.keys(account.grants).map(id=>banks.find(b=>b.bank_id===id)?.name||id),...(hasPermission(account.permissions,'export')?['Word 导出（全部题库）']:[]),...(hasPermission(account.permissions,MAINTAINER_MANAGEMENT_PERMISSION)?['题库维护者管理']:[])].join('、')||'无'}</span></div><div><button disabled={busy} onClick={()=>void resetPassword(account)}><KeyRound size={15}/>重置密码</button><button disabled={busy} onClick={()=>void revoke(account)}>撤销</button></div></article>)}
   {pendingAccounts.length>0&&<><h3>待授权手机号</h3>{pendingAccounts.map(account=><article className="maintainer-row" key={account.id}><div><b>{account.real_name} · {account.phone}</b><span>{account.status==='password_reset_required'?'等待用户重置密码':account.status==='rejected'?'申请未通过':'等待管理员审批'}</span><p className="maintainer-identity"><strong>身份说明：</strong>{account.identity_description}</p></div><button disabled={busy} onClick={()=>void resetPassword(account)}><KeyRound size={15}/>重置密码</button></article>)}</>}
   </>}
   {maintainerPermissionConfirm&&<div className="maintainer-permission-confirm-layer" onMouseDown={event=>{if(event.target===event.currentTarget)setMaintainerPermissionConfirm(false)}}><section className="maintainer-permission-confirm" role="alertdialog" aria-modal="true" aria-labelledby="maintainer-permission-confirm-title" aria-describedby="maintainer-permission-confirm-copy"><h3 id="maintainer-permission-confirm-title">确认授予维护者管理权限</h3><p id="maintainer-permission-confirm-copy">确认让该账号加入维护者管理权限吗？</p><div className="maintainer-permission-confirm-actions"><button type="button" onClick={()=>setMaintainerPermissionConfirm(false)}>取消</button><button type="button" className="danger" onClick={()=>{setDraftPermissions(current=>[...new Set([...current,MAINTAINER_MANAGEMENT_PERMISSION])]);setMaintainerPermissionConfirm(false)}}>确认</button></div></section></div>}

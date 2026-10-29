@@ -117,7 +117,7 @@ fn mobile_export_imports_into_desktop_with_model_and_option_ids_intact() {
     let file = dir.path().join("mobile.qbank-delta.json");
     std::fs::write(
         &file,
-        include_str!("../../tests/fixtures/intake/mobile-delta.json"),
+        include_str!("../../../tests/fixtures/intake/mobile-delta.json"),
     )
     .unwrap();
     let result = intake::import(&s, &file).unwrap();

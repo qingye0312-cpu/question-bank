@@ -400,12 +400,7 @@ impl Store {
         )
         .map_err(err)?;
         tx.execute("UPDATE draft_records SET revision=revision+1,data=json_set(data,'$.removed',json('true'),'$.revision',revision+1,'$.updatedAt',?3) WHERE bank_id=?1 AND id=?2",params![bank_id,q.question_id,now()]).map_err(err)?;
-        record(
-            &tx,
-            &bank_id,
-            &q,
-            "删除",
-        )?;
+        record(&tx, &bank_id, &q, "删除")?;
         tx.execute(
             "UPDATE questions SET deleted=?1 WHERE rowid=?2",
             params![true, rowid],

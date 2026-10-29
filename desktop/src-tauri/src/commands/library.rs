@@ -38,10 +38,7 @@ pub(crate) async fn save_question(
     .await
 }
 #[tauri::command]
-pub(crate) async fn delete_question(
-    s: State<'_, AppState>,
-    rowid: i64,
-) -> Result<()> {
+pub(crate) async fn delete_question(s: State<'_, AppState>, rowid: i64) -> Result<()> {
     let d = s.store.clone();
     let lock = s.writes.clone();
     blocking(move || {

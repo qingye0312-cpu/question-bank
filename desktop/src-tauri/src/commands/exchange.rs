@@ -90,10 +90,8 @@ pub(crate) async fn count_recorded_questions(
     end_before: Option<String>,
 ) -> Result<usize> {
     let d = s.store.clone();
-    blocking(move || {
-        crate::exchange::count_recorded_questions(&d, &bank_id, start_at, end_before)
-    })
-    .await
+    blocking(move || crate::exchange::count_recorded_questions(&d, &bank_id, start_at, end_before))
+        .await
 }
 
 #[tauri::command]

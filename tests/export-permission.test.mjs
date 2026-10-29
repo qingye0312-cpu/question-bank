@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {hasWordExportPermission} from '../desktop/shared/export-permission.ts';
+import {hasPermission,hasWordExportPermission} from '../desktop/shared/export-permission.ts';
+
+test('permission helper rejects malformed lists and matches exact values',()=>{
+ assert.equal(hasPermission(undefined,'export'),false);
+ assert.equal(hasPermission(['export'],'export'),true);
+ assert.equal(hasPermission(['export'],'upload'),false);
+ assert.equal(hasPermission('export','export'),false);
+});
 
 test('Word export requires explicit approval and known authentication state',()=>{
  assert.equal(hasWordExportPermission(undefined),false);
