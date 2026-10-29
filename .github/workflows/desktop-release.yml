@@ -309,7 +309,7 @@ jobs:
           chmod 600 "$HOME/.ssh/qbank-release" "$HOME/.ssh/known_hosts"
           ssh-keygen -y -P '' -f "$HOME/.ssh/qbank-release" >/dev/null
 
-      - name: Publish version to the self-hosted update service
+      - name: Trigger self-hosted release pull
         if: ${{ vars.QBANK_SELF_HOST_DEPLOY == 'enabled' }}
         env:
           QBANK_RELEASE_SSH_HOST: ${{ vars.QBANK_RELEASE_SSH_HOST }}
@@ -324,7 +324,6 @@ jobs:
           keep_versions=2
           [[ "$host" =~ ^[A-Za-z0-9.-]+$ ]] || { echo 'Invalid SSH host.' >&2; exit 1; }
           [[ "$port" =~ ^[0-9]+$ ]] || { echo 'Invalid SSH port.' >&2; exit 1; }
-          scp -P "$port" -i "$HOME/.ssh/qbank-release" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes \
-            release-assets/* "root@${host}:/tmp/"
-          ssh -p "$port" -i "$HOME/.ssh/qbank-release" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes \
-            "root@${host}" "QBANK_RELEASE_VERSION='$version' QBANK_DESKTOP_RELEASES_TO_KEEP='$keep_versions' sh -s" < tools/self-host/install-desktop-update-release.sh
+          ssh -p "$port" -i "$HOME/.ssh/qbank-release" -o IdentitiesOnly=yes -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+            "root@${host}" "QBANK_DESKTOP_RELEASES_TO_KEEP='$keep_versions' /usr/local/sbin/qbank-release-puller '$version'"

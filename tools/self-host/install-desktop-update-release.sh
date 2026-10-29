@@ -16,16 +16,17 @@ MAC_DMG_NAME="题库_${VERSION}_macOS_arm64.dmg"
 WINDOWS_NAME="qbank-windows-x64-$VERSION.nsis.zip"
 PORTABLE_NAME='题库_windows_x64_portable.exe'
 SETUP_NAME='题库_windows_x64_setup.exe'
-MAC_IN="/tmp/$MAC_NAME"
-MAC_DMG_IN="/tmp/$MAC_DMG_NAME"
-WINDOWS_IN="/tmp/$WINDOWS_NAME"
-MANIFEST_IN=/tmp/latest.json
+STAGING="${QBANK_RELEASE_STAGING:-/tmp}"
+MAC_IN="$STAGING/$MAC_NAME"
+MAC_DMG_IN="$STAGING/$MAC_DMG_NAME"
+WINDOWS_IN="$STAGING/$WINDOWS_NAME"
+MANIFEST_IN="$STAGING/latest.json"
 BACKUPS=/var/backups/qbank-desktop-updates
 DOMAIN_CONFIG=/etc/caddy/qbank-domain.caddy
 DESKTOP_RELEASES_TO_KEEP="${QBANK_DESKTOP_RELEASES_TO_KEEP:-2}"
 
 for file in "$MAC_IN" "$MAC_IN.sig" "$MAC_DMG_IN" "$WINDOWS_IN" "$WINDOWS_IN.sig" \
-  "/tmp/$PORTABLE_NAME" "/tmp/$SETUP_NAME" "$MANIFEST_IN"; do
+  "$STAGING/$PORTABLE_NAME" "$STAGING/$SETUP_NAME" "$MANIFEST_IN"; do
   [ -s "$file" ] || { echo "missing staged release file: $file" >&2; exit 1; }
 done
 
@@ -40,8 +41,8 @@ if (manifest.version !== version || !mac || !windows) throw new Error('release m
 if (mac.url !== `${base}/${macName}` || windows.url !== `${base}/windows/${version}/${windowsName}`) {
   throw new Error('release manifest points outside the expected versioned asset paths');
 }
-if (mac.signature !== fs.readFileSync(`/tmp/${macName}.sig`, 'utf8').trim()) throw new Error('macOS signature differs from manifest');
-if (windows.signature !== fs.readFileSync(`/tmp/${windowsName}.sig`, 'utf8').trim()) throw new Error('Windows signature differs from manifest');
+if (mac.signature !== fs.readFileSync(`${process.env.QBANK_RELEASE_STAGING || '/tmp'}/${macName}.sig`, 'utf8').trim()) throw new Error('macOS signature differs from manifest');
+if (windows.signature !== fs.readFileSync(`${process.env.QBANK_RELEASE_STAGING || '/tmp'}/${windowsName}.sig`, 'utf8').trim()) throw new Error('Windows signature differs from manifest');
 NODE
 
 mkdir -p "$RELEASE" "$MACOS_RELEASE" "$WINDOWS_RELEASE" "$BACKUPS"
@@ -64,8 +65,8 @@ install_immutable "$MAC_IN.sig" "$RELEASE/$MAC_NAME.sig" 0640
 install_immutable "$MAC_DMG_IN" "$MACOS_RELEASE/$MAC_DMG_NAME" 0640
 install_immutable "$WINDOWS_IN" "$WINDOWS_RELEASE/$WINDOWS_NAME" 0640
 install_immutable "$WINDOWS_IN.sig" "$WINDOWS_RELEASE/$WINDOWS_NAME.sig" 0640
-install_immutable "/tmp/$SETUP_NAME" "$WINDOWS_RELEASE/$SETUP_NAME" 0640
-install_immutable "/tmp/$PORTABLE_NAME" "$WINDOWS_RELEASE/$PORTABLE_NAME" 0640
+install_immutable "$STAGING/$SETUP_NAME" "$WINDOWS_RELEASE/$SETUP_NAME" 0640
+install_immutable "$STAGING/$PORTABLE_NAME" "$WINDOWS_RELEASE/$PORTABLE_NAME" 0640
 
 # Preserve the flat macOS archive URL used by already-installed clients.
 for name in "$MAC_NAME" "$MAC_NAME.sig"; do
