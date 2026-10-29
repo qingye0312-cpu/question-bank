@@ -235,6 +235,7 @@ jobs:
           if ($setups.Count -ne 1) { throw "Expected one NSIS setup executable, found $($setups.Count)." }
 
           $output = Join-Path $env:RUNNER_TEMP 'qbank-release/windows-installer'
+          New-Item -ItemType Directory -Force -Path $output | Out-Null
           $archiveName = "qbank-windows-x64-$version.nsis.zip"
           Copy-Item -LiteralPath $archive.FullName -Destination (Join-Path $output $archiveName)
           Copy-Item -LiteralPath $signature -Destination (Join-Path $output "$archiveName.sig")

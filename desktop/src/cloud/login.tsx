@@ -23,6 +23,13 @@ export function CloudLogin({onChange=()=>{},disabled=false}:{onChange?:()=>void;
  const hasExportPermission=hasPermission(access?.permissions,'export');
  const hasMaintainerManagementPermission=hasPermission(access?.capabilities,'maintainer:manage');
  const exportPermissionPending=hasPermission(access?.pending_permissions,'export');
+ async function runAction(action:()=>Promise<void>){
+  if(busy)return;
+  setBusy(true);setMessage('');
+  try{await action();}
+  catch(e){setMessage(String(e));}
+  finally{setBusy(false);}
+ }
 
  function saveOrigin(){
   try{setCloudOrigin(origin);render(n=>n+1);setMessage('服务地址已保存');onChange();}
@@ -43,16 +50,14 @@ export function CloudLogin({onChange=()=>{},disabled=false}:{onChange?:()=>void;
  }
  function openRegistration(){setMode('register');setMessage('');setBanks([]);setSelectedBanks([]);setRequestExport(false);void loadBanks();}
  async function loginKey(){
-  if(busy)return;setBusy(true);setMessage('');const secret=key;setKey('');
-  try{if(origin!==cloudOrigin())setCloudOrigin(origin);await cloudLogin(secret);setMessage('最高权限登录成功；登录状态已安全保存在本机，退出登录后会清除。');render(n=>n+1);onChange();}
-  catch(e){setMessage(String(e));}finally{setBusy(false);}
+  const secret=key;setKey('');
+  await runAction(async()=>{if(origin!==cloudOrigin())setCloudOrigin(origin);await cloudLogin(secret);setMessage('最高权限登录成功；登录状态已安全保存在本机，退出登录后会清除。');render(n=>n+1);onChange();});
  }
  async function importCertificate(){
   if(busy)return;
   const path=await open({multiple:false,title:'导入最高权限证书',filters:[{name:'最高权限证书',extensions:['json','qbank-cert']}]});
   if(!path||Array.isArray(path))return;
-  setBusy(true);setMessage('');
-  try{
+  await runAction(async()=>{
    if(origin!==cloudOrigin())setCloudOrigin(origin);
    const raw=await invoke<string>('read_text_file',{path});
    const cert=parseMaintainerCertificate(JSON.parse(raw));
@@ -60,14 +65,14 @@ export function CloudLogin({onChange=()=>{},disabled=false}:{onChange?:()=>void;
    await cloudLogin(cert.key);
    setMessage(`最高权限证书登录成功：${cert.certificate_id}；登录状态已安全保存在本机，退出登录后会清除。`);
    render(n=>n+1);onChange();
-  }catch(e){setMessage(String(e));}finally{setBusy(false);}
+  });
  }
  async function loginAccount(){
-  if(busy)return;setBusy(true);setMessage('');const secret=password;setPassword('');
-  try{if(origin!==cloudOrigin())setCloudOrigin(origin);const result=await cloudLoginPassword(phone,secret);
+  const secret=password;setPassword('');
+  await runAction(async()=>{if(origin!==cloudOrigin())setCloudOrigin(origin);const result=await cloudLoginPassword(phone,secret);
    const status=result.account_status==='approved'?'已获桌面管理员授权':result.account_status==='rejected'?'申请未通过，可重新申请':'等待桌面管理员审批';
    setMessage(`手机号登录成功，${status}；登录状态会一直保留到退出登录。`);render(n=>n+1);onChange();
-  }catch(e){setMessage(String(e));}finally{setBusy(false);}
+  });
  }
  async function registerAccount(event:FormEvent<HTMLFormElement>){
   event.preventDefault();if(busy)return;
@@ -75,30 +80,26 @@ export function CloudLogin({onChange=()=>{},disabled=false}:{onChange?:()=>void;
   try{fields=registrationFields({phone,realName,nickname,identity:identityDescription,password,passwordConfirm:confirmPassword});}
   catch(error){setMessage(error instanceof Error?error.message:'注册信息无效');return;}
   if(!selectedBanks.length&&!requestExport){setMessage('至少选择一个申请维护的题库，或勾选申请 Word 导出权限。');return;}
-  setBusy(true);setMessage('');
-  try{
+  await runAction(async()=>{
    if(origin!==cloudOrigin())setCloudOrigin(origin);
    const permissions=requestExport?['export']:[];
    await cloudCall('/v1/auth/register',{...fields,bank_ids:selectedBanks,permissions});
    setPassword('');setConfirmPassword('');setMode('account');
    setMessage('申请已提交，等待桌面最高权限审批。审批通过后，账号会获得所申请的权限。');
-  }catch(e){setMessage(String(e));}finally{setBusy(false);}
+  });
  }
  async function applyExportPermission(){
-  if(busy)return;setBusy(true);setMessage('');
-  try{await cloudCall('/v1/maintainer-applications',{bank_ids:[],permissions:['export']},true);await refreshAccess();render(n=>n+1);setMessage('Word 导出权限申请已提交，等待桌面最高权限审批。');}
-  catch(e){setMessage(String(e));}finally{setBusy(false);}
+  await runAction(async()=>{await cloudCall('/v1/maintainer-applications',{bank_ids:[],permissions:['export']},true);await refreshAccess();render(n=>n+1);setMessage('Word 导出权限申请已提交，等待桌面最高权限审批。');});
  }
  async function resetAccountPassword(event:FormEvent<HTMLFormElement>){
   event.preventDefault();if(busy)return;
   if(!passwordMeetsPolicy(newPassword)){setMessage('密码需为 8–128 个字符，包含大写字母、小写字母和数字，且 UTF-8 不超过 512 字节。');return;}
-  setBusy(true);setMessage('');
-  try{
+  await runAction(async()=>{
    if(origin!==cloudOrigin())setCloudOrigin(origin);
    await cloudCall('/v1/auth/password-reset',{phone:phone.trim(),reset_token:resetToken.trim(),password:newPassword});
    setPassword('');setNewPassword('');setResetToken('');setMode('account');
    setMessage('密码已重置。请重新登录，并等待桌面最高权限再次批准题库权限。');
-  }catch(e){setMessage(String(e));}finally{setBusy(false);}
+  });
  }
  const statusLabel=access?.account_status==='approved'?'已授权':access?.account_status==='pending'?'等待管理员审批':access?.account_status==='rejected'?'申请未通过':access?.account_status==='password_reset_required'?'等待重置密码':access?.account_status==='desktop'?'最高权限':'';
  return <div className="cloud-access"><div className="cloud-access-heading"><h3>云端登录与权限</h3><span>{access?'已登录':'选择登录方式'}</span></div><p>日常搜题与本地录题无需登录。维护者账号需由桌面最高权限审批后，才能上传获批题库；手机号用于唯一登记，当前不发送短信验证码。</p>
