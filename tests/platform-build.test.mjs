@@ -38,26 +38,23 @@ test('platform packaging retains the validated installers, deployment target and
   const mac = JSON.parse(fs.readFileSync(config('mac')));
   const windows = JSON.parse(fs.readFileSync(config('windows')));
   assert.deepEqual(mac.bundle.targets, ['app']);
-  assert.deepEqual(mac.build.additionalWatchFolders, ['../mac']);
+  assert.deepEqual(mac.build.additionalWatchFolders, ['../../mac']);
   assert.equal(mac.bundle.macOS.minimumSystemVersion, '13.0');
   assert.deepEqual(windows.bundle.targets, ['nsis']);
-  assert.deepEqual(windows.build.additionalWatchFolders, ['../windows']);
+  assert.deepEqual(windows.build.additionalWatchFolders, ['../../windows']);
   assert.deepEqual(windows.bundle.windows.webviewInstallMode, {type: 'downloadBootstrapper', silent: true});
   assert.deepEqual(windows.bundle.windows.nsis, {
     installMode: 'currentUser',
-    installerIcon: '../windows/icons/icon.ico',
-    uninstallerIcon: '../windows/icons/icon.ico',
-    installerHooks: '../windows/installer-hooks.nsh',
+    installerIcon: '../../windows/icons/icon.ico',
+    uninstallerIcon: '../../windows/icons/icon.ico',
+    installerHooks: '../../windows/installer-hooks.nsh',
     languages: ['SimpChinese', 'English'],
   });
+  const repoAsset = asset => asset.startsWith('../../') ? asset.slice(6) : asset.startsWith('../') ? asset.slice(3) : path.join('desktop/src-tauri', asset);
   for (const settings of [mac, windows]) {
-    for (const icon of settings.bundle.icon) {
-      const asset = icon.startsWith('../') ? icon.slice(3) : path.join('desktop/src-tauri', icon);
-      assert.ok(fs.existsSync(path.resolve(root, asset)), icon);
-    }
+    for (const icon of settings.bundle.icon) assert.ok(fs.existsSync(path.resolve(root, repoAsset(icon))), icon);
   }
-  const hook = windows.bundle.windows.nsis.installerHooks.startsWith('../') ? windows.bundle.windows.nsis.installerHooks.slice(3) : path.join('desktop/src-tauri', windows.bundle.windows.nsis.installerHooks);
-  const installerHook = path.resolve(root, hook);
+  const installerHook = path.resolve(root, repoAsset(windows.bundle.windows.nsis.installerHooks));
   assert.ok(fs.existsSync(installerHook));
   const installerHooks = fs.readFileSync(installerHook, 'utf8');
   assert.match(installerHooks, /NSIS_HOOK_POSTINSTALL[\s\S]*Call CreateOrUpdateDesktopShortcut/);
