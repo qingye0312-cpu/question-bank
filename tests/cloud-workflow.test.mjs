@@ -5,7 +5,7 @@ import {createRequire} from 'node:module';
 import {randomUUID} from 'node:crypto';
 import {gzipSync} from 'node:zlib';
 import {parseDelta,validateStandardQuestion,parseModelReply,sha256,deltaPackage} from '../desktop/shared/intake.ts';
-import {readManifest,readSnapshot} from '../desktop/shared/sync.ts';
+import {readManifest,readSnapshot,readQuestionFile,readOperationsFile} from '../desktop/shared/sync.ts';
 import {encodeUpload} from '../tools/encode-upload.mjs';
 
 const require=createRequire(import.meta.url);
@@ -48,7 +48,7 @@ async function seed(s,token,extra={}){
   return base;
 }
 
-test('anonymous catalogue exposes only the current snapshot-v2 protocol',async()=>{
+test('anonymous catalogue exposes the current manifest while operation records require permission',async()=>{
   const s=setup();
   assert.equal((await s.call('GET','/v1/catalog')).status,200);
   assert.equal((await s.call('POST','/v1/auth/wechat',{code:'removed'})).status,404);
@@ -172,6 +172,35 @@ test('reading flagged source material does not relax new-upload validation',asyn
   assert.equal((await s.call('POST','/v1/uploads',packet,token)).status,422);
  }
  assert.equal((await s.store.readState(id)).revision,1);
+});
+
+test('pure question and operation files describe every full revision without inheriting rollback markers',async()=>{
+ const s=setup(),token=await s.login();const base=await seed(s,token);
+ const added={...questions[0],question_id:randomUUID(),stem:'协议新题'};
+ const text=deltaPackage(id,delta.name,randomUUID(),[added],new Date().toISOString());
+ assert.equal((await s.call('POST','/v1/uploads',encodeUpload(text),token)).status,201);
+ let manifest=readManifest((await s.call('GET',`/v1/banks/${id}/manifest`)).data);
+ assert.ok(manifest.question_file_sha256);assert.ok(manifest.operations_file_sha256);
+ const questionFile=readQuestionFile((await s.call('GET',`/v1/banks/${id}/question-file`)).data,manifest);
+ assert.equal(questionFile.questions.length,2);assert.equal('formal' in questionFile,false);
+ assert.equal((await s.call('GET',`/v1/banks/${id}/operations-file`)).status,401);
+ let operations=readOperationsFile((await s.call('GET',`/v1/banks/${id}/operations-file`,undefined,token)).data,manifest);
+ assert.deepEqual(operations.revisions.map(item=>item.kind),['merge','seed']);
+ const firstMerge=operations.revisions.find(item=>item.kind==='merge');
+ assert.equal(firstMerge.questions[0].question_id,added.question_id);
+ assert.equal(firstMerge.questions[0].entered_revision,2);
+ assert.equal(firstMerge.questions[0].entered_release_version,2);
+ assert.equal(firstMerge.questions[0].uploader.real_name,'maintainer-tests');
+ assert.equal(operations.questions.find(item=>item.question_id===added.question_id)?.first_revision,2);
+ const current=await s.store.readState(id);
+ assert.equal((await s.call('POST',`/v1/banks/${id}/rollback`,{operation_id:randomUUID(),base_revision:current.revision,target_revision:1},token)).status,200);
+ const rollbackState=await s.store.readState(id);assert.equal(rollbackState.rollback_reference,undefined);
+ const next={...questions[0],question_id:randomUUID(),stem:'回退后正式上传'};
+ assert.equal((await s.call('POST','/v1/uploads',encodeUpload(deltaPackage(id,delta.name,randomUUID(),[next],new Date().toISOString())),token)).status,201);
+ manifest=readManifest((await s.call('GET',`/v1/banks/${id}/manifest`)).data);
+ operations=readOperationsFile((await s.call('GET',`/v1/banks/${id}/operations-file`,undefined,token)).data,manifest);
+ assert.deepEqual(operations.revisions.map(item=>item.kind),['merge','rollback','merge','seed']);
+ assert.equal(operations.revisions.find(item=>item.kind==='rollback')?.rollback_of,1);
 });
 
 test('quality status repair creates one reversible version and never changes or fabricates question content',async()=>{

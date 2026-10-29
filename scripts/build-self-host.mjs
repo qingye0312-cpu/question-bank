@@ -10,7 +10,7 @@ const output = path.join(root, 'artifacts/self-host/qbank-auth');
 const sourcePackage = JSON.parse(await fs.readFile(path.join(source, 'package.json'), 'utf8'));
 const version = sourcePackage.version;
 if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)) throw new Error(`无效的自托管服务版本号：${version}`);
-const files = ['service.cjs', 'workflow.cjs', 'codec.cjs', 'catalog.cjs', 'common.cjs', 'access.cjs', 'password.cjs',
+const files = ['service.cjs', 'workflow.cjs', 'operations.cjs', 'codec.cjs', 'catalog.cjs', 'common.cjs', 'access.cjs', 'password.cjs',
   'config.cjs', 'auth.cjs', 'submission.cjs', 'projection.cjs', 'fs-store.cjs', 'local-server.cjs', 'intake.cjs', 'seed-bank.cjs','repair-bank-status.cjs'];
 
 await fs.rm(output, { recursive: true, force: true });

@@ -41,14 +41,15 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
       if (method === 'GET' && path === '/health') return respond(200, {
         service: 'qbank-auth', version: VERSION, auth_configured: authConfigured(config),
         auth_checks: authChecks(config),
-        uploads_enabled: config.uploadsEnabled, sync_enabled: config.syncEnabled, capabilities:['confirmed-upload-v1','snapshot-v2','cloud-file-gzip-base64-v1','recorded-at-v1','merge-v1','cloud-bank-promotion-v1','session-upload-v1','maintainer-approval-v1','certificate-import-v1','password-maintainer-v1','global-export-permission-v1'], limits: LIMITS,
+        uploads_enabled: config.uploadsEnabled, sync_enabled: config.syncEnabled, capabilities:['confirmed-upload-v1','snapshot-v2','question-bank-file-v1','operations-file-v1','cloud-file-gzip-base64-v1','recorded-at-v1','merge-v1','cloud-bank-promotion-v1','session-upload-v1','maintainer-approval-v1','certificate-import-v1','password-maintainer-v1','global-export-permission-v1'], limits: LIMITS,
       });
+      const operationsFileRoute = method==='GET' && /^\/v1\/banks\/[0-9a-f-]{36}\/operations-file$/.test(path||'');
       const publicResult = await workflow.read(method,path,config);
-      if(publicResult !== undefined)return respond(200,publicResult);
+      if(publicResult !== undefined && !operationsFileRoute)return respond(200,publicResult);
       const workflowRoute = /^\/v1\/banks\/[0-9a-f-]{36}\/(seed|history|history\/[0-9]+\/questions|rollback)$/.test(path||'');
       const maintainerRoute = method==='GET' && ['/v1/maintainer-applications','/v1/maintainer-accounts'].includes(path)
         || method==='POST' && (path==='/v1/maintainer-applications' || /^\/v1\/maintainer-applications\/[0-9a-f-]{36}\/decision$/.test(path) || /^\/v1\/maintainer-accounts\/[0-9a-f-]{36}\/(?:permissions|revoke|password-reset)$/.test(path));
-      if (!workflowRoute && !maintainerRoute && !['POST /v1/auth/desktop', 'POST /v1/auth/register', 'POST /v1/auth/password-login', 'POST /v1/auth/password-reset', 'POST /v1/auth/refresh', 'POST /v1/auth/logout', 'GET /v1/me', 'POST /v1/uploads', 'POST /v1/banks/promote'].includes(`${method} ${path}`))
+      if (!workflowRoute && !operationsFileRoute && !maintainerRoute && !['POST /v1/auth/desktop', 'POST /v1/auth/register', 'POST /v1/auth/password-login', 'POST /v1/auth/password-reset', 'POST /v1/auth/refresh', 'POST /v1/auth/logout', 'GET /v1/me', 'POST /v1/uploads', 'POST /v1/banks/promote'].includes(`${method} ${path}`))
         fail(404, 'NOT_FOUND', '接口不存在');
       requireSessionConfig(config);
       const now = Math.floor(clock() / 1000);
@@ -189,6 +190,7 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
       }
       const auth = verify(typeof headers.authorization === 'string' && headers.authorization.startsWith('Bearer ')
         ? headers.authorization.slice(7) : null, config, now, await access.read());
+      if (operationsFileRoute) return respond(200, await workflow.read(method,path,config,auth));
       if (path === '/v1/me') {
         const pendingApplication=auth.password_account?(await access.read()).maintainer_applications.find(application=>application.status==='pending'&&application.account_id===auth.account_id):undefined;
         return respond(200, { openid: auth.openid, auth_type:auth.password_account?'password':auth.desktop?'key':'', phone: auth.phone_masked||'', real_name:auth.real_name||'', nickname:auth.nickname||'', account_status:auth.account_status|| (auth.desktop?'desktop':'approved'),

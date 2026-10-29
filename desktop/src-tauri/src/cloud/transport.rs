@@ -77,7 +77,7 @@ pub fn request(
 }
 
 fn allowed_path(path: &str) -> bool {
-    regex::Regex::new(r"^/(health|v1/(catalog|me|uploads|auth/(desktop|register|password-login|password-reset|refresh|logout)|maintainer-applications(/[0-9a-f-]{36}/decision)?|maintainer-accounts(/[0-9a-f-]{36}/(permissions|revoke|password-reset))?|banks/promote|banks/[0-9a-f-]{36}/(manifest|snapshot-file|history|history/[0-9]+/questions|rollback|seed)))$")
+    regex::Regex::new(r"^/(health|v1/(catalog|me|uploads|auth/(desktop|register|password-login|password-reset|refresh|logout)|maintainer-applications(/[0-9a-f-]{36}/decision)?|maintainer-accounts(/[0-9a-f-]{36}/(permissions|revoke|password-reset))?|banks/promote|banks/[0-9a-f-]{36}/(manifest|snapshot-file|question-file|operations-file|history|history/[0-9]+/questions|rollback|seed)))$")
         .unwrap().is_match(path)
 }
 

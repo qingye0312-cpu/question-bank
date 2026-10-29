@@ -1,10 +1,11 @@
 'use strict';
-// Each revision is immutable: uploads commit a full state and rollbacks commit
-// a compact reference. Upload retries replay durable submission/merge records;
+// Each revision is immutable: uploads and rollbacks commit a full state file.
+// Upload retries replay durable submission/merge records;
 // concurrent writers never overwrite one another.
 const {HttpError,sha256}=require('./common.cjs');
 const {packText}=require('./codec.cjs');
-const {key,answer,releaseName,projected,manifest,safeQuestion}=require('./projection.cjs');
+const {key,answer,releaseName,projected,manifest,safeQuestion,questionFile}=require('./projection.cjs');
+const {buildOperationFile}=require('./operations.cjs');
 const MAX_STATE_BYTES=4*1024*1024;
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const deny=(status,code,message)=>{throw new HttpError(status,code,message)};
@@ -17,6 +18,10 @@ function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission})
  async function atRevision(b,revision){
   if(!Number.isSafeInteger(revision)||revision<1)return null;
   return store.readStateAt(b.bank_id,revision);
+ }
+ async function manifestFor(b,state){
+  const states=await store.listStates(b.bank_id),operations=buildOperationFile(states,{bankId:b.bank_id,name:b.name}),payload=JSON.stringify(operations);
+  return manifest(state,{operations_file_sha256:sha256(payload),operations_file_bytes:Buffer.byteLength(payload)});
  }
  function stateDiff(previous,current){
   if(current?.rollback_reference||!Array.isArray(current?.formal))return [];
@@ -81,13 +86,14 @@ function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission})
  function validateQuestion(q,name){
   try{validateStandardQuestion(q,name);}catch{deny(422,'QUESTION_INVALID','请核对题目结构、题库身份、选项和答案');}
  }
- async function commit(s,at=new Date(clock()).toISOString()){
+ async function commit(s,b,at=new Date(clock()).toISOString()){
   s.revision++;s.updated_at=at;
   if(Buffer.byteLength(JSON.stringify(s))>MAX_STATE_BYTES)deny(413,'BANK_TOO_LARGE','当前题库超过单次同步上限，请先归档处理记录或拆分题库');
   if(!await store.createState(s))deny(409,'REVISION_CONFLICT','云端题库已更新，请刷新后重新核对');
-  return manifest(s);
+  return manifestFor(b,s);
  }
- const catalog=require('./catalog.cjs').createCatalog({store,validateStandardQuestion,clock,releaseName,manifest});
+ const catalog=require('./catalog.cjs').createCatalog({store,validateStandardQuestion,clock,releaseName,manifest,
+  manifestFor:async(state,bank)=>manifestFor(bank||{bank_id:state.bank_id,name:state.name},state)});
  return {
   resolve:catalog.resolve,promote:catalog.promote,
   async ensureReady(config,bankId){
@@ -96,12 +102,20 @@ function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission})
    if(s.formal===null)deny(409,'SEED_REQUIRED','请先从桌面初始化云端正式首版');
    return s;
   },
-  async read(method,path,config){
+  async read(method,path,config,auth){
    if(method!=='GET')return;
-   if(path==='/v1/catalog'){enabled(config);return {banks:await Promise.all(config.banks.map(async b=>manifest(await latest(b))))};}
-   const match=/^\/v1\/banks\/([0-9a-f-]{36})\/(manifest|snapshot-file)$/.exec(path||'');if(!match)return;
+   if(path==='/v1/catalog'){enabled(config);return {banks:await Promise.all(config.banks.map(async b=>manifestFor(b,await latest(b))))};}
+   const match=/^\/v1\/banks\/([0-9a-f-]{36})\/(manifest|snapshot-file|question-file|operations-file)$/.exec(path||'');if(!match)return;
    enabled(config);const s=await latest(bank(config,match[1]));
-   if(match[2]==='manifest')return manifest(s);
+   if(match[2]==='manifest')return manifestFor(bank(config,match[1]),s);
+   if(match[2]==='question-file')return packText(JSON.stringify(questionFile(s)));
+   if(match[2]==='operations-file'){
+    if(!auth)return;
+    const roles=auth.grants?.[match[1]]||[],canView=auth.capabilities?.includes('maintainer:manage')||(auth.desktop&&roles.includes('merge'))||roles.includes('upload')||auth.permissions?.includes('export');
+    if(!canView)deny(403,'ROLE_FORBIDDEN','没有此题库的版本查看权限');
+    const b=bank(config,match[1]),operations=buildOperationFile(await store.listStates(b.bank_id),{bankId:b.bank_id,name:b.name});
+    return packText(JSON.stringify(operations));
+   }
    const payload=JSON.stringify(projected(s));return packText(payload);
   },
   async mergeSubmission(config,record,delta,auth){
@@ -112,7 +126,7 @@ function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission})
     const previous=(s.merge_history||[]).find(m=>m.submission_id===record.submission_id);
     if(s.batches.includes(record.submission_id)){
      if(!previous)deny(502,'MERGE_RECORD_MISSING','合并记录不完整，请保留本地批次并联系管理员');
-     return {manifest:manifest(s),merged:false,duplicate:true,merge:{...previous,duplicate:true}};
+     return {manifest:await manifestFor(b,s),merged:false,duplicate:true,merge:{...previous,duplicate:true}};
     }
     const qs=delta.payload.trim().split('\n').map(JSON.parse),formal=s.formal.map(q=>({...q}));
     const resolved=[];let added=0,duplicates=0;const addedQuestionIds=[];
@@ -135,8 +149,9 @@ function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission})
       question_count:qs.length,added_count:added,duplicate_count:duplicates,added_question_ids:addedQuestionIds,
       revision:s.revision+1,release_version:s.release_version,actor:sha256(auth.openid),uploader_account_id:uploaderAccountId,
       uploader_real_name:uploaderRealName,uploader_nickname:uploaderNickname,uploader_auth_type:uploaderAuthType}];
+    const wasRolledBack=!!s.rollback;
     if(added){
-      const previousLabel=s.release_version_label||`v${s.release_version}`,wasRolledBack=!!s.rollback;
+      const previousLabel=s.release_version_label||`v${s.release_version}`;
       const nextBase=s.release_version+1,basePrefix=`v${nextBase}`;
       const states=await store.listStates(b.bank_id);
       const labels=[...states.map(item=>item.release_version_label||`v${item.release_version}`),...(s.merge_history||[]).map(item=>item.release_version_label||`v${item.release_version}`),previousLabel];
@@ -145,9 +160,16 @@ function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission})
       s.formal=formal;s.release_version=nextBase;s.release_version_label=nextLabel;s.merged_at=mergedAt;s.release_id=sha256(JSON.stringify(formal));
       s.release_name=releaseName(mergedAt,s.name,'合并',nextLabel.slice(1),s.bank_id,s.release_id);
       s.rollback=null;s.rollback_at=null;s.merge_history.at(-1).release_version=s.release_version;s.merge_history.at(-1).release_version_label=nextLabel;}
+    // A duplicate-only upload after a rollback is still a formal merge. It
+    // must clear the rollback marker so later records cannot inherit the old
+    // pointer semantics or be misclassified as another rollback.
+    if(!added&&wasRolledBack){
+     s.rollback=null;s.rollback_at=null;
+     s.release_name=releaseName(mergedAt,s.name,'合并',s.release_version,s.bank_id,s.release_id||sha256(JSON.stringify(s.formal)));
+    }
     s.merge_history.at(-1).release_name=s.release_name;
     try{
-     const result=await commit(s,mergedAt);
+     const result=await commit(s,b,mergedAt);
      return {manifest:result,merged:added>0,duplicate:false,merge:s.merge_history.at(-1)};
     }catch(e){if(e.code!=='REVISION_CONFLICT')throw e;}
    }
@@ -201,7 +223,13 @@ function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission})
    if(operation){
     if(!UUID.test(operation))deny(422,'OPERATION_INVALID','合并任务 ID 无效');
     const old=(s.operations||[]).find(o=>o.id===operation);
-    if(old){if(old.hash!==operationHash)deny(409,'OPERATION_CONFLICT','任务 ID 已用于不同内容');if(action==='rollback')await store.finalizeRollback?.(b.bank_id,old.result.revision);return old.result;}
+    if(old){
+     if(old.hash!==operationHash)deny(409,'OPERATION_CONFLICT','任务 ID 已用于不同内容');
+     // Rebuild the manifest from the immutable full state. Legacy rollback
+     // finalizers are intentionally not called: new revisions never use a
+     // pointer/reference file and must expose the operation-file digest.
+     return manifestFor(b,s);
+    }
    }
    if(!body||body.base_revision!==s.revision)deny(409,'REVISION_CONFLICT','云端题库已更新，请刷新后重试');
    if(action==='rollback'){
@@ -224,12 +252,13 @@ function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission})
     const operationRecord={id:operation,hash:operationHash,result:projectedResult};
     s.revision=nextRevision;s.updated_at=rolledAt;
     s.operations=[...(s.operations||[]),operationRecord];
-    if(!await store.createRollback(s,target.revision,operationRecord)){
+    delete s.rollback_reference;
+    if(!await store.createState(s)){
      const latestState=await latest(b),previous=(latestState.operations||[]).find(o=>o.id===operation);
-     if(previous){if(previous.hash!==operationHash)deny(409,'OPERATION_CONFLICT','任务 ID 已用于不同内容');return previous.result;}
+     if(previous){if(previous.hash!==operationHash)deny(409,'OPERATION_CONFLICT','任务 ID 已用于不同内容');return manifestFor(b,latestState);}
      deny(409,'REVISION_CONFLICT','云端题库已更新，请刷新后重新核对');
     }
-    return projectedResult;
+    return manifestFor(b,s);
    }
    if(action!=='seed')deny(405,'METHOD_NOT_ALLOWED','不支持此请求方法');
    if(!auth.capabilities?.includes('cloud_bank:create'))deny(403,'CREATE_FORBIDDEN','首版初始化需要桌面最高权限');
@@ -242,7 +271,7 @@ function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission})
    const committedAt=new Date(clock()).toISOString();s.merged_at=committedAt;s.release_id=sha256(JSON.stringify(s.formal));
    s.release_name=releaseName(committedAt,s.name,'初建',s.release_version,s.bank_id,s.release_id);
    if(operation){s.operations=s.operations||[];const projectedResult=manifest({...s,revision:s.revision+1,updated_at:committedAt});s.operations.push({id:operation,hash:operationHash,result:projectedResult});}
-   return commit(s,committedAt);
+   return commit(s,b,committedAt);
   }
  };
 }

@@ -9,7 +9,7 @@ import {createRoot} from 'react-dom/client';
 import {invoke, isTauri} from '@tauri-apps/api/core';
 import {getCurrentWebview} from '@tauri-apps/api/webview';
 import {SoftwareUpdate} from './software-update';
-import {cloudAccess,cloudCall,cloudInitializePersistentSession,fetchCatalog,reloadDesktopCache,startCloudWorker,type Access} from './cloud-client';
+import {cloudAccess,cloudCall,cloudInitializePersistentSession,fetchCatalog,reloadDesktopCache,startCloudWorker,loadCloudOperations,type Access} from './cloud-client';
 import {IntakePanel} from './intake-panel';
 import {IntakeHub} from './intake-hub';
 import {QuestionExport} from './question-export';
@@ -91,12 +91,12 @@ function App(){
  async function doQuestionExport(targetBank:string,startAt:string|null,endBefore:string|null,revisions:number[]=[]){if(!canWordExport)return;await work('正在准备 DOCX 题目文件',async()=>{
   const selectedBank=banks.find(item=>item.id===targetBank);if(!selectedBank)throw Error('请选择题库');
   if(revisions.length){
-   const batches=await Promise.all(revisions.map(revision=>cloudCall<{revision:number;added_count:number;questions:Question[]}>(`/v1/banks/${targetBank}/history/${revision}/questions`,undefined,true)));
-   const questions=batches.flatMap(batch=>batch.questions||[]),expected=batches.reduce((count,batch)=>count+(batch.added_count||0),0);
-   if(!questions.length||questions.length!==expected)throw Error('云端没有返回完整的所选修订新增题目');
+   const operations=await loadCloudOperations(targetBank),ids=new Set(operations.revisions.filter(operation=>revisions.includes(operation.revision)).flatMap(operation=>operation.questions.filter(question=>question.action!=='removed').map(question=>question.question_id)));
+   const latest=await invoke<Question[]>('bank_questions',{bankId:targetBank}),questions=latest.filter(question=>ids.has(question.question_id)),expected=ids.size;
+   if(!questions.length||questions.length!==expected)throw Error('云端没有返回完整的所选修订变更题目');
    const now=new Date(),pad=(value:number)=>String(value).padStart(2,'0'),stamp=`${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
    const simpleBankName=selectedBank.name.replace(/[\\/:*?"<>|\u0000-\u001f]/g,'_').replace(/\s+/g,'_').replace(/^[_ .-]+|[_ .-]+$/g,'').slice(0,48)||'题库';
-   const path=await save({title:'导出修订新增题目',defaultPath:`${simpleBankName}_${stamp}_${expected}题_修订${revisions.join('-')}.docx`,filters:[{name:'Word 文档',extensions:['docx']}]});
+   const path=await save({title:'导出修订变更题目',defaultPath:`${simpleBankName}_${stamp}_${expected}题_修订${revisions.join('-')}.docx`,filters:[{name:'Word 文档',extensions:['docx']}]});
    if(!path)return;
    const exported=await invoke<number>('export_remote_questions',{questions,path});setModal('');setNotice(`已导出 ${exported.toLocaleString()} 道题：${path}`);return;
   }

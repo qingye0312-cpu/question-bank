@@ -1,5 +1,5 @@
 import {invoke} from '@tauri-apps/api/core';
-import {readManifest,readSnapshot,snapshotPayload,snapshotPath,type CloudManifest} from '../../shared/sync';
+import {readManifest,readSnapshot,snapshotPayload,snapshotPath,readQuestionFile,readOperationsFile,questionFilePath,operationsFilePath,type CloudManifest,type CloudOperationsFile} from '../../shared/sync';
 import {cloudAccess,cloudOrigin,cloudCall} from './session-service';
 import {runDesktopQueue} from './submission-runner';
 export async function fetchCatalog():Promise<CloudManifest[]>{
@@ -20,8 +20,15 @@ export function syncDesktop(bankId:string,advertised?:CloudManifest):Promise<boo
   // A rollback or administrative restore can replace content without changing
   // the public release number. Skip only when both the history revision and
   // the snapshot digest match; the digest also repairs same-revision restores.
-  if(old?.revision===m.revision&&old.sha256===m.sha256)return false;
+  const contentDigest=m.question_file_sha256||m.sha256;
+  if(old?.revision===m.revision&&old.sha256===contentDigest)return false;
   if(m.revision===0)return false;
+  if(m.question_file_sha256&&m.operations_file_sha256&&m.question_file_format==='qbank-question-bank-1'&&m.operations_file_format==='qbank-operations-1'){
+   const includeOperations=!!cloudAccess(),[questionWrapper,operationsWrapper]=await Promise.all([cloudCall<unknown>(questionFilePath(m)),includeOperations?cloudCall<unknown>(operationsFilePath(m),undefined,true):Promise.resolve(null)]);
+   const question=readQuestionFile(questionWrapper,m),operations=operationsWrapper?readOperationsFile(operationsWrapper,m):null;checkOrigin();
+   await invoke('cloud_apply',questionFileApplyPayload(questionWrapper));
+   if(operations)await cacheOperations(bankId,operations);return true;
+  }
   const wrapper=await cloudCall<unknown>(snapshotPath(m));readSnapshot(wrapper,m);
   checkOrigin();
   await invoke('cloud_apply',snapshotPayload(wrapper));return true;
@@ -35,14 +42,38 @@ export function reloadDesktopCache(bankId:string,advertised:CloudManifest):Promi
   if(previous){try{await previous}catch{/* Continue with a fresh download after the in-flight sync settles. */}}
   const m=readManifest(advertised);if(m.bank_id!==bankId)throw Error('题库身份不一致');
   checkOrigin();
-  const wrapper=await cloudCall<unknown>(snapshotPath(m));readSnapshot(wrapper,m);
-  const payload=snapshotPayload(wrapper);checkOrigin();
+  let payload:{payload:string;sha256:string};let operations:CloudOperationsFile|null=null;
+  if(m.question_file_sha256&&m.operations_file_sha256&&m.question_file_format==='qbank-question-bank-1'&&m.operations_file_format==='qbank-operations-1'){
+   const includeOperations=!!cloudAccess(),[questionWrapper,operationsWrapper]=await Promise.all([cloudCall<unknown>(questionFilePath(m)),includeOperations?cloudCall<unknown>(operationsFilePath(m),undefined,true):Promise.resolve(null)]);
+   readQuestionFile(questionWrapper,m);if(operationsWrapper)operations=readOperationsFile(operationsWrapper,m);payload=questionFileApplyPayload(questionWrapper);
+  }else{const wrapper=await cloudCall<unknown>(snapshotPath(m));readSnapshot(wrapper,m);payload=snapshotPayload(wrapper);}
+  checkOrigin();
   await invoke('cloud_clear_cached_snapshot',{bankIds:[bankId]});
   checkOrigin();
   await invoke('cloud_apply',payload);
+  if(operations)await cacheOperations(bankId,operations);
   return true;
  })();
  syncing.set(key,task);void task.finally(()=>{if(syncing.get(key)===task)syncing.delete(key)}).catch(()=>{});return task;
+}
+
+function questionFileApplyPayload(value:unknown){
+ // The native importer accepts the pure question-bank JSON directly and
+ // stores its digest as the cloud revision identity.
+ return snapshotPayload(value);
+}
+
+const operationKey=(bankId:string)=>`cloud-operations:${bankId}`;
+type CachedOperations=CloudOperationsFile&{origin:string};
+export async function cacheOperations(bankId:string,operations:CloudOperationsFile){await invoke('client_state',{key:operationKey(bankId),value:{...operations,origin:cloudOrigin()}});}
+export async function cachedOperations(bankId:string):Promise<CloudOperationsFile|null>{
+ const value=await invoke<CloudOperationsFile|null>('client_state',{key:operationKey(bankId),value:null});
+ return value&&value.format==='qbank-operations-1'&&(value as CachedOperations).origin===cloudOrigin()?value:null;
+}
+export async function loadCloudOperations(bankId:string,advertised?:CloudManifest):Promise<CloudOperationsFile>{
+ const cached=await cachedOperations(bankId);if(cached&&(!advertised||cached.current_revision===advertised.revision))return cached;
+ const manifest=readManifest(advertised||await cloudCall(`/v1/banks/${bankId}/manifest`));
+ const wrapper=await cloudCall<unknown>(operationsFilePath(manifest),undefined,true),operations=readOperationsFile(wrapper,manifest);await cacheOperations(bankId,operations);return operations;
 }
 
 const catalogSyncs=new Map<string,Promise<{changed:boolean;failed:string[]}>>();

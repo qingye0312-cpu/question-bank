@@ -5,7 +5,7 @@ const {unpackText}=require('./codec.cjs');
 const {REGISTRY_ID,createAccessRegistry}=require('./access.cjs');
 const UUID=/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
 const fail=(status,code,message)=>{throw new HttpError(status,code,message)};
-function createCatalog({store,validateStandardQuestion,clock,releaseName,manifest}){
+function createCatalog({store,validateStandardQuestion,clock,releaseName,manifest,manifestFor}){
  const registry=createAccessRegistry({store,clock}).read;
  async function resolve(config){
   if(!config.syncEnabled)return config;
@@ -39,10 +39,10 @@ function createCatalog({store,validateStandardQuestion,clock,releaseName,manifes
   const verified=await store.readState(id);if(!matches(verified))fail(502,'STATE_NOT_VERIFIED','首版尚未确认可读，请重试原任务');
   for(let attempt=0;attempt<5;attempt++){
    const r=await registry(),old=r.banks.find(b=>b.bank_id===id);
-   if(old){if(old.operation_id!==body.operation_id||old.owner!==auth.openid)fail(409,'BANK_EXISTS','题库已由其他创建任务激活');return manifest(verified);}
+   if(old){if(old.operation_id!==body.operation_id||old.owner!==auth.openid)fail(409,'BANK_EXISTS','题库已由其他创建任务激活');return manifestFor?manifestFor(verified,{bank_id:id,name}):manifest(verified);}
    if(r.banks.length>=100)fail(413,'CATALOG_FULL','云端目录已满，首版任务保留');
    r.banks.push({bank_id:id,name,owner:auth.openid,operation_id:body.operation_id});r.revision++;r.updated_at=new Date(clock()).toISOString();
-   if(await store.createState(r))return manifest(verified);
+   if(await store.createState(r))return manifestFor?manifestFor(verified,{bank_id:id,name}):manifest(verified);
   }
   fail(409,'REVISION_CONFLICT','目录正在更新，请重试同一转换任务');
  }

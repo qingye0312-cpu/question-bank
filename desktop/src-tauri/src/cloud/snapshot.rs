@@ -20,8 +20,13 @@ pub struct Snapshot {
     pub revision: u64,
     pub release_version: u64,
     pub updated_at: String,
+    #[serde(default)]
     pub formal: Option<Vec<Question>>,
+    #[serde(default)]
+    pub questions: Vec<Question>,
+    #[serde(default)]
     pub pending: Vec<Question>,
+    #[serde(default)]
     pub removed: Vec<Value>,
 }
 pub fn versions(store: &Store) -> Result<Vec<Value>> {
@@ -66,6 +71,11 @@ pub fn clear_cached_snapshot(store: &Store, bank_ids: &[String]) -> Result<Vec<S
         if cached_cloud_bank {
             tx.execute("DELETE FROM cloud_snapshots WHERE bank_id=?1", [bank_id])
                 .map_err(err)?;
+            tx.execute(
+                "DELETE FROM client_state WHERE key=?1",
+                [format!("cloud-operations:{bank_id}")],
+            )
+            .map_err(err)?;
             cleared.push(bank_id.clone());
         }
     }
@@ -103,7 +113,8 @@ pub fn apply(store: &Store, payload: &str, digest: &str) -> Result<()> {
         return Err("同步数据摘要或大小无效".into());
     }
     let mut s: Snapshot = serde_json::from_str(payload).map_err(err)?;
-    if s.format != "qbank-snapshot-2"
+    let pure_question_file = s.format == "qbank-question-bank-1";
+    if !pure_question_file && s.format != "qbank-snapshot-2"
         || uuid::Uuid::parse_str(&s.bank_id).is_err()
         || s.name.trim().is_empty()
         || s.revision == 0
@@ -116,6 +127,16 @@ pub fn apply(store: &Store, payload: &str, digest: &str) -> Result<()> {
         || s.rollback_of.is_some_and(|revision| revision == 0)
     {
         return Err("云端题库身份无效".into());
+    }
+    if pure_question_file {
+        if s.questions.is_empty() {
+            return Err("云端题库题目为空或格式无效".into());
+        }
+        s.formal = Some(std::mem::take(&mut s.questions));
+        s.pending.clear();
+        s.removed.clear();
+    } else if !s.questions.is_empty() {
+        return Err("云端题库包含未知题目层".into());
     }
     if !s.pending.is_empty()
         || s.removed.iter().any(|r| {
