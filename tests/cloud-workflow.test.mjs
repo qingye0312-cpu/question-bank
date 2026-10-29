@@ -10,6 +10,7 @@ import {encodeUpload} from '../tools/encode-upload.mjs';
 
 const require=createRequire(import.meta.url);
 const {createHandler}=require('../cloud/qbank-auth/service.cjs');
+const {applyUploaderCorrection}=require('../cloud/qbank-auth/operations.cjs');
 const fixture=fs.readFileSync(new URL('./fixtures/intake/mobile-delta.json',import.meta.url),'utf8');
 const {delta,questions}=parseDelta(fixture),id=delta.bank_id;
 const key='b'.repeat(64);
@@ -53,6 +54,17 @@ test('anonymous catalogue exposes the current manifest while operation records r
   assert.equal((await s.call('GET','/v1/catalog')).status,200);
   assert.equal((await s.call('POST','/v1/auth/wechat',{code:'removed'})).status,404);
   assert.equal((await s.call('POST','/v1/uploads',encodeUpload(fixture))).status,401);
+});
+
+test('legacy uploader corrections replace only missing or explicitly corrected historical names',()=>{
+  const primary='ad50971f-66af-51c2-bb0e-dc798b03b369',advanced='c86104f7-4570-4089-9338-7989ce528a9d';
+  assert.equal(applyUploaderCorrection({real_name:'系统',nickname:null},primary,5).real_name,'令星煜');
+  assert.equal(applyUploaderCorrection({real_name:'star',nickname:'star'},primary,1).real_name,'令星煜');
+  assert.equal(applyUploaderCorrection({real_name:'系统',nickname:null},primary,11).real_name,'赵晟荣');
+  assert.equal(applyUploaderCorrection({real_name:'赵晟荣',nickname:'赵'},primary,12).real_name,'赵晟荣');
+  assert.equal(applyUploaderCorrection({real_name:'系统',nickname:null},advanced,6).real_name,'令星煜');
+  assert.equal(applyUploaderCorrection({real_name:'star',nickname:'star'},advanced,2).real_name,'令星煜');
+  assert.equal(applyUploaderCorrection({real_name:'段晞萌',nickname:'Simon'},advanced,6).real_name,'段晞萌');
 });
 
 test('one compressed Base64 upload is decoded, decompressed, merged, recompressed and versioned atomically',async()=>{

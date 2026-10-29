@@ -5,7 +5,7 @@
 const {HttpError,sha256}=require('./common.cjs');
 const {packText}=require('./codec.cjs');
 const {key,answer,releaseName,projected,manifest,safeQuestion,questionFile}=require('./projection.cjs');
-const {buildOperationFile}=require('./operations.cjs');
+const {applyUploaderCorrection,buildOperationFile}=require('./operations.cjs');
 const MAX_STATE_BYTES=4*1024*1024;
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const deny=(status,code,message)=>{throw new HttpError(status,code,message)};
@@ -64,14 +64,14 @@ function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission})
    const addedCount=declaredAdded===null?(seeded?s.formal.length:derived.length):declaredAdded||derived.length;
    const declaredQuestions=Number.isSafeInteger(merge?.question_count)?merge.question_count:null;
    const formalLabel=release_version_label;
+   const uploader=applyUploaderCorrection({account_id:merge?.uploader_account_id||s.seed_uploader_account_id||null,real_name:uploaderName(merge?.uploader_real_name,s.seed_uploader_real_name),nickname:uploaderName(merge?.uploader_nickname),auth_type:merge?.uploader_auth_type||null},b.bank_id,s.revision);
    return {revision:s.revision,formal_revision,release_version:s.release_version,release_version_label:formalLabel,updated_at:s.updated_at,merged_at:s.merged_at||null,
     release_name:s.release_name||null,release_id:s.release_id||null,rollback_at:rollbackEvent?.rollback_at||s.rollback_at||null,
     rollback_of:rollbackTarget,rollback_to_release_version_label:rollbackLabel,merge_count:Array.isArray(s.merge_history)?s.merge_history.length:0,
     batch_id:merge?.batch_id||null,question_count:declaredQuestions===null?(seeded?s.formal.length:addedCount):declaredQuestions,
     added_count:addedCount,
-    uploader_account_id:merge?.uploader_account_id||s.seed_uploader_account_id||null,
-    uploader_real_name:uploaderName(merge?.uploader_real_name,s.seed_uploader_real_name),
-    uploader_nickname:uploaderName(merge?.uploader_nickname),uploader_auth_type:merge?.uploader_auth_type||null,
+    uploader_account_id:uploader.account_id||null,uploader_real_name:uploader.real_name||null,
+    uploader_nickname:uploader.nickname||null,uploader_auth_type:uploader.auth_type||null,
     has_incremental_json:!!merge?.batch_id,has_revision_questions:addedCount>0};
   }).reverse();
  }
@@ -80,7 +80,8 @@ function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission})
   return states.sort((left,right)=>left.revision-right.revision).map(s=>{
    const merge=(s.merge_history||[]).find(item=>item.revision===s.revision),rollbackTarget=s.rollback?.target_revision||null,rollbackState=rollbackTarget?states.find(item=>item.revision===rollbackTarget):null;
    const kind=s.rollback||s.rollback_reference?'rollback':merge?'merge':s.revision===1?'seed':'state';
-   return {revision:s.revision,kind,release_version:s.release_version,release_version_label:revisionLabel(s),updated_at:s.updated_at,merged_at:s.merged_at||null,release_name:s.release_name||null,release_id:s.release_id||null,batch_id:merge?.batch_id||null,question_count:Number.isSafeInteger(merge?.question_count)?merge.question_count:null,added_count:Number.isSafeInteger(merge?.added_count)?merge.added_count:null,duplicate_count:Number.isSafeInteger(merge?.duplicate_count)?merge.duplicate_count:null,rollback_of:rollbackTarget,rollback_to_release_version_label:rollbackState?revisionLabel(rollbackState):null,uploader_account_id:merge?.uploader_account_id||s.seed_uploader_account_id||null,uploader_real_name:uploaderName(merge?.uploader_real_name,s.seed_uploader_real_name),uploader_nickname:uploaderName(merge?.uploader_nickname)};
+   const uploader=applyUploaderCorrection({account_id:merge?.uploader_account_id||s.seed_uploader_account_id||null,real_name:uploaderName(merge?.uploader_real_name,s.seed_uploader_real_name),nickname:uploaderName(merge?.uploader_nickname),auth_type:merge?.uploader_auth_type||null},b.bank_id,s.revision);
+   return {revision:s.revision,kind,release_version:s.release_version,release_version_label:revisionLabel(s),updated_at:s.updated_at,merged_at:s.merged_at||null,release_name:s.release_name||null,release_id:s.release_id||null,batch_id:merge?.batch_id||null,question_count:Number.isSafeInteger(merge?.question_count)?merge.question_count:null,added_count:Number.isSafeInteger(merge?.added_count)?merge.added_count:null,duplicate_count:Number.isSafeInteger(merge?.duplicate_count)?merge.duplicate_count:null,rollback_of:rollbackTarget,rollback_to_release_version_label:rollbackState?revisionLabel(rollbackState):null,uploader_account_id:uploader.account_id||null,uploader_real_name:uploader.real_name||null,uploader_nickname:uploader.nickname||null};
   }).reverse();
  }
  function validateQuestion(q,name){

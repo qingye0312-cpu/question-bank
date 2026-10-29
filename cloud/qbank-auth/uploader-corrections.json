@@ -1,0 +1,30 @@
+{
+  "format": "qbank-uploader-corrections-1",
+  "banks": [
+    {
+      "bank_id": "ad50971f-66af-51c2-bb0e-dc798b03b369",
+      "default_uploader": {
+        "real_name": "令星煜",
+        "nickname": "令星煜"
+      },
+      "revisions": [
+        {
+          "revision": 11,
+          "uploader": {
+            "account_id": "5ac8eb8a-0261-4d64-9456-1735f0e743b8",
+            "real_name": "赵晟荣",
+            "nickname": "赵"
+          }
+        }
+      ]
+    },
+    {
+      "bank_id": "c86104f7-4570-4089-9338-7989ce528a9d",
+      "default_uploader": {
+        "real_name": "令星煜",
+        "nickname": "令星煜"
+      },
+      "revisions": []
+    }
+  ]
+}

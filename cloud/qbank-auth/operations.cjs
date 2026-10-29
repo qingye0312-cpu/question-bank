@@ -1,10 +1,26 @@
 'use strict';
 
 const {safeQuestion}=require('./projection.cjs');
+const corrections=require('./uploader-corrections.json');
 
 const clone=value=>value==null?value:structuredClone(value);
 const text=value=>JSON.stringify(value);
 const uploaderName=(...values)=>values.map(value=>typeof value==='string'?value.trim():'').find(value=>value&&value!=='未记录')||'star';
+const fallbackNames=new Set(['系统','star','未记录']);
+
+function correctionFor(bankId,revision){
+  const bank=corrections.banks.find(item=>item.bank_id===bankId);
+  if(!bank)return null;
+  return bank.revisions.find(item=>item.revision===revision)?.uploader||bank.default_uploader||null;
+}
+
+function applyUploaderCorrection(uploader,bankId,revision){
+  const bank=corrections.banks.find(item=>item.bank_id===bankId),correction=correctionFor(bankId,revision);
+  if(!correction)return clone(uploader);
+  const current=uploader||{},specific=bank?.revisions.some(item=>item.revision===revision);
+  if(!specific&&current.real_name&&!fallbackNames.has(current.real_name.trim()))return clone(current);
+  return {...clone(current),...clone(correction)};
+}
 
 function uploaderFor(state,merge){
   if(merge)return {account_id:merge.uploader_account_id||null,real_name:uploaderName(merge.uploader_real_name),nickname:uploaderName(merge.uploader_nickname),auth_type:merge.uploader_auth_type||null};
@@ -31,7 +47,7 @@ function buildOperationFile(states,{bankId,name}={}){
     const merge=(state.merge_history||[]).find(item=>item.revision===state.revision)||null;
     const kind=revisionKind(state,merge),releaseVersionLabel=state.release_version_label||`v${state.release_version}`;
     const at=state.updated_at||state.merged_at||'';
-    const uploader=uploaderFor(state,merge);
+    const uploader=applyUploaderCorrection(uploaderFor(state,merge),bankId,state.revision);
     const before=new Map((previous?.formal||[]).map(question=>[question.question_id,question]));
     const current=new Map((state.formal||[]).map(question=>[question.question_id,question]));
     const events=[];
@@ -65,4 +81,4 @@ function buildOperationFile(states,{bankId,name}={}){
   return {format:'qbank-operations-1',bank_id:bankId||latest?.bank_id,name:name||latest?.name||'',current_revision:latest?.revision||0,current_release_version:latest?.release_version||0,current_release_version_label:latest?.release_version_label||`v${latest?.release_version||0}`,updated_at:latest?.updated_at||'',revisions:revisions.reverse(),questions:[...questions.values()].sort((a,b)=>a.question_id.localeCompare(b.question_id))};
 }
 
-module.exports={buildOperationFile};
+module.exports={applyUploaderCorrection,buildOperationFile};
