@@ -1,13 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import {readFileSync} from 'node:fs';
+import {existsSync,readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import vm from 'node:vm';
 import ts from 'typescript';
 import * as intakeCore from '../desktop/shared/intake.ts';
 import * as answerPresentationCore from '../desktop/shared/answer-presentation.ts';
-import {applicationFields,passwordMeetsPolicy,registrationFields} from '../miniprogram/miniprogram/services/maintainer-application.ts';
 import * as core from '../miniprogram/miniprogram/core/search.ts';
 import * as compact from '../miniprogram/miniprogram/core/compact.ts';
 import {brotliDecompressSync} from 'node:zlib';
@@ -15,6 +14,24 @@ import {prepareBundle} from '../tools/mobile-index/build.mjs';
 import {normalize as desktopNormalize, queryTerms as desktopTerms} from '../desktop/src/search-presentation.ts';
 
 const base = new URL('../miniprogram/miniprogram/', import.meta.url);
+function loadServiceModule(relative){
+ const cache=new Map();
+ function load(name,parent){
+  let url=new URL(name,parent);
+  if(!url.pathname.endsWith('.ts')&&!url.pathname.endsWith('.js')){
+   const tsUrl=new URL(`${name}.ts`,parent),jsUrl=new URL(`${name}.js`,parent);
+   url=existsSync(tsUrl)?tsUrl:jsUrl;
+  }
+  if(cache.has(url.href))return cache.get(url.href);
+  const source=readFileSync(url,'utf8'),module={exports:{}},exports=module.exports;
+  cache.set(url.href,exports);
+  const compiled=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText;
+  vm.runInNewContext(compiled,{exports,module,require:child=>load(child,url),console,Error,Map,Set,Array,Object,String,Number,Boolean,RegExp,JSON,Math,Date},{filename:url.pathname});
+  return module.exports;
+ }
+ return load(relative,base);
+}
+const {applicationFields,passwordMeetsPolicy,registrationFields}=loadServiceModule('services/maintainer-application.ts');
 const embeddedText = await readFile(new URL('data/questions.json', base), 'utf8');
 const payload = JSON.parse(embeddedText).payload;
 const lines = payload.trimEnd().split('\n'), questions = lines.map(line => JSON.parse(line));

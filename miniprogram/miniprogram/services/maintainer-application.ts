@@ -17,7 +17,7 @@ export function registrationFields(form:MaintainerRegistrationForm){
  if(form.password!==form.passwordConfirm)throw Error('两次输入的密码不一致');
  return {...applicationFields(form),password:form.password};
 }
-import {passwordMeetsPolicy} from './maintainer-password-policy.ts';
-export {maintainerPasswordRules,passwordMeetsPolicy} from './maintainer-password-policy.ts';
-export type {PasswordRule} from './maintainer-password-policy.ts';
+import {passwordMeetsPolicy} from './maintainer-password-policy';
+export {maintainerPasswordRules,passwordMeetsPolicy} from './maintainer-password-policy';
+export type {PasswordRule} from './maintainer-password-policy';
 

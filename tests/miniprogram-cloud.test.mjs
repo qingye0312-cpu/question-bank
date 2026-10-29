@@ -27,6 +27,10 @@ function load(relative,globals={}){
 }
 
 const {prepareUpload,unpackUpload,verifyReceipt}=load('core/upload.ts');
+test('Mini Program TypeScript services keep extensionless local imports for WeChat module resolution',()=>{
+ const source=fs.readFileSync(new URL('services/maintainer-application.ts',root),'utf8');
+ assert.doesNotMatch(source,/from\s+['"]\.\/maintainer-password-policy\.ts['"]/);
+});
 const authStorage=new Map();
 const {createCloudClient}=load('services/cloud.ts',{wx:{setStorageSync:(key,value)=>authStorage.set(key,value),getStorageSync:key=>authStorage.get(key),removeStorageSync:key=>authStorage.delete(key)}});
 const bankId=JSON.parse(fixture).bank_id;
