@@ -1,6 +1,6 @@
 {
   "name": "qbank-auth-self-host",
-  "version": "0.2.10",
+  "version": "0.2.11",
   "private": true,
   "type": "commonjs",
   "main": "local-server.cjs",
