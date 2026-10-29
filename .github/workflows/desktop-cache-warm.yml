@@ -1,26 +1,6 @@
 name: Warm desktop build caches
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - '.github/workflows/desktop-release.yml'
-      - '.github/workflows/desktop-cache-warm.yml'
-      - 'package.json'
-      - 'pnpm-lock.yaml'
-      - 'index.html'
-      - 'vite.config.ts'
-      - 'tsconfig.json'
-      - 'desktop/src/**'
-      - 'desktop/src-tauri/**'
-      - 'desktop/shared/**'
-      - 'windows/**'
-      - 'mac/**'
-      - 'public/**'
-      - 'assets/**'
-      - 'templates/**'
-      - 'scripts/**'
   workflow_dispatch:
 
 permissions:
