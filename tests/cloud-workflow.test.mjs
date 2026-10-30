@@ -72,6 +72,7 @@ test('one compressed Base64 upload is decoded, decompressed, merged, recompresse
   assert.equal(snapshot.formal.length,2);
   assert.equal(snapshot.pending.length,0);
   assert.equal(snapshot.formal.some(q=>q.question_id===base.question_id),true);
+  assert.equal(snapshot.formal.find(q=>q.question_id===questions[0].question_id)?.status,'unreviewed');
   assert.ok(manifest.release_name.includes('_合并_v2_'));
   const history=await s.call('GET',`/v1/banks/${id}/history`,undefined,token);
   assert.equal(history.status,200);

@@ -355,7 +355,7 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
       const body=jsonBody(event,LIMITS.requestBytes);
       if(!(exact(body,['format','package'])||exact(body,['format','package','status_mode']))
         ||body.format!=='qbank-confirmed-upload-1'
-        ||body.status_mode!==undefined&&body.status_mode!=='preserve')fail(422,'CONFIRMATION_INVALID','上传必须使用当前确认包格式');
+        ||body.status_mode!==undefined&&!['preserve','verified'].includes(body.status_mode))fail(422,'CONFIRMATION_INVALID','上传必须使用当前确认包格式');
       const { delta, envelope } = decodeUpload(body.package, parseDelta, parseModelReply);
       if (!auth.capabilities?.includes('maintainer:manage')&&!auth.grants[delta.bank_id]?.includes('upload')) fail(403, 'BANK_FORBIDDEN', '没有此题库的上传权限');
       if (config.banks.find(b => b.bank_id === delta.bank_id)?.name !== delta.name)
@@ -367,7 +367,7 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
       const record = { format: 'qbank-submission-1', submission_id: sha256(`${delta.bank_id}/${delta.batch_id}`),
         bank_id: delta.bank_id, batch_id: delta.batch_id, sha256: envelope.sha256, payload_sha256: delta.sha256,
         question_count: delta.question_count, status:'merging', accepted_at: new Date(clock()).toISOString(),
-        submitted_by: sha256(`${config.appId}\0${auth.openid}`), status_mode:body.status_mode||'verified', package: envelope };
+        submitted_by: sha256(`${config.appId}\0${auth.openid}`), status_mode:body.status_mode||'preserve', package: envelope };
       record.confirmation={version:1,actor:record.submitted_by,confirmed_at:record.accepted_at,sha256:record.sha256};
       record.uploader_account_id=auth.account_id||auth.maintainer_id||auth.openid;
       record.uploader_real_name=typeof auth.real_name==='string'&&auth.real_name.trim()&&auth.real_name.trim()!=='未记录'

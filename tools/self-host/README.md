@@ -53,6 +53,21 @@ node tools/self-host/check-public-tls.mjs https://qbank.acharrystar.top:8013
 
 服务器上的 `qbank-release-puller.sh` 是一次性任务，不轮询 GitHub。它读取 `https://api.github.com/repos/qingye0312-cpu/question-bank/releases/tags/vX.Y.Z`，按 GitHub asset digest 和 Release 中的 `SHA256SUMS` 双重校验后调用安装脚本。代理只从 root-only 的 `/etc/qbank-release-puller.env` 读取，仅影响该任务访问 GitHub 的请求；不要把订阅地址或代理密钥写入仓库。
 
+## 快速下载
+
+快速下载页为 `https://qbank.acharrystar.top:8013/fastdowmload`，页面优先使用点对点 WebRTC；双方位于对称 NAT 时，会通过 `qbank-frps` 上的 TURN-over-TCP 中继建立加密数据通道。
+
+TURN 默认监听 `8004/tcp`，UDP relay 使用 `8005-8011`。服务端不保存固定客户端密码，而是用 `/etc/turnserver-auth.secret` 生成一小时内有效的 HMAC 凭据。共享密钥只存在于 root-only 的 `/etc/qbank-fastdownload` 和 coturn 配置中，不进入仓库。
+
+重复部署入口：
+
+```sh
+sh tools/self-host/install-turnserver.sh
+sh tools/self-host/deploy-fastdownload.sh
+```
+
+TURN 共享密钥由安装器保存在 `/etc/turnserver-auth.secret`；快速下载安装器会从现有服务配置中保留 TURN 设置。
+
 发布前在服务器准备：
 
 - `/usr/local/sbin/qbank-release-puller`：仓库中的 `qbank-release-puller.sh`，root 拥有并执行。

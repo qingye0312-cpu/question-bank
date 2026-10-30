@@ -91,26 +91,26 @@
   <main>
     <p class="eyebrow">Question Bank · Experimental</p>
     <h1>快速下载实验</h1>
-    <p class="intro">点击“尝试直连”后，页面会先和小主机协商，再尝试通过 WebRTC 直接传输安装包。直连失败时，可以改用普通 HTTPS 下载；建立直连后，双方会看到对方的公网出口 IP。</p>
-    <p class="status" id="status" role="status" aria-live="polite">正在获取版本和直连配置…</p>
+    <p class="intro">页面会先和小主机协商，优先尝试点对点直连；受 NAT 限制时自动经加密 TURN 中继。仍失败时可以改用普通 HTTPS 下载。</p>
+    <p class="status" id="status" role="status" aria-live="polite">正在获取版本和加速配置…</p>
 
     <section class="cards" aria-label="选择桌面版本">
       <article class="card" id="mac-card">
         <div class="card-head"><span class="icon" aria-hidden="true">⌘</span><div><h2>macOS</h2><p class="subtitle">Apple 芯片 · DMG 安装包</p></div></div>
         <div class="actions">
-          <button class="primary direct" data-artifact="macos" disabled>尝试直连下载</button>
+          <button class="primary direct" data-artifact="macos" disabled>开始加速下载</button>
           <a class="button fallback" id="mac-fallback" href="#" aria-disabled="true">普通 HTTPS 下载</a>
         </div>
-        <p class="detail">直连包会校验 SHA-256；连接失败时可用普通下载。</p>
+        <p class="detail">加速下载会校验 SHA-256；连接失败时可用普通下载。</p>
         <progress id="mac-progress" max="100" value="0" hidden></progress>
       </article>
 
       <article class="card" id="windows-card">
         <div class="card-head"><span class="icon" aria-hidden="true">⊞</span><div><h2>Windows</h2><p class="subtitle">Windows 10 / 11 · x64</p></div></div>
         <div class="actions">
-          <button class="primary direct" data-artifact="windows-setup" disabled>尝试直连安装版</button>
+          <button class="primary direct" data-artifact="windows-setup" disabled>开始加速下载</button>
           <a class="button fallback" id="windows-setup-fallback" href="#" aria-disabled="true">普通 HTTPS 安装版</a>
-          <button class="direct" data-artifact="windows-portable" disabled>尝试直连便携版</button>
+          <button class="direct" data-artifact="windows-portable" disabled>开始加速下载</button>
           <a class="button fallback" id="windows-portable-fallback" href="#" aria-disabled="true">普通 HTTPS 便携版</a>
         </div>
         <p class="detail">安装版支持自动更新；便携版无需安装。</p>
@@ -225,10 +225,10 @@
         channel.binaryType = 'arraybuffer';
 
         const transfer = new Promise((resolve, reject) => {
-          const timeout = setTimeout(() => reject(new Error('等待直连或文件传输超时')), 120_000);
+          const timeout = setTimeout(() => reject(new Error('等待 WebRTC 通道或文件传输超时')), 120_000);
           const fail = error => { clearTimeout(timeout); reject(error); };
           peer.addEventListener('connectionstatechange', () => {
-            if (peer.connectionState === 'failed' || peer.connectionState === 'closed') fail(new Error('两端网络无法建立直连'));
+            if (peer.connectionState === 'failed' || peer.connectionState === 'closed') fail(new Error('WebRTC 加密通道建立失败'));
           });
           channel.addEventListener('close', () => { if (!completed) fail(new Error('直连通道中断')); });
           channel.addEventListener('error', () => fail(new Error('直连通道发生错误')));
@@ -243,7 +243,7 @@
               if (writable) writeChain = writeChain.then(() => writable.write(bytes));
               else chunks.push(bytes);
               progress.value = Math.min(99, Math.floor(received / metadata.size * 100));
-              statusNode.textContent = `WebRTC 直连传输中：${(received / 1024 / 1024).toFixed(1)} / ${(metadata.size / 1024 / 1024).toFixed(1)} MB`;
+              statusNode.textContent = `WebRTC 加速传输中：${(received / 1024 / 1024).toFixed(1)} / ${(metadata.size / 1024 / 1024).toFixed(1)} MB`;
               if (received - acknowledged >= 1024 * 1024 || received === metadata.size) {
                 const upto = received;
                 const writes = writeChain;
@@ -264,7 +264,7 @@
               if (!writable && message.size > 256 * 1024 * 1024) return fail(new Error('当前浏览器不支持大文件直写，请使用普通 HTTPS 下载'));
               metadata = message;
               channel.send(JSON.stringify({ type: 'ready' }));
-              statusNode.textContent = '已协商传输参数，正在尝试 WebRTC 直连…';
+              statusNode.textContent = '已协商传输参数，正在建立 WebRTC 加密通道…';
               return;
             }
             if (message.type === 'error') return fail(new Error(message.message || '发送端读取文件失败'));
@@ -313,7 +313,7 @@
         }
         if (channel.readyState === 'open') channel.send(JSON.stringify({ type: 'done' }));
         progress.value = 100;
-        statusNode.textContent = `直连下载完成并通过 SHA-256 校验：${expected.filename}`;
+        statusNode.textContent = `加速下载完成并通过 SHA-256 校验：${expected.filename}`;
       } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') {
           statusNode.textContent = '已取消保存位置选择。';
@@ -323,7 +323,7 @@
         if (worker) worker.terminate();
         if (peer) await peer.close().catch(() => {});
         const message = error instanceof Error ? error.message : String(error);
-        statusNode.textContent = `直连未完成（${message}）。可以选择下面的普通 HTTPS 下载。`;
+        statusNode.textContent = `加速下载未完成（${message}）。可以选择下面的普通 HTTPS 下载。`;
         statusNode.classList.add('error');
         fallback.focus();
       } finally {

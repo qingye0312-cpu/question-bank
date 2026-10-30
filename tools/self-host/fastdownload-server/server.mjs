@@ -320,7 +320,8 @@ export function createFastDownloadServer({
   return { server, activePeers };
 }
 
-if (process.argv[1] && realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1])) {
+const entrypoint = process.argv[1];
+if (entrypoint && entrypoint !== '-' && realpathSync(fileURLToPath(import.meta.url)) === realpathSync(entrypoint)) {
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('QBANK_FASTDOWNLOAD_PORT 无效');
   const { server } = createFastDownloadServer();
   server.listen(port, bindHost, () => console.log(`qbank-fastdownload listening on ${bindHost}:${port}`));
