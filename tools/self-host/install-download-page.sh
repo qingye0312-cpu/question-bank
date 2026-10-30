@@ -65,7 +65,7 @@ if ! caddy reload --config "$MAIN_CONFIG" --adapter caddyfile; then
   exit 1
 fi
 
-if ! curl --fail --silent --show-error --resolve qbank.creart.top:8443:127.0.0.1 \
+if ! curl --noproxy '*' --fail --silent --show-error --resolve qbank.creart.top:8443:127.0.0.1 \
   https://qbank.creart.top:8443/download -o /tmp/qbank-download-page-check.html \
   || ! grep -q '下载题库桌面版' /tmp/qbank-download-page-check.html; then
   cp -p "$BACKUP" "$DOMAIN_CONFIG"
@@ -73,7 +73,7 @@ if ! curl --fail --silent --show-error --resolve qbank.creart.top:8443:127.0.0.1
   echo 'the download page did not pass the local HTTPS check; Caddy config was restored' >&2
   exit 1
 fi
-if ! curl --fail --silent --show-error --resolve qbank.creart.top:8443:127.0.0.1 \
+if ! curl --noproxy '*' --fail --silent --show-error --resolve qbank.creart.top:8443:127.0.0.1 \
   https://qbank.creart.top:8443/fishdownload -o /tmp/qbank-download-page-check.html \
   || ! grep -q '下载题库桌面版' /tmp/qbank-download-page-check.html; then
   cp -p "$BACKUP" "$DOMAIN_CONFIG"

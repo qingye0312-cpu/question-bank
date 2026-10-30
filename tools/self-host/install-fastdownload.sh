@@ -131,7 +131,7 @@ fi
 verified=no
 attempt=0
 while [ "$attempt" -lt 30 ]; do
-  if curl --fail --silent --resolve "$CADDY_HOST:8443:127.0.0.1" \
+  if curl --noproxy '*' --fail --silent --resolve "$CADDY_HOST:8443:127.0.0.1" \
     "https://$CADDY_HOST:8443/fastdowmload" -o /tmp/qbank-fastdownload-page-check.html \
     && grep -q '快速下载实验' /tmp/qbank-fastdownload-page-check.html \
     && curl --fail --silent http://127.0.0.1:8090/fastdowmload/api/config \

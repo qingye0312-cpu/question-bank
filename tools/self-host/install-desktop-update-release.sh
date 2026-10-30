@@ -114,11 +114,14 @@ if command -v curl >/dev/null 2>&1; then
   attempt=0
   while [ "$attempt" -lt 6 ]; do
     attempt=$((attempt + 1))
-    if curl --fail --silent --show-error --resolve qbank.creart.top:8443:127.0.0.1 \
+    # The proxy variables in /etc/qbank-release-puller.env are exported for the
+    # GitHub download only. This loopback health check must bypass them, or curl
+    # sends the request to the proxy and the TLS handshake fails.
+    if curl --noproxy '*' --fail --silent --show-error --resolve qbank.creart.top:8443:127.0.0.1 \
       https://qbank.creart.top:8443/v1/desktop/latest.json -o /tmp/qbank-desktop-update-check.json \
-      && curl --fail --silent --show-error --head --resolve qbank.creart.top:8443:127.0.0.1 \
+      && curl --noproxy '*' --fail --silent --show-error --head --resolve qbank.creart.top:8443:127.0.0.1 \
         "https://qbank.creart.top:8443/v1/desktop/releases/$MAC_NAME" >/dev/null \
-      && curl --fail --silent --show-error --head --resolve qbank.creart.top:8443:127.0.0.1 \
+      && curl --noproxy '*' --fail --silent --show-error --head --resolve qbank.creart.top:8443:127.0.0.1 \
         "https://qbank.creart.top:8443/v1/desktop/releases/windows/$VERSION/$WINDOWS_NAME" >/dev/null; then
       verified=1
       break
