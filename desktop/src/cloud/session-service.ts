@@ -8,10 +8,10 @@ type Session={token:string;origin:string;expires:number;access:Access;authType:'
 type NativeResponse<T=Record<string,unknown>>={status:number;auth_type?:'key'|'password'|'';body:T&{error?:{message?:string;code?:string}}};
 const ORIGIN_KEY='qbank-cloud-origin-v1';
 const DEFAULT_ORIGIN=desktopService.origin;
-// The public service moved from the temporary IP endpoint to the certificate
-// hostname. Migrate only this exact legacy value; user-configured HTTPS
-// service origins remain supported.
-const LEGACY_ORIGINS=new Set(['https://8.141.124.97:8013']);
+// The public service moved from a temporary IPv4 endpoint to the certificate
+// hostname. Migrate only HTTPS IPv4 origins on the public service port;
+// user-configured HTTPS hostnames remain supported.
+const isLegacyOrigin=(origin:string)=>/^https:\/\/(?:\d{1,3}\.){3}\d{1,3}:8013$/.test(origin);
 let session:Session|undefined;
 let generation=0;
 let onLogout=()=>{};
@@ -31,7 +31,7 @@ function storedOrigin(){
   const u=new URL(stored);
   if(u.protocol!=='https:'||u.username||u.password||u.pathname!=='/'||u.search||u.hash)throw Error('invalid origin');
   const origin=u.origin;
-  if(LEGACY_ORIGINS.has(origin)){
+  if(isLegacyOrigin(origin)){
    const migrated=defaultOrigin();
    saveStoredOrigin(migrated);
    return migrated;
@@ -45,7 +45,7 @@ function storedOrigin(){
 }
 export function cloudOrigin(){return storedOrigin();}
 export function setCloudOrigin(value:string){const u=new URL(value);if(u.protocol!=='https:'||u.username||u.password||u.pathname!=='/'||u.search||u.hash)throw Error('请填写不带路径的 HTTPS 地址');
- saveStoredOrigin(LEGACY_ORIGINS.has(u.origin)?defaultOrigin():u.origin);session=undefined;generation++;notifyAccessChange();}
+ saveStoredOrigin(isLegacyOrigin(u.origin)?defaultOrigin():u.origin);session=undefined;generation++;notifyAccessChange();}
 export function cloudAccess(){if(session&&session.origin!==cloudOrigin()){session=undefined;generation++;}return session?.access;}
 const rememberKey=(origin=cloudOrigin())=>'qbank-remember:'+origin;
 function queueCredential(command:string,args:Record<string,unknown>){return invoke(command,args);}
