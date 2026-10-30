@@ -92,18 +92,30 @@ export function syncDesktopCatalog():Promise<{changed:boolean;failed:string[]}>{
 export function startCloudWorker(onChanged:()=>void,onNotice:(message:string)=>void=()=>{}){
  const authenticatedInterval=30_000;
  const guestInterval=12*60*60*1000;
- let updating=false,lastSync=0,lastMode=cloudAccess()?'authenticated':'guest';
+ const retryInterval=30_000;
+ let updating=false,nextAttemptAt=0,lastMode=cloudAccess()?'authenticated':'guest';
+ const errorMessage=(error:unknown)=>{
+  const message=error instanceof Error?error.message:String(error);
+  return (message.replace(/^Error:\s*/,'').replace(/^NETWORK:\s*/,'网络请求未完成：')||'未知错误').slice(0,180);
+ };
  const wake=()=>{
   void runDesktopQueue().catch(()=>{});
   const mode=cloudAccess()?'authenticated':'guest';
   // Persistent-session restoration and login/logout both emit this event.
   // Reset the throttle when the mode changes so a newly authenticated user
   // starts the existing 30-second sync loop immediately.
-  if(mode!==lastMode){lastMode=mode;lastSync=0;}
-  const interval=mode==='authenticated'?authenticatedInterval:guestInterval;
-  if(updating||Date.now()-lastSync<interval)return;
-  updating=true;lastSync=Date.now();
-  void syncDesktopCatalog().then(({changed,failed})=>{if(changed)onChanged();if(failed.length)onNotice(`部分题库暂未更新：${failed.join('、')}。已保留本地内容。`);}).catch(()=>{onNotice('云端暂未连接，继续使用本地题库。');}).finally(()=>{updating=false;});
+  if(mode!==lastMode){lastMode=mode;nextAttemptAt=0;}
+  if(updating||Date.now()<nextAttemptAt)return;
+  updating=true;
+  void syncDesktopCatalog().then(({changed,failed})=>{
+   if(changed)onChanged();
+   if(failed.length)onNotice(`部分题库暂未更新：${failed.join('、')}。已保留本地内容。`);
+   const currentMode=cloudAccess()?'authenticated':'guest';
+   nextAttemptAt=Date.now()+(failed.length?retryInterval:currentMode==='authenticated'?authenticatedInterval:guestInterval);
+  }).catch(error=>{
+   nextAttemptAt=Date.now()+retryInterval;
+   onNotice(`云端同步失败：${errorMessage(error)}；继续使用本地题库。`);
+  }).finally(()=>{updating=false;});
  };
  const timer=setInterval(wake,15000);
  window.addEventListener('online',wake);
