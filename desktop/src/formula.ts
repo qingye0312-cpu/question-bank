@@ -1,5 +1,5 @@
 import {createElement, Fragment, type ReactNode} from 'react';
-import {matchRanges, queryTerms} from './search-presentation';
+import {matchRanges, queryTerms} from './search-presentation.ts';
 
 /**
  * The question bank stores text, so formulas use the portable TeX delimiters
@@ -264,8 +264,8 @@ class TexParser {
     if (command === 'begin') return this.parseEnvironment();
     if (command === 'text' || command === 'textrm' || command === 'textnormal') return this.parseTextArgument();
     if (command === 'mathrm' || command === 'mathbf' || command === 'mathit' || command === 'mathsf' || command === 'mathtt') {
-      const variant = command.slice(2) === 'bf' ? 'bold' : command.slice(2);
-      return node('mstyle', [this.parseArgument()], {mathvariant: variant || 'normal'});
+      const variant = ({mathrm: 'normal', mathit: 'italic', mathsf: 'sans-serif', mathtt: 'monospace', mathbf: 'bold'} as Record<string, string>)[command] || 'normal';
+      return node('mstyle', [this.parseArgument()], {mathvariant: variant});
     }
     if (command === 'operatorname') return node('mo', [this.parseTextArgument()], {movablelimits: 'true'});
     if (command === 'overline' || command === 'bar' || command === 'hat' || command === 'vec' || command === 'underline' || command === 'dot' || command === 'ddot') {
