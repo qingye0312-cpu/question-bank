@@ -44,24 +44,8 @@
   "packOptions": {
     "ignore": [
       {
-        "value": "data/manifest.json",
-        "type": "file"
-      },
-      {
-        "value": "data/index.json",
-        "type": "file"
-      },
-      {
-        "value": "data/questions.json",
-        "type": "file"
-      },
-      {
-        "value": "data/bundle-manifest.json",
-        "type": "file"
-      },
-      {
-        "value": "data/bundle-index.json",
-        "type": "file"
+        "value": "data",
+        "type": "folder"
       },
       {
         "value": "pages/logs",
@@ -70,12 +54,6 @@
       {
         "value": "utils",
         "type": "folder"
-      }
-    ],
-    "include": [
-      {
-        "value": "data/compact.br",
-        "type": "file"
       }
     ]
   },

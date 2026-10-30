@@ -14,8 +14,10 @@ const { releaseName } = runtimeModule('projection.cjs');
 async function main() {
   const [input, root = process.env.QBANK_STORAGE_ROOT || '/var/lib/qbank-auth'] = process.argv.slice(2);
   if (!input) { console.error('用法：node tools/self-host/seed-bank.cjs <questions.json> [storage-root]'); process.exitCode = 2; return; }
-  const wrapper = JSON.parse(await fs.readFile(path.resolve(input), 'utf8'));
-  const lines = typeof wrapper.payload === 'string' ? wrapper.payload.split(/\r?\n/).filter(Boolean) : [];
+  const text = await fs.readFile(path.resolve(input), 'utf8');
+  let wrapper;
+  try { wrapper = JSON.parse(text); } catch { /* The cloud source is also accepted as JSONL. */ }
+  const lines = typeof wrapper?.payload === 'string' ? wrapper.payload.split(/\r?\n/).filter(Boolean) : text.split(/\r?\n/).filter(Boolean);
   const questions = lines.map(line => JSON.parse(line));
   if (!questions.length) throw new Error('题库文件没有题目');
   const first = questions[0];

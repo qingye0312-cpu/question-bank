@@ -5,7 +5,7 @@ import {IntakeController} from '../../services/intake-controller';
 import {changeQuestionType,toggleAnswer,reorderOptions,type ModelReply} from '../../core/intake';
 import {cloud} from '../../services/cloud';
 import {maintainerPasswordRules,passwordMeetsPolicy,registrationFields,type PasswordRule} from '../../services/maintainer-application';
-import {refreshCatalog} from '../../services/sync';
+import {refreshCatalog,syncBank} from '../../services/sync';
 import {copyPrompt} from '../../services/prompt';
 import {importDelta} from '../../services/intake';
 type MaintainerBankChoice={bank_id:string;name:string;checked:boolean};
@@ -14,7 +14,20 @@ let controller:IntakeController|undefined,alive=false,poll:ReturnType<typeof set
 Page({
   data:{...themePageData(),currentId:'',banks:[] as BankSummary[],bankIndex:0,tab:'edit',busy:false,ready:false,reply:null as ModelReply|null,locked:false,raw:'',records:[] as any[],visibleRecords:[] as any[],jobs:[] as any[],pendingCount:0,issues:[] as any[],sourceIssues:[] as any[],saved:'',error:'',notice:'',more:false,tools:false,canUndoType:false,recordedAt:'',metadata:{} as any,editOptions:[] as any[],boolSelected:false,typeIndex:0,sourceIndex:2,warningsText:'',tagsText:'',difficultyIndex:0,filePath:'',fileName:'',exportPrepared:false,query:'',loggedIn:false,hasExportPermission:false,pendingExportPermission:false,authMode:'login',maintainerPassword:'',maintainerPasswordRules:[] as PasswordRule[],maintainerPasswordConfirm:'',maintainerPasswordValid:false,maintainerPasswordsMatch:false,maintainerResetToken:'',maintainerAuthType:'',maintainerAccountStatus:'',maintainerPhone:'',maintainerPhoneDisplay:'',maintainerRealName:'',maintainerNickname:'',maintainerIdentity:'',applyExportPermission:false,maintainerBanks:[] as MaintainerBankChoice[],maintainerBankIds:[] as string[],maintainerBanksLoading:false,maintainerBanksError:'',maintainerApplication:'',applying:false,applicationMessage:'',applicationError:false,
   types:['单选','多选','判断'],versionSources:['平台提供','用户提供','未知'],difficulties:['未设置','简单','中等','困难']},
- onLoad(){alive=true;previousType=null;exportSignature='';controller=new IntakeController(view=>{if(!alive)return;const changed=view.currentId!==this.data.currentId||view.raw!==this.data.raw;const signature=[view.pendingCount,...view.records.map(r=>`${r.id}:${r.revision}:${r.status}`)].join('|');if(signature!==exportSignature){exportSignature=signature;this.queueExportPreparation(signature,view.pendingCount)}if(changed)previousType=null;this.setData({...view,...(changed?{canUndoType:false}:{}),visibleRecords:view.records.filter(r=>!this.data.query||r.stem.includes(this.data.query))})});void this.run(async()=>{const banks=await listBanks(),bank=activeBankId();this.setData({banks,bankIndex:Math.max(0,banks.findIndex(b=>b.id===bank))});await controller!.open(bank);this.setData({ready:true});});},
+ onLoad(){alive=true;previousType=null;exportSignature='';controller=new IntakeController(view=>{if(!alive)return;const changed=view.currentId!==this.data.currentId||view.raw!==this.data.raw;const signature=[view.pendingCount,...view.records.map(r=>`${r.id}:${r.revision}:${r.status}`)].join('|');if(signature!==exportSignature){exportSignature=signature;this.queueExportPreparation(signature,view.pendingCount)}if(changed)previousType=null;this.setData({...view,...(changed?{canUndoType:false}:{}),visibleRecords:view.records.filter(r=>!this.data.query||r.stem.includes(this.data.query))})});void this.run(async()=>{
+   let banks=await listBanks();const chooseBank=()=>{const preferred=activeBankId();return banks.some(item=>item.id===preferred)?preferred:banks[0]?.id||'';};let bank=chooseBank();
+   const downloadCloudBanks=async()=>{const catalog=await refreshCatalog(true);for(const manifest of catalog)await syncBank(manifest.bank_id,manifest).catch(()=>{});};
+   if(!bank){await downloadCloudBanks();banks=await listBanks();bank=chooseBank();}
+   if(!bank)throw Error('首次使用需要联网下载云端题库');
+   this.setData({banks,bankIndex:Math.max(0,banks.findIndex(b=>b.id===bank))});
+   try{await controller!.open(bank);}catch(error){
+     // A restored catalog can exist without its snapshot after an interrupted
+     // first download. Repair that cache once before showing the error.
+     await downloadCloudBanks();banks=await listBanks();bank=chooseBank()||bank;
+     if(!bank)throw error;await controller!.open(bank);this.setData({banks,bankIndex:Math.max(0,banks.findIndex(b=>b.id===bank))});
+   }
+   this.setData({ready:true});
+ });},
  onShow(){showPageTheme(this);alive=true;void cloud.restoreSession().catch(()=>{}).finally(()=>{if(alive){const access=cloud.state();this.setData({loggedIn:access.loggedIn,hasExportPermission:includesPermission(access.permissions,'export'),pendingExportPermission:includesPermission(access.pendingPermissions,'export'),maintainerPhoneDisplay:access.phone||'',maintainerAuthType:access.authType||'',maintainerAccountStatus:access.status||''})}});poll=setInterval(()=>void controller?.refreshJobs().catch(()=>{}),3000)},
  onHide(){hidePageTheme(this);if(poll)clearInterval(poll);void controller?.flush().catch(()=>{})},
  onUnload(){hidePageTheme(this);alive=false;exportGeneration++;if(prepareTimer)clearTimeout(prepareTimer);prepareTimer=undefined;if(poll)clearInterval(poll);controller?.dispose();controller=undefined},

@@ -17,7 +17,7 @@ export function readManifest(value:unknown):CloudManifest{
  const m=value as CloudManifest;
  if(!m||!uuid.test(m.bank_id)||typeof m.name!=='string'||!m.name.trim()||m.name.length>100||!Number.isSafeInteger(m.revision)||m.revision<0
   ||!Number.isSafeInteger(m.release_version)||m.release_version<0||!/^[0-9a-f]{64}$/.test(m.sha256)||!Number.isSafeInteger(m.bytes)||m.bytes<0||m.bytes>4194304
-  ||typeof m.minimum_client!=='string'||!/^\d+\.\d+\.\d+$/.test(m.minimum_client))throw Error('云端版本清单无效，继续使用本地题库');
+  ||typeof m.minimum_client!=='string'||!/^\d+\.\d+\.\d+$/.test(m.minimum_client))throw Error('云端版本清单无效，继续使用已缓存题库');
  if((m.protocol!==2&&m.protocol!==3)||m.snapshot_format!==CLOUD_FILE_FORMAT)throw Error('题库协议不受支持，请升级程序');
  const questionFields=[m.question_file_sha256,m.question_file_bytes,m.question_file_format],operationFields=[m.operations_file_sha256,m.operations_file_bytes,m.operations_file_format],hasQuestionFields=questionFields.some(value=>value!=null),hasOperationFields=operationFields.some(value=>value!=null);
  const validQuestionFields=typeof m.question_file_sha256==='string'&&/^[a-f0-9]{64}$/.test(m.question_file_sha256)&&typeof m.question_file_bytes==='number'&&Number.isSafeInteger(m.question_file_bytes)&&m.question_file_bytes>=0&&m.question_file_bytes<=4194304&&m.question_file_format==='qbank-question-bank-1';

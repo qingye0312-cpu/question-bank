@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "version": "0.2.7",
-  "description": "内置题库、本地文字搜题",
+  "description": "云端题库缓存、本地文字搜题",
   "scripts": {},
   "keywords": [],
   "author": "",

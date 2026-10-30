@@ -2,15 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {existsSync,readFileSync} from 'node:fs';
-import {createHash} from 'node:crypto';
 import vm from 'node:vm';
 import ts from 'typescript';
 import * as intakeCore from '../desktop/shared/intake.ts';
 import * as answerPresentationCore from '../desktop/shared/answer-presentation.ts';
 import * as core from '../miniprogram/miniprogram/core/search.ts';
-import * as compact from '../miniprogram/miniprogram/core/compact.ts';
-import {brotliDecompressSync} from 'node:zlib';
-import {prepareBundle} from '../tools/mobile-index/build.mjs';
+import {prepareCloudOnly} from '../tools/mobile-index/build.mjs';
 import {normalize as desktopNormalize, queryTerms as desktopTerms} from '../desktop/src/search-presentation.ts';
 
 const base = new URL('../miniprogram/miniprogram/', import.meta.url);
@@ -32,15 +29,13 @@ function loadServiceModule(relative){
  return load(relative,base);
 }
 const {applicationFields,passwordMeetsPolicy,registrationFields}=loadServiceModule('services/maintainer-application.ts');
-const embeddedText = await readFile(new URL('data/questions.json', base), 'utf8');
-const payload = JSON.parse(embeddedText).payload;
+const payload = await readFile(new URL('../tools/mobile-index/sources/basic/questions.jsonl', import.meta.url), 'utf8');
 const lines = payload.trimEnd().split('\n'), questions = lines.map(line => JSON.parse(line));
-const index = JSON.parse(await readFile(new URL('data/index.json', base), 'utf8'));
-const manifest = JSON.parse(await readFile(new URL('data/manifest.json', base), 'utf8'));
-const allManifests = JSON.parse(await readFile(new URL('data/bundle-manifest.json', base), 'utf8')).banks;
-const compactText = brotliDecompressSync(await readFile(new URL('data/compact.br', base))).toString('utf8');
-const readCompressed = readResource => options => readResource({filePath: 'data/compact.br',
-  success: result => {const b = Buffer.from(result.data); options.success({data: b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength)});}, fail: options.fail});
+const index = {schema_version:'qbank-index-1',release_id:'source-basic',question_count:questions.length,postings:core.buildPostings(questions)};
+const manifest = {schema_version:'1.0',bank_id:'ad50971f-66af-51c2-bb0e-dc798b03b369',name:'HarmonyOS 初级认证',release_id:'a'.repeat(64),release_version:9,question_count:questions.length,release_name:'云端初级认证 v9'};
+const cloudUpdatedAt='2026-10-29T04:16:20.176Z';
+const cloudManifest={bank_id:manifest.bank_id,name:manifest.name,revision:19,release_version:9,sha256:'b'.repeat(64),bytes:0,minimum_client:'0.2.7',updated_at:cloudUpdatedAt,snapshot_format:'qbank-cloud-file-1',protocol:3};
+const cloudSnapshot={format:'qbank-snapshot-2',bank_id:manifest.bank_id,name:manifest.name,revision:19,release_version:9,updated_at:cloudUpdatedAt,formal:questions,pending:[],removed:[]};
 const bank = () => new core.LocalBank(lines, index);
 const fixture = (overrides = {}) => ({...questions[0], stem: '用户与系统', options: [{key: 'A', content: '聊天服务', option_id: 'a'}],
   answer: ['A'], type: 'single', explanation: '只在解析中出现的秘密词', chapter: '第一章', tags: ['标签示例'], ...overrides});
@@ -84,22 +79,14 @@ function androidSearchCore() {
   return load(new URL('core/search.ts', base));
 }
 
-test('generated content is deterministic, retains local desktop metadata and matches both bank counts', async () => {
-  const sourcePayload = await readFile(new URL('../tools/mobile-index/sources/basic/questions.jsonl', import.meta.url), 'utf8');
-  const sourceQuestions = sourcePayload.trimEnd().split('\n').map(line => JSON.parse(line));
-  assert.equal(payload, sourcePayload);
+test('Mini Program package is cloud-only and does not carry generated question data', async () => {
   assert.equal(questions.length, 984);
   assert.equal(manifest.bank_id, 'ad50971f-66af-51c2-bb0e-dc798b03b369');
-  assert.equal(manifest.release_id, createHash('sha256').update(payload).digest('hex'));
-  assert.equal(Buffer.byteLength(payload), manifest.files[0].size);
-  assert.equal(manifest.files[0].path, 'questions.jsonl');
-  assert.equal(index.release_id, manifest.release_id);
-  assert.deepEqual(allManifests.map(bank => [bank.name, bank.question_count]), [['HarmonyOS 初级认证', 984], ['HarmonyOS 高级认证', 998]]);
-  for (let i = 0; i < sourceQuestions.length; i++) {
-    for (const field of ['question_id', 'options', 'answer', 'sources', 'stem']) assert.deepEqual(questions[i][field], sourceQuestions[i][field]);
-  }
-  const checked = await prepareBundle({check: true});
-  assert.deepEqual(checked.questions.map(bank => bank.count), [984, 998]);
+  const checked = await prepareCloudOnly({check: true});
+  assert.equal(checked.mode, 'cloud-only');
+  assert.equal(existsSync(new URL('data/compact.br', base)), false);
+  const config = JSON.parse(await readFile(new URL('../miniprogram/project.config.json', import.meta.url), 'utf8'));
+  assert.ok(config.packOptions.ignore.some(item => item.type === 'folder' && item.value === 'data'));
 });
 
 async function loadService(readResource, extra = {}) {
@@ -108,85 +95,30 @@ async function loadService(readResource, extra = {}) {
   const exports = {};
   const intake = await import('../desktop/shared/intake.ts');
   const sync = await import('../desktop/shared/sync.ts');
-  vm.runInNewContext(outputText, {exports, require: name => name==='./draft-repository'?{readDraftFile:async()=>[]}:name==='./sync'?{cachedSnapshot:async()=>null,cloudCatalog:()=>[],restoreCatalog:async()=>{}}:name.endsWith('/core/sync')||name==='../core/sync'?sync:name.endsWith('/manifest') ? {bundledManifest: manifest, bundledManifests: allManifests} : name.endsWith('/compact') ? compact : name.endsWith('/intake-store') ? {readLocal:async()=>({version:1,banks:[],entries:[],batches:[]})} : name.endsWith('/intake') ? intake : core,
-    wx: {env: {USER_DATA_PATH: '/cache'}, getFileSystemManager: () => ({readFile: readResource, readCompressedFile: readCompressed(readResource)}), ...extra}, console: {error() {}, info() {}, warn() {}}, Error});
+  const syncService=extra.sync||{cachedSnapshot:async id=>id===manifest.bank_id?{manifest:cloudManifest,snapshot:cloudSnapshot}:null,cloudCatalog:()=>[cloudManifest],restoreCatalog:async()=>{}};
+  vm.runInNewContext(outputText, {exports, require: name => name==='./draft-repository'?{readDraftFile:async()=>[]}:name==='./sync'?syncService:name.endsWith('/core/sync')||name==='../core/sync'?sync:name.endsWith('/intake-store') ? {readLocal:async()=>({version:1,banks:[],entries:[],batches:[]})} : name.endsWith('/intake') ? intake : core,
+    wx: {env: {USER_DATA_PATH: '/cache'},getStorageSync:()=>'',setStorageSync:()=>{}}, console: {error() {}, info() {}, warn() {}}, Error});
   return exports;
 }
 
-test('native loader reads supported JSON resources, restores JSONL and caches the bundle', async () => {
-  const paths = [];
-  const service = await loadService(options => {
-    paths.push(options.filePath);
-    if (options.filePath === 'data/manifest.json') return options.success({data: JSON.stringify(manifest)});
-    if (options.filePath === 'data/compact.br') return options.success({data: compactText});
-    options.fail({errMsg: 'no cache'});
-  });
-  const first = service.loadBank(), concurrent = service.loadBank();
+test('bank loader reads the cloud snapshot cache and never opens package data', async () => {
+  const service = await loadService(() => { throw new Error('package data must not be read'); });
+  const first = service.loadBank(manifest.bank_id), concurrent = service.loadBank(manifest.bank_id);
   assert.equal(first, concurrent);
   const loaded = await first;
-  assert.deepEqual([...paths].sort(), ['/cache/qbank-runtime-index-v1-c86104f7-4570-4089-9338-7989ce528a9d.json', '/cache/qbank-runtime-index-v1.json', 'data/compact.br']);
-  assert.equal(loaded.manifest.release_id, manifest.release_id);
+  assert.equal(loaded.manifest.release_id, cloudManifest.sha256);
   assert.equal(loaded.bank.question(983).question_id, questions[983].question_id);
   assert.deepEqual(await loaded.bank.search('用户 聊天'), await bank().search('用户 聊天'));
-  assert.equal(await service.loadBank(), loaded);
-  assert.equal(paths.length, 3);
-  assert.equal(service.startupMetrics.source, 'generated');
-  assert.equal(service.startupMetrics.cacheSaved, false);
+  assert.equal(await service.loadBank(manifest.bank_id), loaded);
 });
 
-test('native loader retries read failures and rejects malformed resource envelopes', async () => {
-  let mode = 'read-failure';
-  const disk = new Map();
-  const fs = {
-    readFile: options => {
-      if (options.filePath === 'data/manifest.json') return options.success({data: JSON.stringify(manifest)});
-      if (options.filePath === 'data/compact.br' && mode !== 'read-failure') return options.success({data: mode === 'bad-envelope' ? '[]' : compactText});
-      if (disk.has(options.filePath)) return options.success({data: disk.get(options.filePath)});
-      options.fail({errMsg: 'not found'});
-    },
-    writeFile: o => {disk.set(o.filePath, o.data); o.success();},
-    rename: o => {disk.set(o.newPath, disk.get(o.oldPath)); disk.delete(o.oldPath); o.success();},
-  };
-  fs.readCompressedFile = readCompressed(fs.readFile);
-  const service = await loadService(fs.readFile, {
-    getFileSystemManager: () => fs,
-    downloadFile: () => assert.fail('embedded mode must never download'),
-  });
-  await assert.rejects(service.loadBank(), /not found/);
-  mode = 'bad-envelope';
-  await assert.rejects(service.loadBank(), /格式无效/);
-  assert.equal(disk.has('/cache/qbank-runtime-index-v1.json'), false);
-  mode = 'success';
-  assert.equal((await service.loadBank()).bank.question(0).question_id, questions[0].question_id);
-  const offline = await loadService(fs.readFile, {downloadFile: () => assert.fail('cached startup must not download')});
-  assert.equal((await offline.loadBank()).manifest.question_count, 984);
-  assert.equal(offline.startupMetrics.source, 'cache');
-  assert.deepEqual(JSON.parse(JSON.parse(disk.get('/cache/qbank-runtime-index-v1.json')).payload), index);
-  disk.set('/cache/qbank-runtime-index-v1.json', '{broken');
-  const repaired = await loadService(fs.readFile, {getFileSystemManager: () => fs});
-  assert.equal((await repaired.loadBank()).manifest.question_count, 984);
-  assert.ok(['generated','cache'].includes(repaired.startupMetrics.source));
+test('bank loader rejects an uncached cloud bank until sync has written a snapshot', async () => {
+  const service = await loadService(() => { throw new Error('package data must not be read'); }, {sync:{cachedSnapshot:async()=>null,cloudCatalog:()=>[cloudManifest],restoreCatalog:async()=>{}}});
+  await assert.rejects(service.loadBank(manifest.bank_id), /尚未下载/);
 });
 
 test('runtime index matches build-time index exactly', async () => {
   assert.deepEqual(await core.buildPostingsFromLines(lines), Object.assign(Object.create(null), index.postings));
-});
-
-test('Brotli mobile projection preserves both banks and identical indexes', async () => {
-  const compactBundle = JSON.parse(compactText);
-  const decoded = compact.decodeCompactBundle(compactBundle, allManifests).get(manifest.bank_id);
-  assert.ok(decoded);
-  decoded.forEach((line, i) => {
-    const q = JSON.parse(line), original = questions[i];
-    for (const field of ['question_id', 'external_id', 'type', 'stem', 'answer', 'chapter', 'tags', 'explanation']) {
-      assert.deepEqual(q[field], original[field], field);
-    }
-    assert.deepEqual(q.options.map(({key, content}) => ({key, content})), original.options.map(({key, content}) => ({key, content})));
-  });
-  assert.deepEqual(await core.buildPostingsFromLines(decoded), Object.assign(Object.create(null), index.postings));
-  assert.throws(() => compact.decodeCompactBundle(compactBundle, allManifests.map((bank, i) => i ? bank : {...bank, release_id:'0'.repeat(64)})), /版本/);
-  assert.throws(() => brotliDecompressSync(Buffer.from('broken')), /./);
-  assert.equal(compact.decodeUtf8(new TextEncoder().encode('中文👩‍💻é').buffer), '中文👩‍💻é');
 });
 
 test('real index equals independent full-text reference for single characters, phrases and mixed fields', async () => {
@@ -502,6 +434,17 @@ test('a cloud bank without a cache is downloaded before it becomes searchable, a
  page.layout=new core.VirtualList(0);await page.initialize();assert.equal(page.data.bankId,advanced);assert.equal(page.data.ready,false);assert.match(page.data.error,/尚未下载/);
  await page.syncCloud();assert.equal(page.data.ready,true);assert.equal(page.data.total,984);assert.equal(invalidations,1);
  page.foregroundSeen=1;page.onShow();page.onShow();assert.equal(downloads,1);assert.equal(refreshes,1);
+});
+test('first cloud-only launch selects and opens the first downloaded cloud bank',async()=>{
+ const cloudBank='c86104f7-4570-4089-9338-7989ce528a9d';let discovered=false,cached=false,selected='';
+ const page=await loadPage('pages/index/index.ts',{},core,{
+  bank:{loadBank:async()=>{if(!cached)throw Error('尚未下载');return {bank:bank(),manifest:{...manifest,bank_id:cloudBank,name:'高级题库'}}},
+    listBanks:async()=>discovered?[{id:cloudBank,name:'高级题库'}]:[],activeBankId:()=>selected,selectBank:id=>selected=id,invalidateBank:()=>{}},
+  sync:{cloudCatalog:()=>discovered?[{bank_id:cloudBank,name:'高级题库'}]:[],refreshCatalog:async()=>{discovered=true;},syncBank:async()=>{cached=true;return true}},
+ });
+ page.layout=new core.VirtualList(0);await page.initialize();assert.equal(page.data.ready,false);assert.equal(page.data.bankId,'');
+ await page.syncCloud();
+ assert.equal(page.data.bankId,cloudBank);assert.equal(selected,cloudBank);assert.equal(page.data.ready,true);assert.equal(page.data.total,984);
 });
 
 test('home caches the advanced bank automatically without switching and continues after a selected-bank failure',async()=>{

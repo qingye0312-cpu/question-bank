@@ -49,7 +49,7 @@ export async function importDelta(text:string){
  text=unpackUpload(text);
  const {delta,questions}=parseDelta(text),at=new Date().toISOString(),ids=await createIds(1);
  const catalog=await listBanks();
- // A bundled bank may not yet have any local entries/catalog record.
+ // A cloud bank may not yet have any local entries/catalog record.
  let previous:Question[]=[];
  if(catalog.some(b=>b.id===delta.bank_id)){const {bank}=await loadBank(delta.bank_id);previous=Array.from({length:bank.count},(_,i)=>bank.question(i))}
  const result=await updateLocal(data=>{
