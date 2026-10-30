@@ -33,12 +33,12 @@ fn remove(store: &Store, bank: &str) -> Result<String> {
 #[test]
 fn deleting_local_copy_removes_its_owned_records_and_indexes_and_keeps_a_restorable_backup() {
     let (dir, store, source) = setup();
+    let copy = store.fork(&source).unwrap();
     store
         .conn()
         .unwrap()
         .execute("UPDATE banks SET read_only=1 WHERE id=?1", [&source])
         .unwrap();
-    let copy = store.fork(&source).unwrap();
     let r = draft(&store, &copy);
     let mut edited = store.questions(&copy).unwrap()[0].clone();
     edited.stem = "副本专属修订".into();
@@ -110,6 +110,29 @@ fn deleting_local_copy_removes_its_owned_records_and_indexes_and_keeps_a_restora
     assert_eq!(restored.bank(&copy).unwrap().count, before as i64);
     assert_eq!(drafts::list(&restored, &copy).unwrap()[0]["id"], r["id"]);
     assert_eq!(restored.bank(&source).unwrap().count, 1);
+}
+
+#[test]
+fn cloud_banks_cannot_be_copied_to_local_banks() {
+    let (_dir, store, bank) = setup();
+    let c = store.conn().unwrap();
+    c.execute("UPDATE banks SET read_only=1 WHERE id=?1", [&bank])
+        .unwrap();
+    assert!(store
+        .fork(&bank)
+        .unwrap_err()
+        .contains("云端题库不能创建本地副本"));
+    c.execute("UPDATE banks SET read_only=0 WHERE id=?1", [&bank])
+        .unwrap();
+    c.execute(
+        "INSERT INTO cloud_baselines VALUES(?1,'{}')",
+        [&bank],
+    )
+    .unwrap();
+    assert!(store
+        .fork(&bank)
+        .unwrap_err()
+        .contains("云端题库不能创建本地副本"));
 }
 
 #[test]

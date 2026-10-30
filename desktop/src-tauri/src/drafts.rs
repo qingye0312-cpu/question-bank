@@ -225,7 +225,7 @@ pub fn commit_local(store: &Store, bank: &str, expected: Value) -> Result<usize>
         .map_err(err)?;
     let b = db::get_bank(&tx, bank)?;
     if b.read_only {
-        return Err("云端题库请使用上传；如需本地提交，请先建立可编辑副本".into());
+        return Err("云端题库请使用上传；不能直接提交到本地题库".into());
     }
 
     let completed: Vec<Value> = records(&tx, bank)?

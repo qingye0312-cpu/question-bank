@@ -35,6 +35,14 @@ export function QuestionExport({banks, defaultBankId, busy, onClose, onExport}: 
   const selectedRevisionCount = selectedRevisionRows.reduce((total, row) => total + (row.changed_count ?? row.added_count ?? 0), 0);
 
   useEffect(() => {
+    if (!banks.some(bank => bank.id === bankId)) {
+      setBankId(banks[0]?.id || '');
+      setScope('all');
+      setValidation('');
+    }
+  }, [banks, bankId]);
+
+  useEffect(() => {
     if (scope !== 'revision' || !selected?.read_only) {
       setRevisions([]);
       setSelectedRevisions([]);

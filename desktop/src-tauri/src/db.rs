@@ -308,7 +308,7 @@ impl Store {
     pub fn save(&self, bank_id: &str, mut q: Question) -> Result<String> {
         let bank = self.bank(bank_id)?;
         if bank.read_only {
-            return Err("发布题库只读，请先建立可编辑副本".into());
+            return Err("云端题库只读，不能直接修改".into());
         }
         let is_draft: bool = self
             .conn()?
@@ -387,7 +387,7 @@ impl Store {
         let tx = c.transaction().map_err(err)?;
         let (bank_id,data,readonly):(String,String,bool)=tx.query_row("SELECT q.bank_id,q.data,b.read_only FROM questions q JOIN banks b ON b.id=q.bank_id WHERE q.rowid=?1",[rowid],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).map_err(err)?;
         if readonly {
-            return Err("发布题库只读，请先建立可编辑副本".into());
+            return Err("云端题库只读，不能直接删除题目".into());
         }
         let q: Question = serde_json::from_str(&data).map_err(err)?;
         let frozen:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM intake_entries e JOIN intake_transfers t ON t.batch_id=e.batch_id WHERE e.bank_id=?1 AND e.question_id=?2 AND t.endpoint<>'')",params![bank_id,q.question_id],|r|r.get(0)).map_err(err)?;
@@ -411,6 +411,17 @@ impl Store {
     }
     pub fn fork(&self, id: &str) -> Result<String> {
         let bank = self.bank(id)?;
+        let has_cloud_snapshot: bool = self
+            .conn()?
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM cloud_snapshots WHERE bank_id=?1) OR EXISTS(SELECT 1 FROM cloud_baselines WHERE bank_id=?1)",
+                [id],
+                |r| r.get(0),
+            )
+            .map_err(err)?;
+        if bank.read_only || has_cloud_snapshot {
+            return Err("云端题库不能创建本地副本".into());
+        }
         let mut qs = self.questions(id)?;
         let new = uid();
         let mut c = self.conn()?;
