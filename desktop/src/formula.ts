@@ -104,8 +104,11 @@ export function splitFormulaText(text: string): FormulaSegment[] {
 
 class TexParser {
   private index = 0;
+  private readonly source: string;
 
-  constructor(private readonly source: string) {}
+  constructor(source: string) {
+    this.source = source;
+  }
 
   parse() {
     return this.parseExpression();
@@ -297,9 +300,11 @@ function renderMathNode(value: MathNode | string, key: string): ReactNode {
 function SearchText({text, query}: {text: string; query: string}) {
   const ranges = matchRanges(text, queryTerms(query));
   const children: ReactNode[] = [];
-  ranges.forEach((range, index) => children.push(createElement('span', {key: `${range.start}:${range.end}`},
-    text.slice(index ? ranges[index - 1].end : 0, range.start),
-    createElement('mark', {key: 'match', 'data-term': range.termIndex % 12, title: `搜索词：${range.term}`}, text.slice(range.start, range.end))));
+  ranges.forEach((range, index) => {
+    children.push(createElement('span', {key: `${range.start}:${range.end}`},
+      text.slice(index ? ranges[index - 1].end : 0, range.start),
+      createElement('mark', {key: 'match', 'data-term': range.termIndex % 12, title: `搜索词：${range.term}`}, text.slice(range.start, range.end))));
+  });
   children.push(text.slice(ranges.length ? ranges[ranges.length - 1].end : 0));
   return createElement(Fragment, null, ...children);
 }
