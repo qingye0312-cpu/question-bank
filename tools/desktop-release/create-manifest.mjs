@@ -6,8 +6,8 @@ if (!version || !artifactDir || !manifestPath || !/^\d+\.\d+\.\d+$/.test(version
   throw new Error('Usage: node create-manifest.mjs <version> <artifact-directory> <manifest-path>');
 }
 
-const macName = `qbank-macos-arm64-${version}.app.tar.gz`;
-const windowsName = `qbank-windows-x64-${version}.nsis.zip`;
+const macName = `qbank-${version}-macos-arm64-app.tar.gz`;
+const windowsName = `qbank-${version}-windows-x64-nsis.zip`;
 const artifactRoot = path.resolve(artifactDir);
 async function readSignature(name) {
   const signature = (await fs.readFile(path.join(artifactRoot, `${name}.sig`), 'utf8')).trim();

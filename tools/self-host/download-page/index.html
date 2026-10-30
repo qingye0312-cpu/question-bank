@@ -531,10 +531,9 @@
         const version = String(manifest.version || "");
         if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error("版本清单格式无效");
         const root = "/v1/desktop/releases";
-        const macName = "题库_" + version + "_macOS_arm64.dmg";
-        setDownload("mac-download", root + "/macos/" + version + "/" + encodeURIComponent(macName));
-        setDownload("windows-setup", root + "/windows/" + version + "/题库_windows_x64_setup.exe");
-        setDownload("windows-portable", root + "/windows/" + version + "/题库_windows_x64_portable.exe");
+        setDownload("mac-download", root + "/macos/" + version + "/qbank-" + version + "-macos-arm64.dmg");
+        setDownload("windows-setup", root + "/windows/" + version + "/qbank-" + version + "-windows-x64-setup.exe");
+        setDownload("windows-portable", root + "/windows/" + version + "/qbank-" + version + "-windows-x64-portable.exe");
         versionNode.textContent = "当前版本 v" + version;
         statusNode.dataset.state = "ready";
         statusNode.textContent = detected

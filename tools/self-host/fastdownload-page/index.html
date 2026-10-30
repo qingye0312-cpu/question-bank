@@ -132,9 +132,9 @@
 
     const config = { version: '', iceServers: [], artifacts: {} };
     const definitions = {
-      macos: { filename: version => `题库_${version}_macOS_arm64.dmg`, path: version => `../macos/${version}/题库_${version}_macOS_arm64.dmg`, fallback: 'mac-fallback', progress: 'mac-progress' },
-      'windows-setup': { filename: () => '题库_windows_x64_setup.exe', path: version => `../windows/${version}/题库_windows_x64_setup.exe`, fallback: 'windows-setup-fallback', progress: 'windows-progress' },
-      'windows-portable': { filename: () => '题库_windows_x64_portable.exe', path: version => `../windows/${version}/题库_windows_x64_portable.exe`, fallback: 'windows-portable-fallback', progress: 'windows-progress' },
+      macos: { filename: version => `qbank-${version}-macos-arm64.dmg`, path: version => `../macos/${version}/qbank-${version}-macos-arm64.dmg`, fallback: 'mac-fallback', progress: 'mac-progress' },
+      'windows-setup': { filename: version => `qbank-${version}-windows-x64-setup.exe`, path: version => `../windows/${version}/qbank-${version}-windows-x64-setup.exe`, fallback: 'windows-setup-fallback', progress: 'windows-progress' },
+      'windows-portable': { filename: version => `qbank-${version}-windows-x64-portable.exe`, path: version => `../windows/${version}/qbank-${version}-windows-x64-portable.exe`, fallback: 'windows-portable-fallback', progress: 'windows-progress' },
     };
 
     function setFallback(id, url) {

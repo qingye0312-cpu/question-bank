@@ -26,7 +26,9 @@ test('release puller contains no polling loop and uses an explicit release API',
   assert.match(text, /--continue-at -/);
   assert.match(text, /SHA256SUMS/);
   assert.match(text, /qbank-install-desktop-update/);
-  assert.match(text, /题库_\$\{version\}_macOS_arm64\.dmg/);
+  assert.match(text, /qbank-\$\{version\}-macos-arm64\.dmg/);
+  assert.match(text, /qbank-\$\{version\}-windows-x64-setup\.exe/);
+  assert.match(text, /qbank-\$\{version\}-windows-x64-portable\.exe/);
 });
 
 test('desktop workflow triggers the server puller instead of uploading release assets', () => {
@@ -34,4 +36,17 @@ test('desktop workflow triggers the server puller instead of uploading release a
   assert.match(workflow, /qbank-release-puller/);
   assert.doesNotMatch(workflow, /\bscp\b/);
   assert.doesNotMatch(workflow, /release-assets\/\*.*root@/);
+});
+
+test('release assets use qbank-version-system-arch names', () => {
+  const workflow = fs.readFileSync(path.join(root, '.github/workflows/desktop-release.yml'), 'utf8');
+  const manifest = fs.readFileSync(path.join(root, 'tools/desktop-release/create-manifest.mjs'), 'utf8');
+  // macOS steps run in bash; the Windows steps run in PowerShell.
+  assert.match(workflow, /qbank-\$\{version\}-macos-arm64-app\.tar\.gz/);
+  assert.match(workflow, /qbank-\$\{version\}-macos-arm64\.dmg/);
+  assert.match(workflow, /qbank-\$version-windows-x64-nsis\.zip/);
+  assert.match(workflow, /qbank-\$version-windows-x64-setup\.exe/);
+  assert.match(workflow, /qbank-\$version-windows-x64-portable\.exe/);
+  assert.match(manifest, /qbank-\$\{version\}-macos-arm64-app\.tar\.gz/);
+  assert.match(manifest, /qbank-\$\{version\}-windows-x64-nsis\.zip/);
 });

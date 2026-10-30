@@ -58,12 +58,12 @@ jobs:
           fi
           [ -n "$built" ] && [ -s "$built" ] || { echo 'macOS updater archive missing' >&2; exit 1; }
           [ -s "$built.sig" ] || { echo 'macOS updater signature missing' >&2; exit 1; }
-          name="qbank-macos-arm64-${version}.app.tar.gz"
+          name="qbank-${version}-macos-arm64-app.tar.gz"
           cp "$built" "$output/$name"
           cp "$built.sig" "$output/$name.sig"
           dmg="$(find desktop/src-tauri/target/release/bundle/dmg -maxdepth 1 -type f -name '*.dmg' -print -quit)"
           [ -n "$dmg" ] && [ -s "$dmg" ] || { echo 'macOS DMG missing' >&2; exit 1; }
-          cp "$dmg" "$output/题库_${version}_macOS_arm64.dmg"
+          cp "$dmg" "$output/qbank-${version}-macos-arm64.dmg"
 
       - uses: actions/upload-artifact@v7
         with:
@@ -130,7 +130,7 @@ jobs:
           if (-not (Test-Path -LiteralPath $source)) { throw "Portable executable missing: $source" }
           $output = Join-Path $env:RUNNER_TEMP 'qbank-release/windows-portable'
           New-Item -ItemType Directory -Force -Path $output | Out-Null
-          Copy-Item -LiteralPath $source -Destination (Join-Path $output '题库_windows_x64_portable.exe')
+          Copy-Item -LiteralPath $source -Destination (Join-Path $output "qbank-$version-windows-x64-portable.exe")
 
       - uses: actions/upload-artifact@v7
         with:
@@ -236,10 +236,10 @@ jobs:
 
           $output = Join-Path $env:RUNNER_TEMP 'qbank-release/windows-installer'
           New-Item -ItemType Directory -Force -Path $output | Out-Null
-          $archiveName = "qbank-windows-x64-$version.nsis.zip"
+          $archiveName = "qbank-$version-windows-x64-nsis.zip"
           Copy-Item -LiteralPath $archive.FullName -Destination (Join-Path $output $archiveName)
           Copy-Item -LiteralPath $signature -Destination (Join-Path $output "$archiveName.sig")
-          Copy-Item -LiteralPath $setups[0].FullName -Destination (Join-Path $output '题库_windows_x64_setup.exe')
+          Copy-Item -LiteralPath $setups[0].FullName -Destination (Join-Path $output "qbank-$version-windows-x64-setup.exe")
 
       - uses: actions/upload-artifact@v7
         with:

@@ -25,19 +25,19 @@ const allowedOrigins = new Set((process.env.QBANK_FASTDOWNLOAD_ALLOWED_ORIGINS |
 
 const artifacts = {
   macos: version => ({
-    filename: `题库_${version}_macOS_arm64.dmg`,
-    path: `/v1/desktop/releases/macos/${version}/${encodeURIComponent(`题库_${version}_macOS_arm64.dmg`)}`,
-    checksumPath: `../macos/${version}/题库_${version}_macOS_arm64.dmg`,
+    filename: `qbank-${version}-macos-arm64.dmg`,
+    path: `/v1/desktop/releases/macos/${version}/qbank-${version}-macos-arm64.dmg`,
+    checksumPath: `../macos/${version}/qbank-${version}-macos-arm64.dmg`,
   }),
   'windows-setup': version => ({
-    filename: '题库_windows_x64_setup.exe',
-    path: `/v1/desktop/releases/windows/${version}/${encodeURIComponent('题库_windows_x64_setup.exe')}`,
-    checksumPath: `../windows/${version}/题库_windows_x64_setup.exe`,
+    filename: `qbank-${version}-windows-x64-setup.exe`,
+    path: `/v1/desktop/releases/windows/${version}/qbank-${version}-windows-x64-setup.exe`,
+    checksumPath: `../windows/${version}/qbank-${version}-windows-x64-setup.exe`,
   }),
   'windows-portable': version => ({
-    filename: '题库_windows_x64_portable.exe',
-    path: `/v1/desktop/releases/windows/${version}/${encodeURIComponent('题库_windows_x64_portable.exe')}`,
-    checksumPath: `../windows/${version}/题库_windows_x64_portable.exe`,
+    filename: `qbank-${version}-windows-x64-portable.exe`,
+    path: `/v1/desktop/releases/windows/${version}/qbank-${version}-windows-x64-portable.exe`,
+    checksumPath: `../windows/${version}/qbank-${version}-windows-x64-portable.exe`,
   }),
 };
 

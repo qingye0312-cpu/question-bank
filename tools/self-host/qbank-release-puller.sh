@@ -118,22 +118,28 @@ const version = release.tag_name.slice(1);
 const requiredOutputs = [
   'latest.json',
   'SHA256SUMS',
-  `qbank-macos-arm64-${version}.app.tar.gz`,
-  `qbank-macos-arm64-${version}.app.tar.gz.sig`,
-  `qbank-windows-x64-${version}.nsis.zip`,
-  `qbank-windows-x64-${version}.nsis.zip.sig`,
-  `题库_${version}_macOS_arm64.dmg`,
-  '题库_windows_x64_portable.exe',
-  '题库_windows_x64_setup.exe',
+  `qbank-${version}-macos-arm64-app.tar.gz`,
+  `qbank-${version}-macos-arm64-app.tar.gz.sig`,
+  `qbank-${version}-windows-x64-nsis.zip`,
+  `qbank-${version}-windows-x64-nsis.zip.sig`,
+  `qbank-${version}-macos-arm64.dmg`,
+  `qbank-${version}-windows-x64-portable.exe`,
+  `qbank-${version}-windows-x64-setup.exe`,
 ];
 const outputFor = asset => {
   if (requiredOutputs.includes(asset.name)) return asset.name;
   if (asset.name === `_${version}_macOS_arm64.dmg` || asset.name.endsWith(`_${version}_macOS_arm64.dmg`))
-    return `题库_${version}_macOS_arm64.dmg`;
+    return `qbank-${version}-macos-arm64.dmg`;
   if (asset.name === '_windows_x64_portable.exe' || asset.name === 'windows_x64_portable.exe')
-    return '题库_windows_x64_portable.exe';
+    return `qbank-${version}-windows-x64-portable.exe`;
   if (asset.name === '_windows_x64_setup.exe' || asset.name === 'windows_x64_setup.exe')
-    return '题库_windows_x64_setup.exe';
+    return `qbank-${version}-windows-x64-setup.exe`;
+  if (asset.name === `题库_${version}_macOS_arm64.dmg`)
+    return `qbank-${version}-macos-arm64.dmg`;
+  if (asset.name === '题库_windows_x64_portable.exe')
+    return `qbank-${version}-windows-x64-portable.exe`;
+  if (asset.name === '题库_windows_x64_setup.exe')
+    return `qbank-${version}-windows-x64-setup.exe`;
   return asset.name;
 };
 const outputs = new Set();
