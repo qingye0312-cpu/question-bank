@@ -21,6 +21,7 @@ test('deployment scripts default to the canonical domain', () => {
     'tools/self-host/install-desktop-update-release.sh',
     'tools/self-host/install-download-page.sh',
     'tools/self-host/install-fastdownload.sh',
+    'tools/self-host/install-turnserver.sh',
     'tools/self-host/deploy-domain-tls.sh',
   ];
   for (const script of scripts) {
@@ -57,6 +58,13 @@ test('fastdownload server and TLS probe use the canonical domain', () => {
     assert.match(text, /qbank\.acharrystar\.top:8013/);
     assert.doesNotMatch(text, /qbank\.creart\.top/);
   }
+});
+
+test('fastdownload installer replaces the current symlink instead of moving into its target', () => {
+  const text = read('tools/self-host/install-fastdownload.sh');
+  assert.match(text, /rm -f "\$CURRENT"\nln -s "\$release" "\$CURRENT"/);
+  assert.match(text, /rm -f "\$CURRENT"\n    ln -s "\$OLD_TARGET" "\$CURRENT"/);
+  assert.doesNotMatch(text, /mv -f "\$CURRENT\.(?:next|rollback)" "\$CURRENT"/);
 });
 
 test('deploy-domain-tls.sh installs renewal and verifies public TLS', () => {

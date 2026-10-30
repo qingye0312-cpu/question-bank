@@ -10,15 +10,18 @@ import {sha256} from '../desktop/shared/intake.ts';
 const first='ad50971f-66af-51c2-bb0e-dc798b03b369',second='c86104f7-4570-4089-9338-7989ce528a9d';
 function version(bank_id,name,revision=1){
  const text=JSON.stringify({format:'qbank-snapshot-2',bank_id,name,revision,release_version:revision,formal:[],pending:[],removed:[],updated_at:'2026-10-24T00:00:00Z'}),wrapper=packText(text);
- return {wrapper,manifest:{bank_id,name,revision,release_version:revision,sha256:wrapper.sha256,bytes:Buffer.byteLength(text),minimum_client:'0.2.7',protocol:2,snapshot_format:'qbank-cloud-file-1',updated_at:'2026-10-24T00:00:00Z'}};
+ return {wrapper,manifest:{bank_id,name,revision,release_version:revision,question_count:0,sha256:wrapper.sha256,bytes:Buffer.byteLength(text),minimum_client:'0.2.7',protocol:2,snapshot_format:'qbank-cloud-file-1',updated_at:'2026-10-24T00:00:00Z'}};
 }
-function setup(){
+function setup({replaceRename=false}={}){
  let generation=1,failBank='',restore,offline=false,requestError='';
  const files=new Map(),calls=[],versions=[version(first,'初级'),version(second,'高级')];
  const fileSystem={
   readFile:o=>{if(o.filePath.endsWith('qbank-cloud-catalog.json')&&restore){restore(o);return;}files.has(o.filePath)?o.success({data:files.get(o.filePath)}):o.fail({errMsg:'not found'});},
+  readdir:o=>o.success({files:[...files.keys()].filter(path=>path.startsWith(`${o.dirPath}/`)).map(path=>path.slice(o.dirPath.length+1))}),
   writeFile:o=>{files.set(o.filePath,o.data);o.success();},
-  rename:o=>{files.set(o.newPath,files.get(o.oldPath));files.delete(o.oldPath);o.success();},
+  copyFile:o=>{if(!files.has(o.srcPath))return o.fail({errMsg:'not found'});files.set(o.destPath,files.get(o.srcPath));o.success();},
+  unlink:o=>{if(!files.delete(o.filePath))return o.fail({errMsg:'not found'});o.success();},
+  rename:o=>{if(replaceRename&&files.has(o.newPath))return o.fail({errMsg:'file already exists'});files.set(o.newPath,files.get(o.oldPath));files.delete(o.oldPath);o.success();},
  };
  const wx={env:{USER_DATA_PATH:'/user'},getFileSystemManager:()=>fileSystem,request:o=>{
   const endpoint=new URL(o.url).pathname;calls.push(endpoint);
@@ -32,7 +35,7 @@ function setup(){
  const exports={},source=fs.readFileSync(new URL('../miniprogram/miniprogram/services/sync.ts',import.meta.url),'utf8');
  const code=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText;
  vm.runInNewContext(code,{exports,require:name=>name.endsWith('/config/cloud')?{authOrigin:()=> 'https://qbank.example.test:8013'}:name.endsWith('/foreground')?{foregroundGeneration:()=>generation}:name.endsWith('/core/sync')?syncCore:name.endsWith('/core/search')?{buildPostings:()=>({})}:{sha256},wx,Map,Promise,Error});
- return {client:exports,calls,versions,files,next:()=>generation++,fail:id=>failBank=id,setOffline:value=>offline=value,setRequestError:value=>requestError=value,delayRestore:fn=>restore=fn};
+ return {client:exports,calls,versions,files,next:()=>generation++,fail:id=>failBank=id,setOffline:value=>offline=value,setRequestError:value=>requestError=value,delayRestore:fn=>restore=o=>{restore=undefined;fn(o)}};
 }
 test('multi-bank catalogue refresh is once per foreground, downloads are per-bank and unchanged revisions stay cached',async()=>{
  const s=setup(),c=s.client;
@@ -84,4 +87,40 @@ test('domain, TLS and timeout errors remain specific while preserving both bank 
   assert.equal(c.cloudCatalog().length,2);assert.equal((await c.cachedSnapshot(second)).manifest.name,'高级');assert.equal(JSON.stringify([...s.files]),stored);
  }
  s.setRequestError('');await c.refreshCatalog(true);assert.equal(c.cloudCatalog().length,2);
+});
+
+test('manifest question counts reject mismatched snapshots and keep the previous bank',async()=>{
+ const s=setup(),c=s.client;await c.refreshCatalog();await c.syncBank(first,c.cloudCatalog()[0]);
+ const next=version(first,'初级',2);s.versions[0]={...next,manifest:{...next.manifest,question_count:1}};s.next();await c.refreshCatalog();
+ await assert.rejects(c.syncBank(first,c.cloudCatalog()[0]),/数量与版本清单不一致/);
+ assert.equal((await c.cachedSnapshot(first)).manifest.revision,1);
+ assert.equal((await c.cachedSnapshot(first)).snapshot.formal.length,0);
+});
+
+test('cache replacement survives file systems that refuse to overwrite by rename',async()=>{
+ const s=setup({replaceRename:true}),c=s.client;await c.refreshCatalog();await c.syncBank(first,c.cloudCatalog()[0]);
+ s.versions[0]=version(first,'初级',2);s.next();await c.refreshCatalog();
+ assert.equal(await c.syncBank(first,c.cloudCatalog()[0]),true);
+ assert.equal((await c.cachedSnapshot(first)).manifest.revision,2);
+ assert.equal(s.files.has(`/user/qbank-cloud-${first}.json.bak`),false);
+});
+
+test('a damaged or missing catalogue can still be restored from per-bank cache files',async()=>{
+ const source=setup(),firstClient=source.client;await firstClient.refreshCatalog();await firstClient.syncBank(first,source.versions[0].manifest);
+ const cache=source.files.get(`/user/qbank-cloud-${first}.json`);
+ const target=setup(),client=target.client;target.files.set(`/user/qbank-cloud-${first}.json.bak`,cache);
+ await client.restoreCatalog();
+ assert.equal(client.cloudCatalog().length,1);
+ assert.equal(client.cloudCatalog()[0].bank_id,first);
+ assert.equal((await client.cachedSnapshot(first)).manifest.revision,1);
+});
+
+test('a newer per-bank cache wins over an older catalogue left by an interrupted refresh',async()=>{
+ const source=setup(),sourceClient=source.client;await sourceClient.refreshCatalog();await sourceClient.syncBank(first,source.versions[0].manifest);
+ source.versions[0]=version(first,'初级',2);await sourceClient.syncBank(first,source.versions[0].manifest);
+ const target=setup(),client=target.client;
+ for(const key of ['qbank-cloud-catalog.json',`qbank-cloud-${first}.json`])target.files.set(`/user/${key}`,source.files.get(`/user/${key}`));
+ await client.restoreCatalog();
+ assert.equal(client.cloudCatalog()[0].revision,2);
+ assert.equal((await client.cachedSnapshot(first)).manifest.revision,2);
 });

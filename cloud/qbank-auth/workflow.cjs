@@ -137,7 +137,7 @@ function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission})
       if(key(duplicate)!==key(q)||answer(duplicate)!==answer(q))
        deny(409,'ANSWER_CONFLICT','上传题目与正式题库内容或答案冲突，未合并任何题目');
       duplicates++;resolved.push({id:`${delta.batch_id}/${q.question_id}`,question_id:q.question_id,status:'merged',target_id:duplicate.question_id,duplicate:true});
-     }else{formal.push({...q,status:'verified'});added++;addedQuestionIds.push(q.question_id);resolved.push({id:`${delta.batch_id}/${q.question_id}`,question_id:q.question_id,status:'merged',target_id:q.question_id});}
+    }else{formal.push({...q,status:record.status_mode==='preserve'?q.status:'verified'});added++;addedQuestionIds.push(q.question_id);resolved.push({id:`${delta.batch_id}/${q.question_id}`,question_id:q.question_id,status:'merged',target_id:q.question_id});}
     }
     const mergedAt=new Date(clock()).toISOString();
     const uploaderAccountId=record.uploader_account_id||auth.account_id||auth.maintainer_id||auth.openid;

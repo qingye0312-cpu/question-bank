@@ -34,7 +34,7 @@ const lines = payload.trimEnd().split('\n'), questions = lines.map(line => JSON.
 const index = {schema_version:'qbank-index-1',release_id:'source-basic',question_count:questions.length,postings:core.buildPostings(questions)};
 const manifest = {schema_version:'1.0',bank_id:'ad50971f-66af-51c2-bb0e-dc798b03b369',name:'HarmonyOS 初级认证',release_id:'a'.repeat(64),release_version:9,question_count:questions.length,release_name:'云端初级认证 v9'};
 const cloudUpdatedAt='2026-10-29T04:16:20.176Z';
-const cloudManifest={bank_id:manifest.bank_id,name:manifest.name,revision:19,release_version:9,sha256:'b'.repeat(64),bytes:0,minimum_client:'0.2.7',updated_at:cloudUpdatedAt,snapshot_format:'qbank-cloud-file-1',protocol:3};
+const cloudManifest={bank_id:manifest.bank_id,name:manifest.name,revision:19,release_version:9,question_count:questions.length,sha256:'b'.repeat(64),bytes:0,minimum_client:'0.2.7',updated_at:cloudUpdatedAt,snapshot_format:'qbank-cloud-file-1',protocol:3};
 const cloudSnapshot={format:'qbank-snapshot-2',bank_id:manifest.bank_id,name:manifest.name,revision:19,release_version:9,updated_at:cloudUpdatedAt,formal:questions,pending:[],removed:[]};
 const bank = () => new core.LocalBank(lines, index);
 const fixture = (overrides = {}) => ({...questions[0], stem: '用户与系统', options: [{key: 'A', content: '聊天服务', option_id: 'a'}],
@@ -222,7 +222,7 @@ async function loadPage(path, mocks = {}, searchCore = core, services = {}) {
       : name.endsWith('/search') ? searchCore
       : name.endsWith('/intake') ? intakeCore
       : name.endsWith('/answer-presentation') ? answerPresentationCore
-      : name.endsWith('/bank') ? (services.bank||{loadBank: async () => ({bank: bank(), manifest}),listBanks:async()=>[{id:manifest.bank_id,name:manifest.name}],activeBankId:()=>manifest.bank_id,selectBank:()=>{}})
+      : name.endsWith('/bank') ? (services.bank||{loadBank: async () => ({bank: bank(), manifest}),listBanks:async()=>[{id:manifest.bank_id,name:manifest.name}],activeBankId:()=>manifest.bank_id,selectBank:()=>{},bankCacheGeneration:()=>0})
       : name.endsWith('/sync') ? (services.sync||{cloudCatalog:()=>[],refreshCatalog:async()=>{},syncBank:async()=>false})
       : name.endsWith('/share') ? (services.share||{})
       : {APP_VERSION:'0.2.7'},
@@ -268,7 +268,7 @@ test('home page share callbacks open the same public bank and restore its search
   const page = await loadPage('pages/index/index.ts', {}, core, {
     bank:{loadBank:async id=>({bank:bank(),manifest:{...manifest,bank_id:id,name:id===sharedBankId?'共享题库':manifest.name}}),
       listBanks:async()=>[{id:manifest.bank_id,name:manifest.name},...(catalogLoaded?[{id:sharedBankId,name:'共享题库'}]:[])],
-      activeBankId:()=>manifest.bank_id,selectBank:id=>{selectedBank=id;}},
+      activeBankId:()=>manifest.bank_id,selectBank:id=>{selectedBank=id;},bankCacheGeneration:()=>0},
     sync:{cloudCatalog:()=>catalogLoaded?[{bank_id:sharedBankId}]:[],refreshCatalog:async()=>{catalogLoaded=true;refreshCalls++;},syncBank:async()=>false},
   });
   await page.onLoad({bank:sharedBankId,q:'云端 API'});
@@ -290,7 +290,7 @@ test('home page share links do not expose a private local bank id or its query',
   const page = await loadPage('pages/index/index.ts', {}, core, {
     bank:{loadBank:async id=>({bank:bank(),manifest:{...manifest,bank_id:id,name:'私人本地题库',release_id:'local'}}),
       listBanks:async()=>[{id:manifest.bank_id,name:manifest.name},{id:privateBankId,name:'私人本地题库'}],
-      activeBankId:()=>privateBankId,selectBank:()=>{}},
+      activeBankId:()=>privateBankId,selectBank:()=>{},bankCacheGeneration:()=>0},
     sync:{cloudCatalog:()=>[],refreshCatalog:async()=>{},syncBank:async()=>false},
   });
   await page.onLoad({q:'仅本机可见的搜索词'});
@@ -419,7 +419,7 @@ test('Android opens question details with and without a search and renders match
 test('a failed selected-bank download does not hide newly discovered cloud banks',async()=>{
  const advanced='c86104f7-4570-4089-9338-7989ce528a9d';let fresh=false,selected=manifest.bank_id;
  const page=await loadPage('pages/index/index.ts',{},core,{
-  bank:{loadBank:async()=>({bank:bank(),manifest}),listBanks:async()=>[{id:manifest.bank_id,name:manifest.name},...(fresh?[{id:advanced,name:'高级题库'}]:[])],activeBankId:()=>selected,selectBank:id=>selected=id},
+  bank:{loadBank:async()=>({bank:bank(),manifest}),listBanks:async()=>[{id:manifest.bank_id,name:manifest.name},...(fresh?[{id:advanced,name:'高级题库'}]:[])],activeBankId:()=>selected,selectBank:id=>selected=id,bankCacheGeneration:()=>0},
   sync:{cloudCatalog:()=>fresh?[{bank_id:manifest.bank_id},{bank_id:advanced}]:[],refreshCatalog:async()=>{fresh=true;},syncBank:async()=>{throw Error('下载暂不可用')}},
  });
  page.layout=new core.VirtualList(0);await page.initialize();await page.syncCloud();
@@ -428,18 +428,31 @@ test('a failed selected-bank download does not hide newly discovered cloud banks
 test('a cloud bank without a cache is downloaded before it becomes searchable, and page returns do not resync',async()=>{
  const advanced='c86104f7-4570-4089-9338-7989ce528a9d';let selected=advanced,cached=false,downloads=0,invalidations=0,refreshes=0;
  const page=await loadPage('pages/index/index.ts',{},core,{
-  bank:{loadBank:async()=>{if(!cached)throw Error('尚未下载');return {bank:bank(),manifest:{...manifest,bank_id:advanced}}},listBanks:async()=>[{id:manifest.bank_id,name:manifest.name},{id:advanced,name:'高级题库'}],activeBankId:()=>selected,selectBank:id=>selected=id,invalidateBank:()=>invalidations++},
+  bank:{loadBank:async()=>{if(!cached)throw Error('尚未下载');return {bank:bank(),manifest:{...manifest,bank_id:advanced}}},listBanks:async()=>[{id:manifest.bank_id,name:manifest.name},{id:advanced,name:'高级题库'}],activeBankId:()=>selected,selectBank:id=>selected=id,invalidateBank:()=>invalidations++,bankCacheGeneration:()=>0},
   sync:{cloudCatalog:()=>[{bank_id:advanced}],refreshCatalog:async()=>refreshes++,syncBank:async()=>{downloads++;cached=true;return true;}},
  });
  page.layout=new core.VirtualList(0);await page.initialize();assert.equal(page.data.bankId,advanced);assert.equal(page.data.ready,false);assert.match(page.data.error,/尚未下载/);
  await page.syncCloud();assert.equal(page.data.ready,true);assert.equal(page.data.total,984);assert.equal(invalidations,1);
  page.foregroundSeen=1;page.onShow();page.onShow();assert.equal(downloads,1);assert.equal(refreshes,1);
 });
+test('returning from intake reloads a changed local cache and refreshes the cloud catalogue',async()=>{
+ let cacheGeneration=0,loads=0;const refreshModes=[];
+ const page=await loadPage('pages/index/index.ts',{},core,{
+  bank:{loadBank:async()=>{loads++;return {bank:bank(),manifest}},listBanks:async()=>[{id:manifest.bank_id,name:manifest.name}],
+    activeBankId:()=>manifest.bank_id,selectBank:()=>{},bankCacheGeneration:()=>cacheGeneration},
+  sync:{cloudCatalog:()=>[],refreshCatalog:async force=>{refreshModes.push(force);return []},syncBank:async()=>false},
+ });
+ page.layout=new core.VirtualList(0);await page.onLoad();await new Promise(resolve=>setTimeout(resolve,0));
+ cacheGeneration=1;page.onShow();await new Promise(resolve=>setTimeout(resolve,0));
+ assert.equal(loads,2);
+ assert.ok(refreshModes.includes(true));
+ assert.equal(page.cacheGenerationSeen,1);
+});
 test('first cloud-only launch selects and opens the first downloaded cloud bank',async()=>{
  const cloudBank='c86104f7-4570-4089-9338-7989ce528a9d';let discovered=false,cached=false,selected='';
  const page=await loadPage('pages/index/index.ts',{},core,{
   bank:{loadBank:async()=>{if(!cached)throw Error('尚未下载');return {bank:bank(),manifest:{...manifest,bank_id:cloudBank,name:'高级题库'}}},
-    listBanks:async()=>discovered?[{id:cloudBank,name:'高级题库'}]:[],activeBankId:()=>selected,selectBank:id=>selected=id,invalidateBank:()=>{}},
+    listBanks:async()=>discovered?[{id:cloudBank,name:'高级题库'}]:[],activeBankId:()=>selected,selectBank:id=>selected=id,invalidateBank:()=>{},bankCacheGeneration:()=>0},
   sync:{cloudCatalog:()=>discovered?[{bank_id:cloudBank,name:'高级题库'}]:[],refreshCatalog:async()=>{discovered=true;},syncBank:async()=>{cached=true;return true}},
  });
  page.layout=new core.VirtualList(0);await page.initialize();assert.equal(page.data.ready,false);assert.equal(page.data.bankId,'');
@@ -451,7 +464,7 @@ test('home caches the advanced bank automatically without switching and continue
  const advanced='c86104f7-4570-4089-9338-7989ce528a9d',downloaded=[],invalidated=[];
  const page=await loadPage('pages/index/index.ts',{},core,{
   bank:{loadBank:async()=>({bank:bank(),manifest}),listBanks:async()=>[{id:manifest.bank_id,name:manifest.name},{id:advanced,name:'高级题库'}],
-    activeBankId:()=>manifest.bank_id,selectBank:()=>{},invalidateBank:id=>invalidated.push(id)},
+    activeBankId:()=>manifest.bank_id,selectBank:()=>{},invalidateBank:id=>invalidated.push(id),bankCacheGeneration:()=>0},
   sync:{cloudCatalog:()=>[{bank_id:advanced,name:'高级题库'},{bank_id:manifest.bank_id,name:'初级题库'}],refreshCatalog:async()=>{},
     syncBank:async id=>{downloaded.push(id);if(id===manifest.bank_id)throw Error('初级下载暂不可用');return true;}},
  });

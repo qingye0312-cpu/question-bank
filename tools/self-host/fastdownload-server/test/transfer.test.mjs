@@ -1,8 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { RTCPeerConnection } from 'werift';
-import { createFastDownloadServer } from '../server.mjs';
+import { createFastDownloadServer, createTurnIceServer } from '../server.mjs';
+
+test('TURN credentials use the shared secret and expire after the configured lifetime', () => {
+  const nowMs = 1_700_000_000_000;
+  const secret = 'test-secret';
+  const turn = createTurnIceServer(['turn:turn.example.test:3478?transport=udp'], secret, 600, nowMs);
+  const expectedUsername = '1700000600:qbank';
+  assert.equal(turn.username, expectedUsername);
+  assert.equal(turn.credential, createHmac('sha1', secret).update(expectedUsername).digest('base64'));
+  assert.deepEqual(turn.urls, ['turn:turn.example.test:3478?transport=udp']);
+});
 
 test('the offer endpoint streams a package over a peer DataChannel with bounded acknowledgements', async t => {
   const content = Buffer.alloc(2 * 1024 * 1024 + 37, 0x5a);

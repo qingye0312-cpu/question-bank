@@ -66,6 +66,7 @@ test('one compressed Base64 upload is decoded, decompressed, merged, recompresse
   const manifest=readManifest((await s.call('GET',`/v1/banks/${id}/manifest`)).data);
   assert.equal(manifest.revision,2);
   assert.equal(manifest.release_version,2);
+  assert.equal(manifest.question_count,2);
   const fileResponse=await s.call('GET',`/v1/banks/${id}/snapshot-file`);assert.equal(fileResponse.status,200,JSON.stringify(fileResponse.data));
   const snapshot=readSnapshot(fileResponse.data,manifest);
   assert.equal(snapshot.formal.length,2);
@@ -83,6 +84,18 @@ test('one compressed Base64 upload is decoded, decompressed, merged, recompresse
   assert.equal((await s.store.readState(id)).merge_history.length,1);
 });
 
+test('preserve-status upload inserts unreviewed questions into the formal snapshot',async()=>{
+ const s=setup(),token=await s.login();await seed(s,token);
+ const response=await s.call('POST','/v1/uploads',{...encodeUpload(fixture),status_mode:'preserve'},token);
+ assert.equal(response.status,201,JSON.stringify(response.data));
+ const state=await s.store.readState(id),question=state.formal.find(item=>item.question_id===questions[0].question_id);
+ assert.equal(question.status,'unreviewed');
+ const manifest=readManifest((await s.call('GET',`/v1/banks/${id}/manifest`)).data);
+ assert.equal(manifest.question_count,2);
+ const snapshot=readSnapshot((await s.call('GET',`/v1/banks/${id}/snapshot-file`)).data,manifest);
+ assert.equal(snapshot.formal.find(item=>item.question_id===questions[0].question_id).status,'unreviewed');
+});
+
 test('same batch is idempotent, bad content never partially merges, and old versions roll back',async()=>{
   const s=setup(),token=await s.login();
   const base=await seed(s,token);
@@ -95,6 +108,7 @@ test('same batch is idempotent, bad content never partially merges, and old vers
   const rollback=await s.call('POST',`/v1/banks/${id}/rollback`,{operation_id:randomUUID(),base_revision:current.revision,target_revision:1},token);
   assert.equal(rollback.status,200,JSON.stringify(rollback.data));
   manifest=readManifest(rollback.data);
+  assert.equal(manifest.question_count,1);
   const fileResponse=await s.call('GET',`/v1/banks/${id}/snapshot-file`);assert.equal(fileResponse.status,200,JSON.stringify(fileResponse.data));
   const snapshot=readSnapshot(fileResponse.data,manifest);
   assert.equal(snapshot.formal.length,1);
@@ -180,7 +194,7 @@ test('pure question and operation files describe every full revision without inh
  const text=deltaPackage(id,delta.name,randomUUID(),[added],new Date().toISOString());
  assert.equal((await s.call('POST','/v1/uploads',encodeUpload(text),token)).status,201);
  let manifest=readManifest((await s.call('GET',`/v1/banks/${id}/manifest`)).data);
- assert.ok(manifest.question_file_sha256);assert.ok(manifest.operations_file_sha256);
+ assert.ok(manifest.question_file_sha256);assert.ok(manifest.operations_file_sha256);assert.equal(manifest.question_count,2);
  const questionFile=readQuestionFile((await s.call('GET',`/v1/banks/${id}/question-file`)).data,manifest);
  assert.equal(questionFile.questions.length,2);assert.equal('formal' in questionFile,false);
  assert.equal((await s.call('GET',`/v1/banks/${id}/operations-file`)).status,401);

@@ -7,7 +7,7 @@ import {combineLayers,type SyncQuestion} from '../core/sync';
 
 export type Manifest = {
   schema_version: string; bank_id: string; name: string; release_id: string;
-  release_version: number; question_count: number; merged_at?:string|null;release_name?:string|null;
+  release_version: number; question_count: number; cloud_question_count?:number;local_question_count?:number; merged_at?:string|null;release_name?:string|null;
 };
 export type BankBundle = {bank: LocalBank; manifest: Manifest};
 // name is the reader-facing title; release_name retains the complete version label.
@@ -18,6 +18,7 @@ const ACTIVE_BANK_KEY='qbank-active-bank-v1';
 let selected='';
 let catalogReady:Promise<void>|undefined;
 const banks=new Map<string,Promise<BankBundle>>();
+let cacheGeneration=0;
 export function activeBankId():string {
   if(!selected){try{selected=wx.getStorageSync(ACTIVE_BANK_KEY)||''}catch{/* Keep the last in-memory selection. */}}
   return selected||cloudCatalog()[0]?.bank_id||'';
@@ -26,14 +27,15 @@ export function selectBank(id:string):void {selected=id;try{wx.setStorageSync(AC
 export async function listBanks():Promise<BankSummary[]> {
   if(!catalogReady)catalogReady=restoreCatalog();await catalogReady;
   const local=await readLocal(),all=[...local.banks,...cloudCatalog().map(b=>({id:b.bank_id,name:b.name}))];
-  return Promise.all([...new Map(all.map(b=>[b.id,b])).values()].map(async b=>{
-    const snapshot=await cachedSnapshot(b.id),m=snapshot?.manifest;
+  return [...new Map(all.map(b=>[b.id,b])).values()].map(b=>{
+    const m=cloudCatalog().find(manifest=>manifest.bank_id===b.id);
     const own=local.banks.find(v=>v.id===b.id);
     const version=m?.release_version??1,digest=m?.sha256??sha256(b.id);
     return {...b,release_name:m?.release_name||own?.release_name||resultName(null,b.name,'历史迁移','v'+version,b.id,digest)};
-  }));
+  });
 }
-export function invalidateBank(id:string):void {banks.delete(id);}
+export function invalidateBank(id:string):void {banks.delete(id);cacheGeneration++;}
+export function bankCacheGeneration():number{return cacheGeneration;}
 export async function createBank(name:string):Promise<string>{
   name=name.trim();if(!name||Array.from(name).length>100)throw new Error('题库名称须为 1 至 100 字');
   const id=(await createIds(1))();
@@ -59,8 +61,9 @@ export function loadBank(id=activeBankId()):Promise<BankBundle>{
     const working=[...local.entries.filter(e=>e.bankId===id&&!ids.has(e.question.question_id)).map(e=>e.question),...drafts.filter(r=>!r.removed&&!r.issues.length&&r.question).map(r=>r.question!)];
     const merged=combineLayers(formal,working);
     bundle.bank.append(merged.filter(q=>q.cloud_layer!=='formal') as unknown as import('../core/search').Question[]);
+    const localQuestionCount=merged.filter(q=>q.cloud_layer!=='formal').length;
 
-    return {bank:bundle.bank,manifest:{...bundle.manifest,question_count:bundle.bank.count}};
+    return {bank:bundle.bank,manifest:{...bundle.manifest,question_count:bundle.bank.count,cloud_question_count:formal.length,local_question_count:localQuestionCount}};
   })().catch(error=>{banks.delete(id);throw error});
   banks.set(id,result);while(banks.size>3){const first=banks.keys().next().value!;banks.delete(first);}return result;
 }

@@ -144,6 +144,7 @@ test('desktop phone login stores the refresh credential with the native command 
 
 test('desktop accepts only compressed current snapshots and rejects review candidates',()=>{
  assert.throws(()=>sync.readSnapshot({payload,sha256:wrapper.sha256},manifest),/封装无效/);
+ assert.throws(()=>sync.readSnapshot(wrapper,{...manifest,question_count:1}),/数量与版本清单不一致/);
  const rejected=JSON.stringify({...JSON.parse(payload),pending:[{question_id:'candidate'}]});
  const packed=packText(rejected);
  assert.throws(()=>sync.readSnapshot(packed,{...manifest,sha256:packed.sha256,bytes:Buffer.byteLength(rejected)}));

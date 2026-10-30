@@ -1,5 +1,6 @@
 import http from 'node:http';
 import https from 'node:https';
+import { createHmac } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import tls from 'node:tls';
 import { fileURLToPath } from 'node:url';
@@ -20,6 +21,10 @@ const caddyHost = process.env.QBANK_FASTDOWNLOAD_CADDY_HOST || 'qbank.acharrysta
 const caddyPort = Number(process.env.QBANK_FASTDOWNLOAD_CADDY_PORT || 8443);
 const stunUrls = (process.env.QBANK_FASTDOWNLOAD_STUN_URLS || 'stun:stun.cloudflare.com:3478')
   .split(',').map(value => value.trim()).filter(Boolean);
+const turnUrls = (process.env.QBANK_FASTDOWNLOAD_TURN_URLS || '')
+  .split(',').map(value => value.trim()).filter(Boolean);
+const turnSharedSecret = process.env.QBANK_FASTDOWNLOAD_TURN_SECRET || '';
+const turnCredentialTtlSec = Number(process.env.QBANK_FASTDOWNLOAD_TURN_TTL_SECONDS || 3600);
 const allowedOrigins = new Set((process.env.QBANK_FASTDOWNLOAD_ALLOWED_ORIGINS || 'https://qbank.acharrystar.top:8013')
   .split(',').map(value => value.trim()).filter(Boolean));
 
@@ -46,6 +51,17 @@ function json(res, status, value) {
   res.setHeader('content-type', 'application/json; charset=utf-8');
   res.setHeader('cache-control', 'no-store');
   res.end(JSON.stringify(value));
+}
+
+export function createTurnIceServer(urls, secret, ttlSec, nowMs = Date.now()) {
+  if (urls.length === 0 && !secret) return null;
+  if (urls.length === 0 || !secret) throw new Error('TURN URL 和共享密钥必须同时配置');
+  if (!Number.isSafeInteger(ttlSec) || ttlSec < 60 || ttlSec > 86_400) {
+    throw new Error('TURN 凭据有效期必须是 60 到 86400 秒');
+  }
+  const username = `${Math.floor(nowMs / 1000) + ttlSec}:qbank`;
+  const credential = createHmac('sha1', secret).update(username).digest('base64');
+  return { urls, username, credential };
 }
 
 function caddyRequest(path, method = 'GET') {
@@ -161,8 +177,8 @@ async function streamAsset(channel, asset, waitForAck, assetOpener) {
   channel.send(JSON.stringify({ type: 'complete', size: sent, sha256: asset.sha256 }));
 }
 
-function makePeer(offer, asset, activePeers, assetOpener) {
-  const pc = new RTCPeerConnection({ iceServers: stunUrls.map(urls => ({ urls })) });
+function makePeer(offer, asset, activePeers, assetOpener, iceServers) {
+  const pc = new RTCPeerConnection({ iceServers });
   let channel;
   let started = false;
   let closed = false;
@@ -252,17 +268,24 @@ function makePeer(offer, asset, activePeers, assetOpener) {
 export function createFastDownloadServer({
   allowedOrigins: origins = allowedOrigins,
   iceUrls = stunUrls,
+  turnIceUrls = turnUrls,
+  turnSecret = turnSharedSecret,
+  turnTtlSec = turnCredentialTtlSec,
   assetLoader = loadArtifact,
   assetOpener = path => caddyRequest(path),
 } = {}) {
   const activePeers = new Set();
+  const createIceServers = () => [
+    ...iceUrls.map(urls => ({ urls })),
+    createTurnIceServer(turnIceUrls, turnSecret, turnTtlSec),
+  ].filter(Boolean);
   const server = http.createServer(async (req, res) => {
     const pathname = new URL(req.url || '/', 'http://127.0.0.1').pathname;
     if (req.method === 'GET' && pathname === '/health') return json(res, 200, { ok: true, activePeers: activePeers.size });
     if (req.method === 'GET' && pathname === '/fastdowmload/api/config') {
       const origin = req.headers.origin;
       if (origin && !origins.has(origin)) return json(res, 403, { error: '来源不受支持' });
-      return json(res, 200, { iceServers: iceUrls.map(urls => ({ urls })) });
+      return json(res, 200, { iceServers: createIceServers() });
     }
     if (req.method !== 'POST' || pathname !== '/fastdowmload/api/offer') return json(res, 404, { error: 'Not found' });
     if (!origins.has(req.headers.origin)) return json(res, 403, { error: '来源不受支持' });
@@ -275,7 +298,7 @@ export function createFastDownloadServer({
         throw Object.assign(new Error('WebRTC offer 无效'), { status: 400 });
       }
       const asset = await assetLoader(body.artifact);
-      peer = makePeer(body.offer, asset, activePeers, assetOpener);
+      peer = makePeer(body.offer, asset, activePeers, assetOpener, createIceServers());
       let timer;
       const answer = await Promise.race([
         peer.negotiate(),

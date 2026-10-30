@@ -2,7 +2,7 @@
 import {unpackText,CLOUD_FILE_FORMAT} from './codec';
 import {validTime,validateStandardQuestion,sha256,identityKey,type IntakeQuestion} from './intake';
 export type SyncQuestion=Omit<IntakeQuestion,'answer'> & {answer:string[]|boolean|null; cloud_layer?:string};
-export type CloudManifest={bank_id:string;name:string;revision:number;release_version:number;release_version_label?:string|null;sha256:string;bytes:number;minimum_client:string;updated_at:string;snapshot_format:string;protocol:2|3;question_file_sha256?:string|null;question_file_bytes?:number|null;question_file_format?:string|null;operations_file_sha256?:string|null;operations_file_bytes?:number|null;operations_file_format?:string|null;merged_at?:string|null;release_name?:string|null;release_id?:string|null;rollback_at?:string|null;rollback_of?:number|null};
+export type CloudManifest={bank_id:string;name:string;revision:number;release_version:number;release_version_label?:string|null;question_count?:number|null;sha256:string;bytes:number;minimum_client:string;updated_at:string;snapshot_format:string;protocol:2|3;question_file_sha256?:string|null;question_file_bytes?:number|null;question_file_format?:string|null;operations_file_sha256?:string|null;operations_file_bytes?:number|null;operations_file_format?:string|null;merged_at?:string|null;release_name?:string|null;release_id?:string|null;rollback_at?:string|null;rollback_of?:number|null};
 export type CloudSnapshot={format:'qbank-snapshot-2';merged_at?:string|null;release_name?:string|null;release_id?:string|null;release_version_label?:string|null;rollback_at?:string|null;rollback_of?:number|null;merges?:{batch_id:string;merged_at:string;question_count:number;added_count:number;duplicate_count:number;revision:number;release_version:number;release_version_label?:string|null}[];bank_id:string;name:string;revision:number;release_version:number;updated_at:string;
  formal:SyncQuestion[]|null;pending:SyncQuestion[];removed:{question_id:string;status:'merged'}[]};
 export type CloudQuestionFile={format:'qbank-question-bank-1';bank_id:string;name:string;revision:number;release_version:number;release_version_label?:string|null;updated_at:string;merged_at?:string|null;release_name?:string|null;release_id?:string|null;rollback_at?:string|null;rollback_of?:number|null;questions:SyncQuestion[]|null};
@@ -17,7 +17,8 @@ export function readManifest(value:unknown):CloudManifest{
  const m=value as CloudManifest;
  if(!m||!uuid.test(m.bank_id)||typeof m.name!=='string'||!m.name.trim()||m.name.length>100||!Number.isSafeInteger(m.revision)||m.revision<0
   ||!Number.isSafeInteger(m.release_version)||m.release_version<0||!/^[0-9a-f]{64}$/.test(m.sha256)||!Number.isSafeInteger(m.bytes)||m.bytes<0||m.bytes>4194304
-  ||typeof m.minimum_client!=='string'||!/^\d+\.\d+\.\d+$/.test(m.minimum_client))throw Error('云端版本清单无效，继续使用已缓存题库');
+  ||typeof m.minimum_client!=='string'||!/^\d+\.\d+\.\d+$/.test(m.minimum_client)
+  ||m.question_count!=null&&(!Number.isSafeInteger(m.question_count)||m.question_count<0||m.question_count>20000))throw Error('云端版本清单无效，继续使用已缓存题库');
  if((m.protocol!==2&&m.protocol!==3)||m.snapshot_format!==CLOUD_FILE_FORMAT)throw Error('题库协议不受支持，请升级程序');
  const questionFields=[m.question_file_sha256,m.question_file_bytes,m.question_file_format],operationFields=[m.operations_file_sha256,m.operations_file_bytes,m.operations_file_format],hasQuestionFields=questionFields.some(value=>value!=null),hasOperationFields=operationFields.some(value=>value!=null);
  const validQuestionFields=typeof m.question_file_sha256==='string'&&/^[a-f0-9]{64}$/.test(m.question_file_sha256)&&typeof m.question_file_bytes==='number'&&Number.isSafeInteger(m.question_file_bytes)&&m.question_file_bytes>=0&&m.question_file_bytes<=4194304&&m.question_file_format==='qbank-question-bank-1';
@@ -60,6 +61,7 @@ export function readQuestionFile(value:unknown,m:CloudManifest):CloudQuestionFil
  const w=questionFilePayload(value,m);if(w.payload.length>4194304)throw Error('云端题库文件过大');
  const file=JSON.parse(w.payload) as CloudQuestionFile;
  if(file.format!=='qbank-question-bank-1'||file.bank_id!==m.bank_id||file.name!==m.name||file.revision!==m.revision||file.release_version!==m.release_version||file.release_version_label!==m.release_version_label||!Array.isArray(file.questions)||file.questions.length>20000||typeof file.updated_at!=='string'||file.updated_at!==m.updated_at||!validTime(file.updated_at)||file.merged_at!==m.merged_at||file.release_name!==m.release_name||file.release_id!==m.release_id||file.rollback_at!==m.rollback_at||file.rollback_of!==m.rollback_of)throw Error('云端题库身份或结构无效');
+ if(m.question_count!=null&&file.questions.length!==m.question_count)throw Error('云端题库数量与版本清单不一致，保留本地题库');
  const ids=new Set<string>();for(const question of file.questions){if(question&&question.status==='verified'&&question.type!=='programming'&&question.answer===null&&Array.isArray(question.issues)&&question.issues.length)question.status='needs_review';validateStandardQuestion(question,file.name);if(ids.has(question.question_id))throw Error('云端题目 ID 重复');ids.add(question.question_id);}
  return file;
 }
@@ -81,6 +83,7 @@ export function readSnapshot(value:unknown,m:CloudManifest):CloudSnapshot{
  const s=JSON.parse(w.payload) as CloudSnapshot;
  if(s.format!=='qbank-snapshot-2'||s.bank_id!==m.bank_id||s.name!==m.name||s.revision!==m.revision||s.release_version!==m.release_version
   ||!(s.formal===null||Array.isArray(s.formal))||!Array.isArray(s.pending)||!Array.isArray(s.removed)||(s.formal?.length||0)+s.pending.length>20000)throw Error('云端题库身份或结构无效');
+ if(m.question_count!=null&&(s.formal?.length||0)!==m.question_count)throw Error('云端题库数量与版本清单不一致，保留本地题库');
  if(s.merged_at!==m.merged_at||s.release_name!==m.release_name||s.release_id!==m.release_id||s.rollback_at!==m.rollback_at||s.rollback_of!==m.rollback_of)throw Error('版本结果信息不一致');
  if(s.rollback_at!=null&&!validTime(s.rollback_at)||s.rollback_of!=null&&(!Number.isSafeInteger(s.rollback_of)||s.rollback_of<1))throw Error('回退版本信息无效');
  if(s.merges!=null&&(!Array.isArray(s.merges)||s.merges.length>10000||s.merges.some(m=>!m||typeof m.batch_id!=='string'||!uuid.test(m.batch_id)||!validTime(m.merged_at)||![m.question_count,m.added_count,m.duplicate_count,m.revision,m.release_version].every(Number.isSafeInteger))))throw Error('合并记录无效');

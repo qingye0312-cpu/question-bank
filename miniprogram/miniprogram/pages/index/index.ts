@@ -1,6 +1,6 @@
 import {themePageData,showPageTheme,hidePageTheme} from '../../services/appearance';
 import {LocalBank, VirtualList, Segment, queryTerms, snippet, answerText, typeNames} from '../../core/search';
-import {loadBank,listBanks,activeBankId,selectBank,invalidateBank,type BankSummary} from '../../services/bank';
+import {loadBank,listBanks,activeBankId,selectBank,invalidateBank,bankCacheGeneration,type BankSummary} from '../../services/bank';
 import {cloudCatalog,refreshCatalog,syncBank} from '../../services/sync';
 import {foregroundGeneration} from '../../services/foreground';
 import {APP_VERSION} from '../../generated/client-assets';
@@ -52,6 +52,7 @@ Page({
   viewport: 700, scrollTimer: undefined as number | undefined, alive: true,
   headerTimer: undefined as number | undefined,
   foregroundSeen:-1,
+  cacheGenerationSeen:0,
   // Page() deep-clones free data; construct class instances after that clone.
   async onLoad(options: Record<string, string | undefined> = {}): Promise<void> {
     this.layout = new VirtualList(0);
@@ -74,6 +75,11 @@ Page({
     showPageTheme(this);
     const generation=foregroundGeneration();
     if(this.foregroundSeen<0){this.foregroundSeen=generation;return;}
+    if(this.data.ready&&this.cacheGenerationSeen!==bankCacheGeneration()){
+      this.cacheGenerationSeen=bankCacheGeneration();
+      void this.initialize().then(()=>{if(this.alive&&this.data.ready)void this.syncCloud(false,true);}).catch(()=>{});
+      return;
+    }
     // Page onShow also fires when returning from detail; only app foreground entries sync.
     if(generation!==this.foregroundSeen){
       this.foregroundSeen=generation;
@@ -108,8 +114,10 @@ Page({
       const {bank, manifest} = await loadBank(id);
       if (!this.alive||epoch!==this.loadEpoch) return;
       selectBank(id);
-      this.setData({banks,bankId:id,bankIndex:banks.findIndex(b=>b.id===id),bankLabel:manifest.release_id==='local'?'本地题库':'正式题库 + 本地新题'});
+      const cloudCount=manifest.cloud_question_count||0,localCount=manifest.local_question_count||0;
+      this.setData({banks,bankId:id,bankIndex:banks.findIndex(b=>b.id===id),bankLabel:manifest.release_id==='local'?'本地题库':localCount?`云端正式 ${cloudCount} + 本地新题 ${localCount}`:'云端正式题库'});
       this.bank = bank;
+      this.cacheGenerationSeen=bankCacheGeneration();
       this.setData({ready: true, bankName: banks.find(b=>b.id===id)?.name||manifest.name, version: manifest.release_version, total: manifest.question_count}, () => this.measureViewport());
       await this.runSearch(this.data.query);
     } catch (error) {
