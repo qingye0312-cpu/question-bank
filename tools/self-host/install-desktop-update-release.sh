@@ -5,6 +5,9 @@ VERSION="${QBANK_RELEASE_VERSION:?missing release version}"
 printf '%s\n' "$VERSION" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' \
   || { echo 'invalid release version' >&2; exit 1; }
 [ "$(id -u)" -eq 0 ] || { echo 'release deployment requires root SSH access' >&2; exit 1; }
+PUBLIC_DOMAIN="${QBANK_PUBLIC_DOMAIN:-qbank.acharrystar.top}"
+printf '%s' "$PUBLIC_DOMAIN" | grep -Eq '^[A-Za-z0-9.-]+$' \
+  || { echo 'invalid public domain' >&2; exit 1; }
 
 ROOT=/var/lib/qbank-desktop-updates
 RELEASES="$ROOT/releases"
@@ -30,13 +33,13 @@ for file in "$MAC_IN" "$MAC_IN.sig" "$MAC_DMG_IN" "$WINDOWS_IN" "$WINDOWS_IN.sig
   [ -s "$file" ] || { echo "missing staged release file: $file" >&2; exit 1; }
 done
 
-node - "$MANIFEST_IN" "$VERSION" "$MAC_NAME" "$WINDOWS_NAME" <<'NODE'
+QBANK_PUBLIC_DOMAIN="$PUBLIC_DOMAIN" node - "$MANIFEST_IN" "$VERSION" "$MAC_NAME" "$WINDOWS_NAME" <<'NODE'
 const fs = require('node:fs');
 const [manifestPath, version, macName, windowsName] = process.argv.slice(2);
 const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
 const mac = manifest.platforms?.['darwin-aarch64'];
 const windows = manifest.platforms?.['windows-x86_64'];
-const base = 'https://qbank.creart.top:8013/v1/desktop/releases';
+const base = `https://${process.env.QBANK_PUBLIC_DOMAIN}:8013/v1/desktop/releases`;
 if (manifest.version !== version || !mac || !windows) throw new Error('release manifest version or platform entries are invalid');
 if (mac.url !== `${base}/${macName}` || windows.url !== `${base}/windows/${version}/${windowsName}`) {
   throw new Error('release manifest points outside the expected versioned asset paths');
@@ -132,12 +135,12 @@ if command -v curl >/dev/null 2>&1; then
     # The proxy variables in /etc/qbank-release-puller.env are exported for the
     # GitHub download only. This loopback health check must bypass them, or curl
     # sends the request to the proxy and the TLS handshake fails.
-    if curl --noproxy '*' --fail --silent --show-error --resolve qbank.creart.top:8443:127.0.0.1 \
-      https://qbank.creart.top:8443/v1/desktop/latest.json -o /tmp/qbank-desktop-update-check.json \
-      && curl --noproxy '*' --fail --silent --show-error --head --resolve qbank.creart.top:8443:127.0.0.1 \
-        "https://qbank.creart.top:8443/v1/desktop/releases/$MAC_NAME" >/dev/null \
-      && curl --noproxy '*' --fail --silent --show-error --head --resolve qbank.creart.top:8443:127.0.0.1 \
-        "https://qbank.creart.top:8443/v1/desktop/releases/windows/$VERSION/$WINDOWS_NAME" >/dev/null; then
+    if curl --noproxy '*' --fail --silent --show-error --resolve "$PUBLIC_DOMAIN:8443:127.0.0.1" \
+      "https://$PUBLIC_DOMAIN:8443/v1/desktop/latest.json" -o /tmp/qbank-desktop-update-check.json \
+      && curl --noproxy '*' --fail --silent --show-error --head --resolve "$PUBLIC_DOMAIN:8443:127.0.0.1" \
+        "https://$PUBLIC_DOMAIN:8443/v1/desktop/releases/$MAC_NAME" >/dev/null \
+      && curl --noproxy '*' --fail --silent --show-error --head --resolve "$PUBLIC_DOMAIN:8443:127.0.0.1" \
+        "https://$PUBLIC_DOMAIN:8443/v1/desktop/releases/windows/$VERSION/$WINDOWS_NAME" >/dev/null; then
       verified=1
       break
     fi

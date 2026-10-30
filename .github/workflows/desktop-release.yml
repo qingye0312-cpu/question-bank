@@ -39,7 +39,7 @@ jobs:
 
       - name: Build macOS app, DMG, and signed updater archive
         env:
-          QBANK_UPDATER_ENDPOINT: https://qbank.creart.top:8013/v1/desktop/latest.json
+          QBANK_UPDATER_ENDPOINT: https://qbank.acharrystar.top:8013/v1/desktop/latest.json
           QBANK_UPDATER_PUBLIC_KEY: ${{ vars.QBANK_UPDATER_PUBLIC_KEY }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -210,7 +210,7 @@ jobs:
 
       - name: Build signed NSIS installer and updater archive
         env:
-          QBANK_UPDATER_ENDPOINT: https://qbank.creart.top:8013/v1/desktop/latest.json
+          QBANK_UPDATER_ENDPOINT: https://qbank.acharrystar.top:8013/v1/desktop/latest.json
           QBANK_UPDATER_PUBLIC_KEY: ${{ vars.QBANK_UPDATER_PUBLIC_KEY }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}

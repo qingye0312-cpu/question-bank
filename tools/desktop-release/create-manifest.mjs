@@ -20,7 +20,7 @@ const [macSignature, windowsSignature] = await Promise.all([
   readSignature(macName),
   readSignature(windowsName),
 ]);
-const base = 'https://qbank.creart.top:8013/v1/desktop/releases';
+const base = 'https://qbank.acharrystar.top:8013/v1/desktop/releases';
 const manifest = {
   version,
   notes: `题库 ${version} 桌面版更新。Windows 便携版用于手动下载；自动更新请安装 NSIS 安装版。`,

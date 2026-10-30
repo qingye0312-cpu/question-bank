@@ -16,11 +16,11 @@ const CHUNK_BYTES = 16 * 1024;
 const MAX_ACTIVE_PEERS = Number(process.env.QBANK_FASTDOWNLOAD_MAX_PEERS || 2);
 const bindHost = process.env.QBANK_FASTDOWNLOAD_BIND_HOST || '127.0.0.1';
 const port = Number(process.env.QBANK_FASTDOWNLOAD_PORT || 8090);
-const caddyHost = process.env.QBANK_FASTDOWNLOAD_CADDY_HOST || 'qbank.creart.top';
+const caddyHost = process.env.QBANK_FASTDOWNLOAD_CADDY_HOST || 'qbank.acharrystar.top';
 const caddyPort = Number(process.env.QBANK_FASTDOWNLOAD_CADDY_PORT || 8443);
 const stunUrls = (process.env.QBANK_FASTDOWNLOAD_STUN_URLS || 'stun:stun.cloudflare.com:3478')
   .split(',').map(value => value.trim()).filter(Boolean);
-const allowedOrigins = new Set((process.env.QBANK_FASTDOWNLOAD_ALLOWED_ORIGINS || 'https://qbank.creart.top:8013')
+const allowedOrigins = new Set((process.env.QBANK_FASTDOWNLOAD_ALLOWED_ORIGINS || 'https://qbank.acharrystar.top:8013')
   .split(',').map(value => value.trim()).filter(Boolean));
 
 const artifacts = {

@@ -2,7 +2,7 @@ import https from 'node:https';
 
 // A read-only probe. Test both TLS versions with normal certificate/hostname
 // verification; a successful browser request alone does not cover TLS 1.2.
-const target = new URL(process.argv[2] || 'https://qbank.creart.top:8013');
+const target = new URL(process.argv[2] || 'https://qbank.acharrystar.top:8013');
 if (target.protocol !== 'https:' || target.username || target.password || target.pathname !== '/' || target.search || target.hash) {
   throw new Error('Provide an HTTPS origin without credentials, path, query or fragment');
 }

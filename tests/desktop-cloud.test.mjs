@@ -34,14 +34,14 @@ function client(invoke, state=new Map(), storage=new Map(), initialOrigin='https
  if(initialOrigin)module.exports.setCloudOrigin(initialOrigin);return module.exports;
 }
 
-test('desktop discovers absent cloud banks over the default IP and reuses catalog manifests without downloading unchanged banks',async()=>{
+test('desktop discovers absent cloud banks over the default domain and reuses catalog manifests without downloading unchanged banks',async()=>{
  const second='c86104f7-4570-4089-9338-7989ce528a9d',calls=[],saved=[],versions=[];let offline=false;
  const text=JSON.stringify({...JSON.parse(payload),bank_id:second,name:'高级题库'}),packed=packText(text);
  const next={...manifest,bank_id:second,name:'高级题库',bytes:Buffer.byteLength(text),sha256:packed.sha256};
  const c=client(async(command,args)=>{
   if(command==='cloud_versions')return versions;
   if(command==='cloud_apply'){saved.push(args);const snapshot=JSON.parse(args.payload);versions.push({bank_id:snapshot.bank_id,revision:snapshot.revision,sha256:args.sha256});return;}
-  assert.equal(command,'cloud_request');assert.equal(args.origin,'https://8.141.124.97:8013');calls.push(args.path);
+  assert.equal(command,'cloud_request');assert.equal(args.origin,'https://qbank.acharrystar.top:8013');calls.push(args.path);
   if(offline)throw Error('NETWORK: offline');
   return {status:200,body:args.path==='/v1/catalog'?{banks:[manifest,next]}:args.path.includes(second)?packed:wrapper};
  },new Map(),new Map(),null);

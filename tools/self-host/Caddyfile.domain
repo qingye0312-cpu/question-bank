@@ -1,9 +1,5 @@
-# Install only after the public domain certificate and key are in place.
-# Import this file from /etc/caddy/Caddyfile alongside the existing IP site.
 # Public :8013 -> FRP -> sslh :8444 -> this Caddy listener :8443.
-https://qbank.creart.top:8443 {
-	bind 127.0.0.1
-	tls /etc/caddy/certs/qbank.creart.top/current/fullchain.pem /etc/caddy/certs/qbank.creart.top/current/key.pem
+(qbank-routes) {
 	handle /download* {
 		root * /var/lib/qbank-desktop-updates/site
 		rewrite * /index.html
@@ -37,4 +33,10 @@ https://qbank.creart.top:8443 {
 		file_server
 	}
 	reverse_proxy 127.0.0.1:8080
+}
+
+https://qbank.acharrystar.top:8443 {
+	bind 127.0.0.1
+	tls /etc/caddy/certs/qbank.acharrystar.top/current/fullchain.pem /etc/caddy/certs/qbank.acharrystar.top/current/key.pem
+	import qbank-routes
 }

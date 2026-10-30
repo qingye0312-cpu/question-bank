@@ -6,11 +6,13 @@ umask 077
 
 [ "$(id -u)" -eq 0 ] || { echo 'Run as root.' >&2; exit 1; }
 [ "$#" -eq 2 ] || { echo 'Usage: install-domain-certificate.sh fullchain.pem privkey.pem' >&2; exit 1; }
-domain=qbank.creart.top
+domain="${QBANK_DOMAIN:-qbank.acharrystar.top}"
 cert_root=/etc/caddy/certs/$domain
 chain=$1
 key=$2
 
+printf '%s' "$domain" | grep -Eq '^[A-Za-z0-9.-]+$' \
+  || { echo 'Invalid domain.' >&2; exit 1; }
 exec 9>/run/qbank-certificate-install.lock
 flock -n 9 || { echo 'Another certificate installation is running.' >&2; exit 1; }
 openssl x509 -in "$chain" -noout -checkend 86400 >/dev/null

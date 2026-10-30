@@ -2,8 +2,8 @@
 set -eu
 
 ARCHIVE="${QBANK_FASTDOWNLOAD_ARCHIVE:-/tmp/qbank-fastdownload-0.1.0.tar.gz}"
-CADDY_HOST="${QBANK_FASTDOWNLOAD_HOSTNAME:-qbank.creart.top}"
-PUBLIC_ORIGIN="${QBANK_FASTDOWNLOAD_PUBLIC_ORIGIN:-https://qbank.creart.top:8013}"
+CADDY_HOST="${QBANK_FASTDOWNLOAD_HOSTNAME:-qbank.acharrystar.top}"
+PUBLIC_ORIGIN="${QBANK_FASTDOWNLOAD_PUBLIC_ORIGIN:-https://qbank.acharrystar.top:8013}"
 STUN_URLS="${QBANK_FASTDOWNLOAD_STUN_URLS:-stun:stun.cloudflare.com:3478}"
 RELEASE_ROOT=/opt/qbank-fastdownload/releases
 CURRENT=/opt/qbank-fastdownload/current

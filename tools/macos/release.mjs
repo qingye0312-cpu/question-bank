@@ -10,7 +10,7 @@ const releaseDir = path.join(root, 'artifacts/macos', version);
 const keyPath = path.join(root, '.local/macos-updater.key');
 const passwordPath = path.join(root, '.local/macos-updater.password');
 const publicKeyPath = `${keyPath}.pub`;
-const endpoint = 'https://qbank.creart.top:8013/v1/desktop/latest.json';
+const endpoint = 'https://qbank.acharrystar.top:8013/v1/desktop/latest.json';
 const assetName = `qbank-macos-arm64-${version}.app.tar.gz`;
 
 function run(command, args, options = {}) {
