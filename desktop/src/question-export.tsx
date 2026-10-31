@@ -1,5 +1,6 @@
 import {useEffect, useRef, useState} from 'react';
 import type {KeyboardEvent} from 'react';
+import {invoke} from '@tauri-apps/api/core';
 import {ArrowRight, ChevronDown, Download, FileText, X} from 'lucide-react';
 import {DateTimePicker} from './date-time-picker';
 import {calendarDate, localDateTime, moveCalendarDate} from './date-time';
@@ -29,11 +30,20 @@ export function QuestionExport({banks, defaultBankId, busy, onClose, onExport}: 
   const [revisionOperations, setRevisionOperations] = useState<Awaited<ReturnType<typeof loadCloudOperations>> | null>(null);
   const [selectedRevisions, setSelectedRevisions] = useState<number[]>([]);
   const [revisionLoading, setRevisionLoading] = useState(false);
+  const [rangeCount, setRangeCount] = useState<number | null>(null);
+  const [rangeCountLoading, setRangeCountLoading] = useState(false);
+  const [rangeCountError, setRangeCountError] = useState('');
   const panel = useRef<HTMLElement>(null);
   const continueButton = useRef<HTMLButtonElement>(null);
   const cancelConfirmation = useRef<HTMLButtonElement>(null);
   const selected = banks.find(bank => bank.id === bankId);
   const selectedRevisionCount = revisionOperations ? revisionQuestionIds(revisionOperations, selectedRevisions).length : 0;
+
+  function timeRangeArgs() {
+    const from = localDateTime(start.date, start.time), through = localDateTime(end.date, end.time);
+    if (!from || !through || from > through) return null;
+    return {startAt: from.toISOString(), endBefore: new Date(through.getTime() + 60_000).toISOString()};
+  }
 
   useEffect(() => {
     if (!banks.some(bank => bank.id === bankId)) {
@@ -70,6 +80,34 @@ export function QuestionExport({banks, defaultBankId, busy, onClose, onExport}: 
   }, [scope, bankId, selected?.read_only]);
 
   useEffect(() => {
+    if (scope !== 'range' || !selected) {
+      setRangeCount(null);
+      setRangeCountLoading(false);
+      setRangeCountError('');
+      return;
+    }
+    const bounds = timeRangeArgs();
+    if (!bounds) {
+      setRangeCount(null);
+      setRangeCountLoading(false);
+      setRangeCountError('');
+      return;
+    }
+    let active = true;
+    setRangeCountLoading(true);
+    setRangeCountError('');
+    void invoke<number>('count_recorded_questions', {bankId, ...bounds}).then(count => {
+      if (active) setRangeCount(count);
+    }).catch(error => {
+      if (active) {
+        setRangeCount(null);
+        setRangeCountError(error instanceof Error ? error.message : '当前范围的题数暂时无法统计');
+      }
+    }).finally(() => {if (active) setRangeCountLoading(false);});
+    return () => {active = false;};
+  }, [scope, bankId, start.date, start.time, end.date, end.time, selected?.id]);
+
+  useEffect(() => {
     const previous = document.activeElement;
     panel.current?.querySelector('select')?.focus({preventScroll: true});
     return () => {if (previous instanceof HTMLElement && previous.isConnected) previous.focus({preventScroll: true});};
@@ -83,9 +121,7 @@ export function QuestionExport({banks, defaultBankId, busy, onClose, onExport}: 
       if (!selected.read_only) {setValidation('按修订版本导出仅支持云端题库。'); return;}
       if (!selectedRevisions.length) {setValidation('请至少选择一个修订版本。'); return;}
     } else if (scope === 'range') {
-      const from = localDateTime(start.date, start.time), through = localDateTime(end.date, end.time);
-      if (!from || !through) {setValidation('请完整选择有效的开始和结束时间。'); return;}
-      if (from > through) {setValidation('开始时间不能晚于结束时间。'); return;}
+      if (!timeRangeArgs()) {setValidation('请完整选择有效的开始和结束时间，且开始时间不能晚于结束时间。'); return;}
     }
     setConfirming(true);
   }
@@ -94,10 +130,9 @@ export function QuestionExport({banks, defaultBankId, busy, onClose, onExport}: 
     setConfirming(false);
     if (scope === 'revision') {onExport(bankId, null, null, selectedRevisions); return;}
     if (scope === 'all') {onExport(bankId, null, null, []); return;}
-    const from = localDateTime(start.date, start.time), through = localDateTime(end.date, end.time);
-    if (!from || !through || from > through) return;
-    // Include the entire selected end minute; the backend uses a half-open interval.
-    onExport(bankId, from.toISOString(), new Date(through.getTime() + 60_000).toISOString(), []);
+    const bounds = timeRangeArgs();
+    if (!bounds) return;
+    onExport(bankId, bounds.startAt, bounds.endBefore, []);
   }
   function cancelReview() {
     setConfirming(false);
@@ -181,6 +216,9 @@ export function QuestionExport({banks, defaultBankId, busy, onClose, onExport}: 
                 <DateTimePicker label="结束时间" value={end} disabled={busy} onChange={value => {setEnd(value); setValidation('');}}/>
               </div>
               <p className="question-export-range-note">包含起止分钟；没有录入时间的题目不计入此范围。</p>
+              <div className="question-export-range-summary" aria-live="polite">
+                {rangeCountLoading ? <p>正在统计当前范围的题数…</p> : rangeCountError ? <p>当前范围的题数暂时无法统计</p> : <><strong>{(rangeCount || 0).toLocaleString()}<span>题</span></strong><p>当前时间范围导出总题数</p></>}
+              </div>
             </div>}
           </div>
           {validation && <p className="question-export-error" role="alert">{validation}</p>}
