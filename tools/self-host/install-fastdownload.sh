@@ -111,6 +111,10 @@ rollback() {
   rm -rf -- "$release"
 }
 
+if grep -q 'fastdowmload' "$DOMAIN_CONFIG"; then
+  sed 's#/fastdowmload#/fastdownload#g' "$DOMAIN_CONFIG" > "$TEMP"
+  cat "$TEMP" > "$DOMAIN_CONFIG"
+fi
 if ! grep -q 'handle /fastdownload/api\*' "$DOMAIN_CONFIG"; then
   awk '
     /^[[:space:]]*handle_path \/v1\/desktop\/releases\/\*/ && !inserted {
@@ -130,6 +134,11 @@ if ! grep -q 'handle /fastdownload/api\*' "$DOMAIN_CONFIG"; then
     END { if (!inserted) exit 1 }
   ' "$DOMAIN_CONFIG" > "$TEMP" || { echo 'could not add the isolated /fastdownload routes' >&2; exit 1; }
   cat "$TEMP" > "$DOMAIN_CONFIG"
+fi
+if grep -q 'fastdowmload' "$DOMAIN_CONFIG"; then
+  echo 'legacy fastdowmload route remains in the Caddy configuration' >&2
+  rollback
+  exit 1
 fi
 
 install -o root -g root -m 0755 "$release/service/qbank-fastdownload.initd" "$SERVICE_INITD"
