@@ -476,6 +476,23 @@ test('returning from intake reloads a changed local cache and refreshes the clou
  assert.ok(refreshModes.includes(true));
  assert.equal(page.cacheGenerationSeen,1);
 });
+test('the header refresh action purges cloud caches and force reloads every bank',async()=>{
+ let manifests=[cloudManifest],purges=0,reloads=0,forcedRefresh=false;
+ const page=await loadPage('pages/index/index.ts',{},core,{
+  bank:{loadBank:async()=>({bank:bank(),manifest}),listBanks:async()=>[{id:manifest.bank_id,name:manifest.name}],
+    activeBankId:()=>manifest.bank_id,selectBank:()=>{},invalidateBank:()=>{},bankCacheGeneration:()=>0},
+  sync:{cloudCatalog:()=>manifests,purgeCloudCache:async()=>{purges++;manifests=[];return 3},
+    refreshCatalog:async force=>{forcedRefresh=force;manifests=[cloudManifest];return manifests},
+    reloadBank:async()=>{reloads++;return true},syncBank:async()=>false},
+ });
+ page.layout=new core.VirtualList(0);await page.initialize();await page.syncCloud(false,true,true);
+ assert.equal(purges,1);
+ assert.equal(reloads,1);
+ assert.equal(forcedRefresh,true);
+ assert.match(page.data.syncNotice,/已删除旧缓存并重新下载 1 个云端题库/);
+ const markup=await readFile(new URL('pages/index/index.wxml',base),'utf8');
+ assert.ok(markup.indexOf('bindtap="onForceRefresh"')<markup.indexOf('bindtap="onSharePage"'));
+});
 test('first cloud-only launch selects and opens the first downloaded cloud bank',async()=>{
  const cloudBank='c86104f7-4570-4089-9338-7989ce528a9d';let discovered=false,cached=false,selected='';
  const page=await loadPage('pages/index/index.ts',{},core,{

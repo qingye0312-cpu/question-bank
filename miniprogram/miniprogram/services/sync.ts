@@ -12,6 +12,9 @@ const read=(filePath:string)=>new Promise<string>((resolve,reject)=>wx.getFileSy
 function remove(filePath:string):Promise<void>{
  return new Promise(resolve=>wx.getFileSystemManager().unlink({filePath,success:()=>resolve(),fail:()=>resolve()}));
 }
+function removeRequired(filePath:string):Promise<void>{
+ return new Promise((resolve,reject)=>wx.getFileSystemManager().unlink({filePath,success:()=>resolve(),fail:reject}));
+}
 function copy(from:string,to:string):Promise<void>{
  return new Promise((resolve,reject)=>wx.getFileSystemManager().copyFile({srcPath:from,destPath:to,success:()=>resolve(),fail:reject}));
 }
@@ -87,6 +90,20 @@ export function refreshCatalog(force=false):Promise<CloudManifest[]>{
   await write(`${wx.env.USER_DATA_PATH}/qbank-cloud-catalog.json`,next);
   catalog=next;catalogGeneration=generation;catalogOrigin=origin;return catalog;
  })();catalogRequest=task;void task.finally(()=>{if(catalogRequest===task)catalogRequest=undefined;}).catch(()=>{});return task;
+}
+function resetCatalogCache(){catalog=[];catalogGeneration=-1;catalogOrigin='';catalogRequest=undefined;restoring=undefined;}
+export async function purgeCloudCache():Promise<number>{
+ await Promise.allSettled([...inflight.values(),...(catalogRequest?[catalogRequest]:[])]);
+ let names:string[];
+ try{names=await new Promise<string[]>((resolve,reject)=>wx.getFileSystemManager().readdir({dirPath:wx.env.USER_DATA_PATH,success:r=>resolve(r.files),fail:reject}));}
+ catch{resetCatalogCache();return 0;}
+ let removed=0;
+ for(const name of names){
+  if(!/^qbank-cloud-(?:catalog|[0-9a-f-]{36})\.json(?:\.(?:bak|tmp))?$/.test(name))continue;
+  await removeRequired(`${wx.env.USER_DATA_PATH}/${name}`);removed++;
+ }
+ resetCatalogCache();
+ return removed;
 }
 async function downloadBank(id:string,advertised:CloudManifest|undefined,force:boolean):Promise<boolean>{
   const manifest=readManifest(advertised||await request(`/v1/banks/${id}/manifest`));if(manifest.bank_id!==id)throw Error('题库身份不符');

@@ -1,7 +1,7 @@
 import {themePageData,showPageTheme,hidePageTheme} from '../../services/appearance';
 import {LocalBank, VirtualList, Segment, queryTerms, snippet, answerText, typeNames} from '../../core/search';
 import {loadBank,listBanks,activeBankId,selectBank,invalidateBank,bankCacheGeneration,type BankSummary} from '../../services/bank';
-import {cloudCatalog,refreshCatalog,syncBank} from '../../services/sync';
+import {cloudCatalog,purgeCloudCache,refreshCatalog,reloadBank,syncBank} from '../../services/sync';
 import {foregroundGeneration} from '../../services/foreground';
 import {APP_VERSION} from '../../generated/client-assets';
 
@@ -42,7 +42,7 @@ Page({
   data: {
     ...themePageData(),
     query: '', bankName: '正在打开题库', version: 1, total: 0, count: 0,
-    syncNotice:'',syncing:false,ready: false, loading: true, error: '', rows: [] as Row[],
+    syncNotice:'',syncing:false,forceRefreshing:false,ready: false, loading: true, error: '', rows: [] as Row[],
     before: 0, after: 0, scrollTop: 0, headerCollapsed: false,
     appVersion:APP_VERSION,bankId:'',banks:[] as BankSummary[],bankIndex:0,bankLabel:'云端题库',
   },
@@ -124,10 +124,17 @@ Page({
       if (this.alive&&epoch===this.loadEpoch) this.setData({loading: false, error: error instanceof Error ? error.message : '题库加载失败，请重试'});
     }
   },
-  async syncCloud(catalogRefreshAttempted=false,force=false){
+  async syncCloud(catalogRefreshAttempted=false,force=false,replaceCache=false){
     if(this.data.syncing||!this.alive)return;this.setData({syncing:true});let id=this.data.bankId;
     try{
-      if(!catalogRefreshAttempted)await refreshCatalog(force);
+      if(replaceCache){
+        this.setData({forceRefreshing:true,syncNotice:'正在删除本地云端题库缓存…'});
+        const cachedIds=[...new Set(this.data.banks.map(bank=>bank.id))];
+        await purgeCloudCache();
+        for(const cachedId of cachedIds)invalidateBank(cachedId);
+        this.setData({syncNotice:'本地缓存已删除，正在下载最新题库…'});
+      }
+      if(!catalogRefreshAttempted)await refreshCatalog(force||replaceCache);
       if(!this.alive)return;
       // Publish the directory independently of the selected bank's download.
       const banks=await listBanks(),preferred=id||activeBankId();
@@ -142,7 +149,7 @@ Page({
         if(!this.alive)return;
         this.setData({syncNotice:`正在同步 ${manifest.name} · 共 ${manifests.length} 个云端题库`});
         try{
-          const changed=await syncBank(manifest.bank_id,manifest);
+          const changed=replaceCache?await reloadBank(manifest.bank_id,manifest):await syncBank(manifest.bank_id,manifest);
           if(changed)invalidateBank(manifest.bank_id);
           if(!this.alive)return;
           if(this.data.bankId===manifest.bank_id&&(changed||!this.data.ready))await this.initialize(manifest.bank_id);
@@ -150,11 +157,13 @@ Page({
       }
       if(!this.alive)return;
       this.setData({syncNotice:failures.length?`${failures.length} 个题库同步未完成 · ${failures[0]}`
+        :replaceCache?`已删除旧缓存并重新下载 ${manifests.length} 个云端题库`
         :`云端 ${manifests.length} 个题库 · 版本已核对，已缓存可离线使用`});
-    }catch(e){if(this.alive)this.setData({syncNotice:e instanceof Error?e.message:'同步暂未完成，已有缓存仍可使用'});}
-    finally{if(this.alive){this.setData({syncing:false});if(this.data.bankId!==id)void this.syncCloud();}}
+    }catch(e){if(this.alive)this.setData({syncNotice:e instanceof Error?e.message:replaceCache?'刷新未完成，请联网后重新点击刷新':'同步暂未完成，已有缓存仍可使用'});}
+    finally{if(this.alive){this.setData({syncing:false,forceRefreshing:false});if(this.data.bankId!==id)void this.syncCloud();}}
   },
   onSync(){void this.syncCloud(false,true);},
+  onForceRefresh(){void this.syncCloud(false,true,true);},
   measureViewport() {
     if (!this.alive) return;
     wx.createSelectorQuery().in(this).select('.results').boundingClientRect(rect => {

@@ -148,3 +148,16 @@ test('an explicit reload waits for an older in-flight sync before downloading th
  assert.equal(await forced,true);
  assert.equal(s.calls.filter(path=>path.endsWith('/snapshot-file')).length,2);
 });
+
+test('purging removes cloud catalogue and snapshot caches without touching unrelated local files',async()=>{
+ const s=setup(),c=s.client;await c.refreshCatalog();
+ for(const manifest of c.cloudCatalog())await c.syncBank(manifest.bank_id,manifest);
+ s.files.set('/user/qbank-intake-v1.json','local-user-data');
+ const removed=await c.purgeCloudCache();
+ assert.equal(removed,3);
+ assert.equal(c.cloudCatalog().length,0);
+ assert.equal([...s.files.keys()].some(path=>/qbank-cloud-(?:catalog|[0-9a-f-]{36})/.test(path)),false);
+ assert.equal(s.files.get('/user/qbank-intake-v1.json'),'local-user-data');
+ await c.refreshCatalog(true);
+ assert.equal(c.cloudCatalog().length,2);
+});
