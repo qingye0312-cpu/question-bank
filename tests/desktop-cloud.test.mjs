@@ -9,7 +9,7 @@ import * as queue from '../desktop/shared/queue.ts';
 import {randomUUID} from 'node:crypto';
 import * as sync from '../desktop/shared/sync.ts';
 import {packText} from '../desktop/shared/codec.ts';
-import {selectRevisionQuestions} from '../desktop/src/cloud/revision-export.ts';
+import {revisionQuestionIds,selectRevisionQuestions} from '../desktop/src/cloud/revision-export.ts';
 
 const bank='ad50971f-66af-51c2-bb0e-dc798b03b369';
 const payload=JSON.stringify({format:'qbank-snapshot-2',bank_id:bank,name:'测试库',revision:1,release_version:1,updated_at:'2026-10-17T00:00:00Z',formal:[],pending:[],removed:[]});
@@ -175,6 +175,7 @@ test('revision export skips questions that were deleted after the selected revis
   {revision:11,questions:[{question_id:'a',action:'added'},{question_id:'b',action:'added'}]},
   {revision:12,questions:[{question_id:'a',action:'revised'},{question_id:'c',action:'removed'}]},
  ]};
+ assert.deepEqual(revisionQuestionIds(operations,[11,12]).sort(),['a','b','c']);
  const selected=selectRevisionQuestions(operations,[11,12],[{question_id:'a'}]);
  assert.deepEqual(selected.questions,[{question_id:'a'}]);
  assert.equal(selected.skipped,2);

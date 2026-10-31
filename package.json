@@ -28,7 +28,7 @@
     "test:fastdownload": "node --test tools/self-host/fastdownload-server/test/*.test.mjs",
     "test:release-puller": "node --test tests/release-puller.test.mjs",
     "self-host:fastdownload-deploy": "sh tools/self-host/deploy-fastdownload.sh",
-    "test:self-host": "pnpm build:self-host && node --test tests/self-host.test.mjs tests/cloud-auth.test.mjs tests/cloud-workflow.test.mjs tests/password-maintainer.test.mjs",
+    "test:self-host": "pnpm build:self-host && node --test tests/self-host.test.mjs tests/self-host-quality-repair.test.mjs tests/cloud-auth.test.mjs tests/cloud-workflow.test.mjs tests/password-maintainer.test.mjs",
     "self-host:deploy": "pnpm release:self-host && sh tools/self-host/deploy-alpine.sh"
   },
   "dependencies": {

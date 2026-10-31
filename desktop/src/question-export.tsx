@@ -4,6 +4,7 @@ import {ArrowRight, ChevronDown, Download, FileText, X} from 'lucide-react';
 import {DateTimePicker} from './date-time-picker';
 import {calendarDate, localDateTime, moveCalendarDate} from './date-time';
 import {loadCloudOperations} from './cloud-client';
+import {revisionQuestionIds} from './cloud/revision-export';
 import type {Bank} from './types';
 import './question-export.css';
 
@@ -25,14 +26,14 @@ export function QuestionExport({banks, defaultBankId, busy, onClose, onExport}: 
   const [confirming, setConfirming] = useState(false);
   const [validation, setValidation] = useState('');
   const [revisions, setRevisions] = useState<Revision[]>([]);
+  const [revisionOperations, setRevisionOperations] = useState<Awaited<ReturnType<typeof loadCloudOperations>> | null>(null);
   const [selectedRevisions, setSelectedRevisions] = useState<number[]>([]);
   const [revisionLoading, setRevisionLoading] = useState(false);
   const panel = useRef<HTMLElement>(null);
   const continueButton = useRef<HTMLButtonElement>(null);
   const cancelConfirmation = useRef<HTMLButtonElement>(null);
   const selected = banks.find(bank => bank.id === bankId);
-  const selectedRevisionRows = revisions.filter(row => selectedRevisions.includes(row.revision));
-  const selectedRevisionCount = selectedRevisionRows.reduce((total, row) => total + (row.changed_count ?? row.added_count ?? 0), 0);
+  const selectedRevisionCount = revisionOperations ? revisionQuestionIds(revisionOperations, selectedRevisions).length : 0;
 
   useEffect(() => {
     if (!banks.some(bank => bank.id === bankId)) {
@@ -46,19 +47,24 @@ export function QuestionExport({banks, defaultBankId, busy, onClose, onExport}: 
     if (scope !== 'revision' || !selected?.read_only) {
       setRevisions([]);
       setSelectedRevisions([]);
+      setRevisionOperations(null);
       setRevisionLoading(false);
       return;
     }
     let active = true;
     setRevisionLoading(true);
+    setRevisions([]);
+    setSelectedRevisions([]);
+    setRevisionOperations(null);
     setValidation('');
     void loadCloudOperations(bankId).then(result => {
       if (!active) return;
       const rows = (Array.isArray(result.revisions) ? result.revisions.map(row => ({...row,added_count:row.added_count,changed_count:row.changed_count,has_revision_questions:row.changed_count>0,has_incremental_json:!!row.batch_id,uploader_real_name:row.uploader.real_name||null,uploader_nickname:row.uploader.nickname||null})) : []).sort((left, right) => right.revision - left.revision);
       setRevisions(rows);
+      setRevisionOperations(result);
       setSelectedRevisions([]);
     }).catch(error => {
-      if (active) setValidation(String(error));
+      if (active) {setRevisionOperations(null);setValidation(String(error));}
     }).finally(() => {if (active) setRevisionLoading(false);});
     return () => {active = false;};
   }, [scope, bankId, selected?.read_only]);
@@ -156,12 +162,12 @@ export function QuestionExport({banks, defaultBankId, busy, onClose, onExport}: 
               <p>导出所选题库的全部题目</p>
             </div> : scope === 'revision' ? <div className="question-export-revisions">
               {revisionLoading ? <p className="question-export-range-note">正在读取修订记录…</p> : !revisions.length ? <p className="question-export-range-note">当前题库暂无可用修订记录。</p> : <>
-                <div className="question-export-revision-table-wrap"><table className="question-export-revision-table"><thead><tr><th scope="col">选择</th><th scope="col">正式版</th><th scope="col">提交者</th><th scope="col">题目数量</th><th scope="col">提交时间</th></tr></thead><tbody>{revisions.map(row => {
+                <div className="question-export-revision-table-wrap"><table className="question-export-revision-table"><thead><tr><th scope="col">选择</th><th scope="col">正式版</th><th scope="col">提交者</th><th scope="col">本次变更</th><th scope="col">提交时间</th></tr></thead><tbody>{revisions.map(row => {
                   const added = row.added_count || 0, changed = row.changed_count ?? added, canSelect = !!(row.has_revision_questions ?? row.has_incremental_json) && changed > 0, checked = selectedRevisions.includes(row.revision);
                   const displayRevision = String(row.revision);
                   return <tr key={row.revision} className={!canSelect ? 'unavailable' : ''}><td><input type="checkbox" checked={checked} disabled={busy || !canSelect} aria-label={`选择修订 ${displayRevision}`} onChange={() => setSelectedRevisions(current => checked ? current.filter(value => value !== row.revision) : [...current, row.revision])}/></td><td>修订 {displayRevision} · {row.release_version_label || `v${row.release_version}`}</td><td>{displayUploader(row.uploader_real_name,row.uploader_nickname)}</td><td>{changed.toLocaleString()} 题</td><td>{new Date(row.updated_at).toLocaleString()}</td></tr>;
                 })}</tbody></table></div>
-                <p className="question-export-range-note">可多选有题目变更的修订；导出时从最新正式题库读取对应题目，已删除题目会自动跳过，回退也会生成独立修订记录。</p>
+                <p className="question-export-range-note">“本次变更”按各修订的变更记录统计；同一道题跨多个修订只导出一次，已删除题目自动跳过。</p>
               </>}
             </div> : <div className="question-export-range">
               <div className="question-export-range-toolbar">
@@ -191,7 +197,7 @@ export function QuestionExport({banks, defaultBankId, busy, onClose, onExport}: 
           <p id="question-export-confirm-copy">当前题库：<b>{selected?.name}</b><br/>{scope === 'all'
             ? `全部导出，共 ${selected?.count.toLocaleString()} 题。`
             : scope === 'revision'
-              ? `已选择 ${selectedRevisions.length} 个修订，共 ${selectedRevisionCount.toLocaleString()} 题。`
+              ? `已选择 ${selectedRevisions.length} 个修订，涉及 ${selectedRevisionCount.toLocaleString()} 道不同题目；已删除题目会自动跳过。`
               : `录入时间：${start.date} ${start.time} 至 ${end.date} ${end.time}。`}<br/>仅包含题目、选项、答案与解析。</p>
           <div className="question-export-confirm-actions"><button ref={cancelConfirmation} disabled={busy} onClick={cancelReview}>取消</button><button className="primary" disabled={busy} onClick={confirmExport}>确认导出</button></div>
         </section>
