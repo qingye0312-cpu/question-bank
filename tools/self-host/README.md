@@ -55,7 +55,7 @@ node tools/self-host/check-public-tls.mjs https://qbank.acharrystar.top:8013
 
 ## 快速下载
 
-快速下载页为 `https://qbank.acharrystar.top:8013/fastdowmload`。第一次协商时浏览器和服务端都禁用 TURN，只尝试点对点 WebRTC；只有直连失败后才会关闭该连接并重新通过 `qbank-frps` 上的 TURN-over-TCP 建立加密回退通道。
+快速下载页为 `https://qbank.acharrystar.top:8013/fastdownload`。第一次协商时浏览器和服务端都禁用 TURN，只尝试点对点 WebRTC；只有直连失败后才会关闭该连接并重新通过 `qbank-frps` 上的 TURN-over-TCP 建立加密回退通道。
 
 TURN 默认监听 `8004/tcp`，UDP relay 使用 `8005-8011`。服务端不保存固定客户端密码，而是用 `/etc/turnserver-auth.secret` 生成一小时内有效的 HMAC 凭据。共享密钥只存在于 root-only 的 `/etc/qbank-fastdownload` 和 coturn 配置中，不进入仓库。
 

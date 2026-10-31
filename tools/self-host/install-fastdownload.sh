@@ -62,16 +62,16 @@ fi
 
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 release="$RELEASE_ROOT/$stamp"
-mkdir -p "$release" "$SITE_ROOT/fastdowmload" /var/log
+mkdir -p "$release" "$SITE_ROOT/fastdownload" /var/log
 tar -xzf "$ARCHIVE" -C "$release"
 [ -s "$release/server/server.mjs" ] || { echo 'package is missing server/server.mjs' >&2; exit 1; }
 [ -s "$release/server/node_modules/werift/package.json" ] || { echo 'package is missing the pinned werift runtime' >&2; exit 1; }
-[ -s "$release/site/fastdowmload/index.html" ] || { echo 'package is missing the separate fastdownload page' >&2; exit 1; }
-[ -s "$release/site/fastdowmload/sha256-worker.js" ] || { echo 'package is missing the SHA-256 worker' >&2; exit 1; }
+[ -s "$release/site/fastdownload/index.html" ] || { echo 'package is missing the separate fastdownload page' >&2; exit 1; }
+[ -s "$release/site/fastdownload/sha256-worker.js" ] || { echo 'package is missing the SHA-256 worker' >&2; exit 1; }
 chmod -R a+rX "$release"
 
-install -o root -g caddy -m 0640 "$release/site/fastdowmload/index.html" "$SITE_ROOT/fastdowmload/index.html"
-install -o root -g caddy -m 0640 "$release/site/fastdowmload/sha256-worker.js" "$SITE_ROOT/fastdowmload/sha256-worker.js"
+install -o root -g caddy -m 0640 "$release/site/fastdownload/index.html" "$SITE_ROOT/fastdownload/index.html"
+install -o root -g caddy -m 0640 "$release/site/fastdownload/sha256-worker.js" "$SITE_ROOT/fastdownload/sha256-worker.js"
 
 OLD_TARGET=''
 if [ -L "$CURRENT" ]; then OLD_TARGET=$(readlink "$CURRENT"); fi
@@ -111,16 +111,16 @@ rollback() {
   rm -rf -- "$release"
 }
 
-if ! grep -q 'handle /fastdowmload/api\*' "$DOMAIN_CONFIG"; then
+if ! grep -q 'handle /fastdownload/api\*' "$DOMAIN_CONFIG"; then
   awk '
     /^[[:space:]]*handle_path \/v1\/desktop\/releases\/\*/ && !inserted {
-      print "\thandle /fastdowmload/api* {"
+      print "\thandle /fastdownload/api* {"
       print "\t\treverse_proxy 127.0.0.1:8090"
       print "\t}"
-      print "\thandle /fastdowmload* {"
+      print "\thandle /fastdownload* {"
       print "\t\troot * /var/lib/qbank-fastdownload/site"
-      print "\t\t@fastdownloadIndex path /fastdowmload /fastdowmload/"
-      print "\t\trewrite @fastdownloadIndex /fastdowmload/index.html"
+      print "\t\t@fastdownloadIndex path /fastdownload /fastdownload/"
+      print "\t\trewrite @fastdownloadIndex /fastdownload/index.html"
       print "\t\theader Cache-Control \"no-cache\""
       print "\t\tfile_server"
       print "\t}"
@@ -128,7 +128,7 @@ if ! grep -q 'handle /fastdowmload/api\*' "$DOMAIN_CONFIG"; then
     }
     { print }
     END { if (!inserted) exit 1 }
-  ' "$DOMAIN_CONFIG" > "$TEMP" || { echo 'could not add the isolated /fastdowmload routes' >&2; exit 1; }
+  ' "$DOMAIN_CONFIG" > "$TEMP" || { echo 'could not add the isolated /fastdownload routes' >&2; exit 1; }
   cat "$TEMP" > "$DOMAIN_CONFIG"
 fi
 
@@ -176,9 +176,9 @@ verified=no
 attempt=0
 while [ "$attempt" -lt 30 ]; do
   if curl --noproxy '*' --fail --silent --resolve "$CADDY_HOST:8443:127.0.0.1" \
-    "https://$CADDY_HOST:8443/fastdowmload" -o /tmp/qbank-fastdownload-page-check.html \
+    "https://$CADDY_HOST:8443/fastdownload" -o /tmp/qbank-fastdownload-page-check.html \
     && grep -q '快速下载实验' /tmp/qbank-fastdownload-page-check.html \
-    && curl --fail --silent http://127.0.0.1:8090/fastdowmload/api/config \
+    && curl --fail --silent http://127.0.0.1:8090/fastdownload/api/config \
       -H "Origin: $PUBLIC_ORIGIN" -o /tmp/qbank-fastdownload-config-check.json \
     && grep -q 'iceServers' /tmp/qbank-fastdownload-config-check.json; then
     verified=yes
@@ -189,9 +189,9 @@ while [ "$attempt" -lt 30 ]; do
 done
 if [ "$verified" != yes ]; then
   page_status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
-    --resolve "$CADDY_HOST:8443:127.0.0.1" "https://$CADDY_HOST:8443/fastdowmload" 2>&1 || true)
+    --resolve "$CADDY_HOST:8443:127.0.0.1" "https://$CADDY_HOST:8443/fastdownload" 2>&1 || true)
   api_status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
-    http://127.0.0.1:8090/fastdowmload/api/config \
+    http://127.0.0.1:8090/fastdownload/api/config \
     -H "Origin: $PUBLIC_ORIGIN" 2>&1 || true)
   echo "fastdownload diagnostics: page=$page_status api=$api_status"
   rc-service qbank-fastdownload status || true
@@ -208,5 +208,5 @@ for old_release in "$RELEASE_ROOT"/*; do
   rm -rf -- "$old_release"
 done
 
-echo "Experimental direct-download page installed at https://$CADDY_HOST:8013/fastdowmload"
+echo "Experimental direct-download page installed at https://$CADDY_HOST:8013/fastdownload"
 echo 'The existing /download page and its deployment script were not changed by this installer.'

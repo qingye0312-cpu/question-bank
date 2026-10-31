@@ -231,7 +231,7 @@
         await waitForGathering(peer, 12_000);
         if (!peer.localDescription?.sdp) throw new Error('无法生成 WebRTC 网络候选');
         statusNode.textContent = `${label}：正在通过 HTTPS 协商加密通道…`;
-        const response = await fetch('/fastdowmload/api/offer', {
+        const response = await fetch('/fastdownload/api/offer', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ artifact: key, offer: peer.localDescription, allowTurn }),
@@ -274,7 +274,7 @@
           writable = await handle.createWritable();
         }
 
-        worker = new Worker('/fastdowmload/sha256-worker.js', { type: 'module' });
+        worker = new Worker('/fastdownload/sha256-worker.js', { type: 'module' });
         const directIceServers = config.iceServers.filter(server => !isTurnServer(server));
         const relayConfigured = config.iceServers.some(isTurnServer);
         let routeLabel = '点对点直连';
@@ -419,7 +419,7 @@
           config.artifacts[key].sha256 = checksum;
         }
 
-        const configResponse = await fetch('/fastdowmload/api/config', { cache: 'no-store' });
+        const configResponse = await fetch('/fastdownload/api/config', { cache: 'no-store' });
         if (!configResponse.ok) throw new Error('直连服务暂不可用');
         const serverConfig = await configResponse.json();
         if (!Array.isArray(serverConfig.iceServers)) throw new Error('直连配置格式无效');

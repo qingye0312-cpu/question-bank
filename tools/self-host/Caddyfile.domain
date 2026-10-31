@@ -12,13 +12,13 @@
 		header Cache-Control "no-cache"
 		file_server
 	}
-	handle /fastdowmload/api* {
+	handle /fastdownload/api* {
 		reverse_proxy 127.0.0.1:8090
 	}
-	handle /fastdowmload* {
+	handle /fastdownload* {
 		root * /var/lib/qbank-fastdownload/site
-		@fastdownloadIndex path /fastdowmload /fastdowmload/
-		rewrite @fastdownloadIndex /fastdowmload/index.html
+		@fastdownloadIndex path /fastdownload /fastdownload/
+		rewrite @fastdownloadIndex /fastdownload/index.html
 		header Cache-Control "no-cache"
 		file_server
 	}

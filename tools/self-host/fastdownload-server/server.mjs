@@ -295,12 +295,12 @@ export function createFastDownloadServer({
   const server = http.createServer(async (req, res) => {
     const pathname = new URL(req.url || '/', 'http://127.0.0.1').pathname;
     if (req.method === 'GET' && pathname === '/health') return json(res, 200, { ok: true, activePeers: activePeers.size });
-    if (req.method === 'GET' && pathname === '/fastdowmload/api/config') {
+    if (req.method === 'GET' && pathname === '/fastdownload/api/config') {
       const origin = req.headers.origin;
       if (origin && !origins.has(origin)) return json(res, 403, { error: '来源不受支持' });
       return json(res, 200, { iceServers: createIceServers() });
     }
-    if (req.method !== 'POST' || pathname !== '/fastdowmload/api/offer') return json(res, 404, { error: 'Not found' });
+    if (req.method !== 'POST' || pathname !== '/fastdownload/api/offer') return json(res, 404, { error: 'Not found' });
     if (!origins.has(req.headers.origin)) return json(res, 403, { error: '来源不受支持' });
     if (activePeers.size >= MAX_ACTIVE_PEERS) return json(res, 503, { error: '当前直连人数较多，请稍后重试或使用普通下载' });
 

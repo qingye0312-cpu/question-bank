@@ -49,7 +49,7 @@ test('allowTurn false produces an answer without TURN relay candidates', async t
   client.createDataChannel('fastdownload', { ordered: true });
   await client.setLocalDescription(await client.createOffer());
   const address = serverInstance.server.address();
-  const response = await fetch(`http://127.0.0.1:${address.port}/fastdowmload/api/offer`, {
+  const response = await fetch(`http://127.0.0.1:${address.port}/fastdownload/api/offer`, {
     method: 'POST',
     headers: { origin: 'http://127.0.0.1', 'content-type': 'application/json' },
     body: JSON.stringify({ artifact: 'macos', offer: client.localDescription, allowTurn: false }),
@@ -126,7 +126,7 @@ test('the offer endpoint streams a package over a peer DataChannel with bounded 
 
   await client.setLocalDescription(await client.createOffer());
   const address = serverInstance.server.address();
-  const response = await fetch(`http://127.0.0.1:${address.port}/fastdowmload/api/offer`, {
+  const response = await fetch(`http://127.0.0.1:${address.port}/fastdownload/api/offer`, {
     method: 'POST',
     headers: { origin: 'http://127.0.0.1', 'content-type': 'application/json' },
     body: JSON.stringify({ artifact: 'macos', offer: client.localDescription }),
