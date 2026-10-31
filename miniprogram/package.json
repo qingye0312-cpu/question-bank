@@ -2,7 +2,7 @@
   "name": "question-bank-miniprogram",
   "private": true,
   "type": "module",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "description": "云端题库缓存、本地文字搜题",
   "scripts": {},
   "keywords": [],
