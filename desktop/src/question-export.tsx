@@ -5,7 +5,7 @@ import {ArrowRight, ChevronDown, Download, FileText, X} from 'lucide-react';
 import {DateTimePicker} from './date-time-picker';
 import {calendarDate, localDateTime, moveCalendarDate} from './date-time';
 import {loadCloudOperations} from './cloud-client';
-import {operationUploader,revisionQuestionIds} from './cloud/revision-export';
+import {operationUploader,revisionQuestionIds,revisionQuestionSummary} from './cloud/revision-export';
 import type {Bank} from './types';
 import './question-export.css';
 
@@ -38,6 +38,7 @@ export function QuestionExport({banks, defaultBankId, busy, onClose, onExport}: 
   const cancelConfirmation = useRef<HTMLButtonElement>(null);
   const selected = banks.find(bank => bank.id === bankId);
   const selectedRevisionCount = revisionOperations ? revisionQuestionIds(revisionOperations, selectedRevisions).length : 0;
+  const revisionSummary = revisionOperations ? revisionQuestionSummary(revisionOperations, selectedRevisions) : null;
 
   function timeRangeArgs() {
     const from = localDateTime(start.date, start.time), through = localDateTime(end.date, end.time);
@@ -197,12 +198,12 @@ export function QuestionExport({banks, defaultBankId, busy, onClose, onExport}: 
               <p>导出所选题库的全部题目</p>
             </div> : scope === 'revision' ? <div className="question-export-revisions">
               {revisionLoading ? <p className="question-export-range-note">正在读取修订记录…</p> : !revisions.length ? <p className="question-export-range-note">当前题库暂无可用修订记录。</p> : <>
-                <div className="question-export-revision-table-wrap"><table className="question-export-revision-table"><thead><tr><th scope="col">选择</th><th scope="col">正式版</th><th scope="col">操作人</th><th scope="col">本次变更</th><th scope="col">操作时间</th></tr></thead><tbody>{revisions.map(row => {
+                <div className="question-export-revision-table-wrap"><table className="question-export-revision-table"><thead><tr><th scope="col">选择</th><th scope="col">正式版</th><th scope="col">操作人</th><th scope="col">新增/修改</th><th scope="col">操作时间</th></tr></thead><tbody>{revisions.map(row => {
                   const added = row.added_count || 0, changed = row.changed_count ?? added, canSelect = changed > 0, checked = selectedRevisions.includes(row.revision);
                   const displayRevision = String(row.revision);
                   return <tr key={row.revision} className={!canSelect ? 'unavailable' : ''}><td><input type="checkbox" checked={checked} disabled={busy || !canSelect} aria-label={`选择修订 ${displayRevision}`} onChange={() => setSelectedRevisions(current => checked ? current.filter(value => value !== row.revision) : [...current, row.revision])}/></td><td>修订 {displayRevision} · {row.release_version_label || `v${row.release_version}`}</td><td>{displayUploader(row.uploader_real_name,row.uploader_nickname)}</td><td>{changed.toLocaleString()} 题</td><td>{new Date(row.updated_at).toLocaleString()}</td></tr>;
                 })}</tbody></table></div>
-                <aside className="question-export-revision-summary" aria-live="polite"><strong>{selectedRevisionCount.toLocaleString()}<span>题</span></strong><p>导出题目总数</p><small>按所选修订去重计算</small><p className="question-export-revision-note">“本次变更”按各修订的变更记录统计；同一道题跨多个修订只导出一次，已删除题目自动跳过。</p></aside>
+                <aside className="question-export-revision-summary" aria-live="polite"><strong>{revisionSummary ? revisionSummary.exportableCount.toLocaleString() : '—'}<span>题</span></strong><p>实际可导出题目</p><small>{revisionSummary ? `本次涉及 ${revisionSummary.touchedCount.toLocaleString()} 题，已删除跳过 ${revisionSummary.skippedCount.toLocaleString()} 题` : '正在统计当前正式版题目…'}</small><p className="question-export-revision-note">同一道题跨多个修订只导出一次；已删除题目不会写入文档。</p></aside>
               </>}
             </div> : <div className="question-export-range">
               <div className="question-export-range-toolbar">
@@ -235,7 +236,7 @@ export function QuestionExport({banks, defaultBankId, busy, onClose, onExport}: 
           <p id="question-export-confirm-copy">当前题库：<b>{selected?.name}</b><br/>{scope === 'all'
             ? `全部导出，共 ${selected?.count.toLocaleString()} 题。`
             : scope === 'revision'
-              ? `已选择 ${selectedRevisions.length} 个修订，涉及 ${selectedRevisionCount.toLocaleString()} 道不同题目；已删除题目会自动跳过。`
+              ? `已选择 ${selectedRevisions.length} 个修订，涉及 ${revisionSummary?.touchedCount.toLocaleString() || selectedRevisionCount.toLocaleString()} 道不同题目，可导出 ${revisionSummary?.exportableCount.toLocaleString() || '—'} 道；已删除题目会自动跳过。`
               : `录入时间：${start.date} ${start.time} 至 ${end.date} ${end.time}。`}<br/>仅包含题目、选项、答案与解析。</p>
           <div className="question-export-confirm-actions"><button ref={cancelConfirmation} disabled={busy} onClick={cancelReview}>取消</button><button className="primary" disabled={busy} onClick={confirmExport}>确认导出</button></div>
         </section>

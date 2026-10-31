@@ -17,6 +17,21 @@ export function revisionQuestionIds(operations: CloudOperationsFile, revisions: 
   return [...touched];
 }
 
+export function revisionQuestionSummary(
+  operations: CloudOperationsFile,
+  revisions: number[],
+) {
+  const touched = new Set(revisionQuestionIds(operations,revisions));
+  const current = new Set(Object.keys(operations.question_index));
+  let exportableCount = 0;
+  for (const questionId of touched) if (current.has(questionId)) exportableCount += 1;
+  return {
+    touchedCount: touched.size,
+    exportableCount,
+    skippedCount: touched.size - exportableCount,
+  };
+}
+
 export function selectRevisionQuestions(
   operations: CloudOperationsFile,
   revisions: number[],
