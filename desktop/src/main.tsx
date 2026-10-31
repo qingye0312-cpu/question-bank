@@ -32,6 +32,7 @@ import {OcrPanel} from './ocr-panel';
 import {looksLikeQuestion,readImage} from './ocr-client';
 import type {OcrInput} from './ocr-client';
 import {hasWordExportPermission} from '../shared/export-permission';
+import {selectRevisionQuestions} from './cloud/revision-export';
 
 const kinds:Record<string,string>={single:'单选',multiple:'多选',true_false:'判断',programming:'编程'};
 const blank=():Question=>({schema_version:'1.0',question_id:'',base_revision:1,type:'single',stem:'',options:['A','B','C','D'].map(key=>({key,content:''})),answer:[],external_id:'',bank:'',chapter:'',explanation:'',tags:[],difficulty:'',applicable_version:'',source_note:'',status:'unreviewed',issues:[],sources:[],attachments:[]});
@@ -95,14 +96,14 @@ function App(){
   const selectedBank=exportBanks.find(item=>item.id===targetBank);if(!selectedBank)throw Error('当前账号没有此题库的导出权限');
   if(selectedBank.read_only&&!canWordExport)throw Error('云端题库需要 Word 导出权限');
   if(revisions.length){
-   const operations=await loadCloudOperations(targetBank),ids=new Set(operations.revisions.filter(operation=>revisions.includes(operation.revision)).flatMap(operation=>operation.questions.filter(question=>question.action!=='removed').map(question=>question.question_id)));
-   const latest=await invoke<Question[]>('bank_questions',{bankId:targetBank}),questions=latest.filter(question=>ids.has(question.question_id)),expected=ids.size;
-   if(!questions.length||questions.length!==expected)throw Error('云端没有返回完整的所选修订变更题目');
+   const operations=await loadCloudOperations(targetBank),latest=await invoke<Question[]>('bank_questions',{bankId:targetBank});
+   const {questions,skipped}=selectRevisionQuestions(operations,revisions,latest);
+   if(!questions.length)throw Error('所选修订中的题目均已删除，没有可导出的题目');
    const now=new Date(),pad=(value:number)=>String(value).padStart(2,'0'),stamp=`${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
    const simpleBankName=selectedBank.name.replace(/[\\/:*?"<>|\u0000-\u001f]/g,'_').replace(/\s+/g,'_').replace(/^[_ .-]+|[_ .-]+$/g,'').slice(0,48)||'题库';
-   const path=await save({title:'导出修订变更题目',defaultPath:`${simpleBankName}_${stamp}_${expected}题_修订${revisions.join('-')}.docx`,filters:[{name:'Word 文档',extensions:['docx']}]});
+   const path=await save({title:'导出修订变更题目',defaultPath:`${simpleBankName}_${stamp}_${questions.length}题_修订${revisions.join('-')}.docx`,filters:[{name:'Word 文档',extensions:['docx']}]});
    if(!path)return;
-   const exported=await invoke<number>('export_remote_questions',{questions,path});setModal('');setNotice(`已导出 ${exported.toLocaleString()} 道题：${path}`);return;
+   const exported=await invoke<number>('export_remote_questions',{questions,path});setModal('');setNotice(`已导出 ${exported.toLocaleString()} 道题${skipped?`，已跳过 ${skipped.toLocaleString()} 道已删除题目`:''}：${path}`);return;
   }
   const count=await invoke<number>('count_recorded_questions',{bankId:targetBank,startAt,endBefore});
   if(!count)throw Error('所选范围内没有可导出的题目');

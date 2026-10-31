@@ -161,7 +161,7 @@ export function QuestionExport({banks, defaultBankId, busy, onClose, onExport}: 
                   const displayRevision = String(row.revision);
                   return <tr key={row.revision} className={!canSelect ? 'unavailable' : ''}><td><input type="checkbox" checked={checked} disabled={busy || !canSelect} aria-label={`选择修订 ${displayRevision}`} onChange={() => setSelectedRevisions(current => checked ? current.filter(value => value !== row.revision) : [...current, row.revision])}/></td><td>修订 {displayRevision} · {row.release_version_label || `v${row.release_version}`}</td><td>{displayUploader(row.uploader_real_name,row.uploader_nickname)}</td><td>{changed.toLocaleString()} 题</td><td>{new Date(row.updated_at).toLocaleString()}</td></tr>;
                 })}</tbody></table></div>
-                <p className="question-export-range-note">可多选有题目变更的修订；导出时从最新正式题库读取对应题目，回退也会生成独立修订记录。</p>
+                <p className="question-export-range-note">可多选有题目变更的修订；导出时从最新正式题库读取对应题目，已删除题目会自动跳过，回退也会生成独立修订记录。</p>
               </>}
             </div> : <div className="question-export-range">
               <div className="question-export-range-toolbar">

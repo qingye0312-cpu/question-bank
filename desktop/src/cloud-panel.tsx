@@ -6,6 +6,7 @@ import {cloudAccess,fetchCatalog,syncDesktop,loadCloudOperations,cloudMutation} 
 import type {CloudManifest,CloudOperationRevision,CloudOperationsFile} from '../shared/sync';
 import {hasPermission} from '../shared/export-permission';
 import type {Bank,Question} from './types';
+import {selectRevisionQuestions} from './cloud/revision-export';
 
 type Version={revision:number;formal_revision?:string;release_version:number;release_version_label?:string|null;updated_at:string;merged_at?:string|null;release_name?:string|null;release_id?:string|null;rollback_at?:string|null;rollback_of?:number|null;rollback_to_release_version_label?:string|null;merge_count:number;batch_id?:string|null;question_count?:number;added_count?:number;changed_count?:number;revised_count?:number;has_incremental_json?:boolean;has_revision_questions?:boolean;uploader_account_id?:string|null;uploader_real_name?:string|null;uploader_nickname?:string|null;uploader_auth_type?:'password'|'key'|null};
 type Operation=Version&{kind:'seed'|'merge'|'rollback'|'state';duplicate_count?:number|null};
@@ -31,16 +32,16 @@ export function CloudPanel({banks,onChanged,onClose,onBusy,embedded=false}:{bank
  const exportRevision=async(v:Version)=>{await task(async()=>{
   const operations=await loadCloudOperations(selected,selectedBank),operation=operations.revisions.find(item=>item.revision===v.revision),ids=new Set((operation?.questions||[]).filter(item=>item.action!=='removed').map(item=>item.question_id));
   if(!ids.size)throw Error('此修订没有可导出的题目变更');
-  const latest=await invoke<Question[]>('bank_questions',{bankId:selected}),questions=latest.filter(question=>ids.has(question.question_id));
-  if(questions.length!==ids.size)throw Error('本地最新题库缺少所选修订的题目');
-  const expected=questions.length;
+  const latest=await invoke<Question[]>('bank_questions',{bankId:selected});
+  const {questions,skipped}=selectRevisionQuestions(operations,[v.revision],latest);
+  if(!questions.length)throw Error('所选修订中的题目均已删除，没有可导出的题目');
   const bankName=selectedBank?.name||banks.find(bank=>bank.id===selected)?.name||'题库';
   const safeName=bankName.replace(/[\\/:*?"<>|\u0000-\u001f]/g,'_').replace(/\s+/g,'_').replace(/^[_ .-]+|[_ .-]+$/g,'').slice(0,48)||'题库';
   const displayRevision=String(v.revision);
-  const path=await save({title:'导出修订变更题目',defaultPath:`${safeName}_修订${displayRevision}_${v.release_version_label||`v${v.release_version}`}_变更${expected}题.docx`,filters:[{name:'Word 文档',extensions:['docx']}]});
+  const path=await save({title:'导出修订变更题目',defaultPath:`${safeName}_修订${displayRevision}_${v.release_version_label||`v${v.release_version}`}_变更${questions.length}题.docx`,filters:[{name:'Word 文档',extensions:['docx']}]});
   if(!path)return;
   const count=await invoke<number>('export_remote_questions',{questions,path});
-  setMessage(`已导出 ${count.toLocaleString()} 道题：${path}`);
+  setMessage(`已导出 ${count.toLocaleString()} 道题${skipped?`，已跳过 ${skipped.toLocaleString()} 道已删除题目`:''}：${path}`);
  })};
  async function checkUpdates(){
   const entries=await fetchCatalog();setCatalog(entries);
