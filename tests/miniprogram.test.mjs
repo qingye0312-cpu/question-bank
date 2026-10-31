@@ -96,7 +96,9 @@ async function loadService(readResource, extra = {}) {
   const intake = await import('../desktop/shared/intake.ts');
   const sync = await import('../desktop/shared/sync.ts');
   const syncService=extra.sync||{cachedSnapshot:async id=>id===manifest.bank_id?{manifest:cloudManifest,snapshot:cloudSnapshot}:null,cloudCatalog:()=>[cloudManifest],restoreCatalog:async()=>{}};
-  vm.runInNewContext(outputText, {exports, require: name => name==='./draft-repository'?{readDraftFile:async()=>[]}:name==='./sync'?syncService:name.endsWith('/core/sync')||name==='../core/sync'?sync:name.endsWith('/intake-store') ? {readLocal:async()=>({version:1,banks:[],entries:[],batches:[]})} : name.endsWith('/intake') ? intake : core,
+  const localState=extra.local||{version:1,banks:[],entries:[],batches:[]};
+  const draftRecords=extra.drafts||[];
+  vm.runInNewContext(outputText, {exports, require: name => name==='./draft-repository'?{readDraftFile:async()=>draftRecords}:name==='./sync'?syncService:name.endsWith('/core/sync')||name==='../core/sync'?sync:name.endsWith('/intake-store') ? {readLocal:async()=>localState} : name.endsWith('/intake') ? intake : core,
     wx: {env: {USER_DATA_PATH: '/cache'},getStorageSync:()=>'',setStorageSync:()=>{}}, console: {error() {}, info() {}, warn() {}}, Error});
   return exports;
 }
@@ -115,6 +117,32 @@ test('bank loader reads the cloud snapshot cache and never opens package data', 
 test('bank loader rejects an uncached cloud bank until sync has written a snapshot', async () => {
   const service = await loadService(() => { throw new Error('package data must not be read'); }, {sync:{cachedSnapshot:async()=>null,cloudCatalog:()=>[cloudManifest],restoreCatalog:async()=>{}}});
   await assert.rejects(service.loadBank(manifest.bank_id), /尚未下载/);
+});
+
+test('uploaded drafts that disappeared after a cloud rollback stay out of the local question layer', async () => {
+  const uploadedId='00000000-0000-4000-8000-000000000123';
+  const pendingId='00000000-0000-4000-8000-000000000124';
+  const uploaded=fixture({question_id:uploadedId,stem:'已经上传但被云端回退的题目'});
+  const pending=fixture({question_id:pendingId,stem:'仍然等待上传的本地新题'});
+  const local={version:1,banks:[],batches:[],entries:[{bankId:manifest.bank_id,batchId:'00000000-0000-4000-8000-000000000456',question:uploaded,createdAt:'2026-10-31T00:00:00Z',uploadStatus:'uploaded',exportedAt:'',sharedAt:''},{bankId:manifest.bank_id,batchId:'00000000-0000-4000-8000-000000000457',question:pending,createdAt:'2026-10-31T00:00:01Z',uploadStatus:'pending',exportedAt:'',sharedAt:''}]};
+  const drafts=[{id:uploadedId,bankId:manifest.bank_id,revision:2,submissionId:'00000000-0000-4000-8000-000000000456',removed:false,issues:[],question:uploaded},{id:pendingId,bankId:manifest.bank_id,revision:1,submissionId:'00000000-0000-4000-8000-000000000457',removed:false,issues:[],question:pending}];
+  const service=await loadService(()=>{throw new Error('package data must not be read');},{local,drafts});
+  const loaded=await service.loadBank(manifest.bank_id);
+  assert.equal(loaded.bank.count,questions.length+1);
+  assert.equal(loaded.manifest.local_question_count,1);
+  assert.deepEqual(await loaded.bank.search('已经上传但被云端回退'),[]);
+  assert.equal((await loaded.bank.search('仍然等待上传')).length,1);
+});
+
+test('shared questions marked uploaded_manual remain visible in their local bank', async () => {
+  const localBankId='00000000-0000-4000-8000-000000000125';
+  const shared=fixture({question_id:'00000000-0000-4000-8000-000000000126',stem:'共享导入的本地题目'});
+  const local={version:1,banks:[{id:localBankId,name:'共享题库'}],batches:[],entries:[{bankId:localBankId,batchId:'00000000-0000-4000-8000-000000000127',question:shared,createdAt:'2026-10-31T00:00:00Z',uploadStatus:'uploaded_manual',exportedAt:'',sharedAt:''}]};
+  const service=await loadService(()=>{throw new Error('package data must not be read');},{local,sync:{cachedSnapshot:async()=>null,cloudCatalog:()=>[],restoreCatalog:async()=>{}}});
+  const loaded=await service.loadBank(localBankId);
+  assert.equal(loaded.manifest.release_id,'local');
+  assert.equal(loaded.bank.count,1);
+  assert.equal((await loaded.bank.search('共享导入')).length,1);
 });
 
 test('runtime index matches build-time index exactly', async () => {

@@ -88,15 +88,13 @@ export function refreshCatalog(force=false):Promise<CloudManifest[]>{
   catalog=next;catalogGeneration=generation;catalogOrigin=origin;return catalog;
  })();catalogRequest=task;void task.finally(()=>{if(catalogRequest===task)catalogRequest=undefined;}).catch(()=>{});return task;
 }
-export function syncBank(id:string,advertised?:CloudManifest):Promise<boolean>{
- if(inflight.has(id))return inflight.get(id)!;
- const task=(async()=>{
+async function downloadBank(id:string,advertised:CloudManifest|undefined,force:boolean):Promise<boolean>{
   const manifest=readManifest(advertised||await request(`/v1/banks/${id}/manifest`));if(manifest.bank_id!==id)throw Error('题库身份不符');
   const previous=await cachedSnapshot(id);
   // Compare the revision and digest. A rollback or server-side restore can
   // replace a snapshot while retaining the same revision, so revision alone
   // must not leave a stale local bank in place.
-  if(previous&&manifest.revision===previous.manifest.revision&&manifest.sha256===previous.manifest.sha256)return false;
+  if(!force&&previous&&manifest.revision===previous.manifest.revision&&manifest.sha256===previous.manifest.sha256)return false;
   // Revision zero is the catalog placeholder for a bank with no formal snapshot.
   if(manifest.revision===0)return false;
   const wrapper=await request(snapshotPath(manifest)),snapshot=readSnapshot(wrapper,manifest);
@@ -106,5 +104,17 @@ export function syncBank(id:string,advertised?:CloudManifest):Promise<boolean>{
   if(snapshot.revision===0)return false;
   buildPostings((snapshot.formal||[]) as unknown as import('../core/search').Question[]);
   await write(path(id),{manifest,wrapper});return true;
- })();inflight.set(id,task);void task.finally(()=>inflight.delete(id)).catch(()=>{});return task;
+}
+export function syncBank(id:string,advertised?:CloudManifest,force=false):Promise<boolean>{
+ const current=inflight.get(id);
+ if(current){
+  if(!force)return current;
+  const task=current.catch(()=>{}).then(()=>downloadBank(id,advertised,true));
+  inflight.set(id,task);void task.finally(()=>{if(inflight.get(id)===task)inflight.delete(id);}).catch(()=>{});return task;
+ }
+ const task=downloadBank(id,advertised,force);inflight.set(id,task);
+ void task.finally(()=>{if(inflight.get(id)===task)inflight.delete(id);}).catch(()=>{});return task;
+}
+export function reloadBank(id:string,advertised?:CloudManifest):Promise<boolean>{
+ return syncBank(id,advertised,true);
 }

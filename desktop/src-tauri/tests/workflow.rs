@@ -231,6 +231,73 @@ fn rollback_clears_manual_upload_entries_and_import_fingerprints() {
 }
 
 #[test]
+fn later_snapshot_clears_uploaded_rows_missing_from_formal_without_a_rollback_marker() {
+    let (_d, s, b) = setup();
+    let uploaded = intake::save(&s, &b, "", &reply()).unwrap();
+    let uploaded_question = uploaded.comparison.question.clone();
+    intake::mark_upload(&s, &b, &uploaded_question.question_id, true).unwrap();
+
+    let initial = json!({
+        "format": "qbank-snapshot-2",
+        "bank_id": b,
+        "name": "测试题库",
+        "revision": 1,
+        "release_version": 1,
+        "updated_at": now(),
+        "formal": [uploaded_question],
+        "pending": [],
+        "removed": []
+    })
+    .to_string();
+    cloud::apply(&s, &initial, &hash(initial.as_bytes())).unwrap();
+
+    let pending = intake::save(
+        &s,
+        &b,
+        "",
+        &reply().replace("本地新增", "尚未上传的本地新题"),
+    )
+    .unwrap();
+    let pending_id = pending.comparison.question.question_id;
+
+    // The client missed the rollback revision and only sees the later merge.
+    // The latest snapshot has no rollback marker, but the uploaded question is
+    // no longer formal and must not be resurrected as a local draft.
+    let later = json!({
+        "format": "qbank-snapshot-2",
+        "bank_id": b,
+        "name": "测试题库",
+        "revision": 3,
+        "release_version": 2,
+        "updated_at": now(),
+        "formal": [],
+        "pending": [],
+        "removed": []
+    })
+    .to_string();
+    cloud::apply(&s, &later, &hash(later.as_bytes())).unwrap();
+
+    let stale: Option<String> = s
+        .conn()
+        .unwrap()
+        .query_row(
+            "SELECT upload_status FROM intake_entries WHERE bank_id=?1 AND question_id=?2",
+            rusqlite::params![b, uploaded_question.question_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .unwrap();
+    assert_eq!(stale, None);
+    assert_eq!(intake::entries(&s, &pending.batch_id).unwrap().len(), 1);
+    assert_eq!(
+        intake::entries(&s, &pending.batch_id).unwrap()[0]
+            .question
+            .question_id,
+        pending_id
+    );
+}
+
+#[test]
 fn reimport_repairs_orphaned_manual_upload_entries_left_by_an_older_client() {
     let (d, s, b) = setup();
     let saved = intake::save(&s, &b, "", &reply()).unwrap();
@@ -377,6 +444,27 @@ fn cloud_layers_swap_atomically_preserve_drafts_and_reject_bad_updates() {
     invalid["formal"] = json!([q]);
     let text = invalid.to_string();
     assert!(cloud::apply(&s, &text, &hash(text.as_bytes())).is_err());
+    assert_eq!(
+        cloud::clear_cached_snapshot(&s, &[b.clone()]).unwrap(),
+        vec![b.clone()]
+    );
+    let c = s.conn().unwrap();
+    let snapshots: i64 = c
+        .query_row(
+            "SELECT COUNT(*) FROM cloud_snapshots WHERE bank_id=?1",
+            [&b],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let baselines: i64 = c
+        .query_row(
+            "SELECT COUNT(*) FROM cloud_baselines WHERE bank_id=?1",
+            [&b],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(snapshots, 0);
+    assert_eq!(baselines, 0);
 }
 #[test]
 fn current_cloud_snapshot_preserves_all_seed_questions() {

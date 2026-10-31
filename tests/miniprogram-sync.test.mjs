@@ -12,7 +12,7 @@ function version(bank_id,name,revision=1){
  const text=JSON.stringify({format:'qbank-snapshot-2',bank_id,name,revision,release_version:revision,formal:[],pending:[],removed:[],updated_at:'2026-10-24T00:00:00Z'}),wrapper=packText(text);
  return {wrapper,manifest:{bank_id,name,revision,release_version:revision,question_count:0,sha256:wrapper.sha256,bytes:Buffer.byteLength(text),minimum_client:'0.2.7',protocol:2,snapshot_format:'qbank-cloud-file-1',updated_at:'2026-10-24T00:00:00Z'}};
 }
-function setup({replaceRename=false}={}){
+function setup({replaceRename=false,snapshotGate=null}={}){
  let generation=1,failBank='',restore,offline=false,requestError='';
  const files=new Map(),calls=[],versions=[version(first,'初级'),version(second,'高级')];
  const fileSystem={
@@ -30,7 +30,9 @@ function setup({replaceRename=false}={}){
   if(endpoint==='/v1/catalog')return o.success({statusCode:200,data:{banks:versions.map(v=>v.manifest)}});
   const v=versions.find(v=>endpoint.includes(v.manifest.bank_id));
   if(v?.manifest.bank_id===failBank)return o.fail({errMsg:'offline'});
-  o.success({statusCode:v?200:404,data:endpoint.endsWith('/manifest')?v.manifest:v.wrapper});
+  const finish=()=>o.success({statusCode:v?200:404,data:endpoint.endsWith('/manifest')?v.manifest:v.wrapper});
+  if(v&&endpoint.endsWith('/snapshot-file')&&snapshotGate){snapshotGate.started();snapshotGate.promise.then(finish);}
+  else finish();
  }};
  const exports={},source=fs.readFileSync(new URL('../miniprogram/miniprogram/services/sync.ts',import.meta.url),'utf8');
  const code=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText;
@@ -123,4 +125,26 @@ test('a newer per-bank cache wins over an older catalogue left by an interrupted
  await client.restoreCatalog();
  assert.equal(client.cloudCatalog()[0].revision,2);
  assert.equal((await client.cachedSnapshot(first)).manifest.revision,2);
+});
+
+test('an explicit reload redownloads and replaces the cache even when the manifest did not change',async()=>{
+ const s=setup(),c=s.client;await c.refreshCatalog();await c.syncBank(first,s.versions[0].manifest);
+ const before=s.calls.filter(path=>path.endsWith('/snapshot-file')).length;
+ assert.equal(await c.reloadBank(first,s.versions[0].manifest),true);
+ assert.equal(s.calls.filter(path=>path.endsWith('/snapshot-file')).length,before+1);
+ assert.equal((await c.cachedSnapshot(first)).manifest.revision,1);
+});
+
+test('an explicit reload waits for an older in-flight sync before downloading the new cache',async()=>{
+ let release,started;
+ const entered=new Promise(resolve=>{started=resolve;});
+ const snapshotGate={started, promise:new Promise(resolve=>{release=resolve;})};
+ const s=setup({snapshotGate}),c=s.client;await c.refreshCatalog();
+ const normal=c.syncBank(first,s.versions[0].manifest);
+ await entered;
+ const forced=c.reloadBank(first,s.versions[0].manifest);
+ release();
+ assert.equal(await normal,true);
+ assert.equal(await forced,true);
+ assert.equal(s.calls.filter(path=>path.endsWith('/snapshot-file')).length,2);
 });

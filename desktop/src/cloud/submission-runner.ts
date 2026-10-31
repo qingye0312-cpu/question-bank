@@ -2,7 +2,7 @@ import {invoke} from '@tauri-apps/api/core';
 import {failedJob,readyJob,UploadError,type UploadJob} from '../../shared/queue';
 import {hasPermission} from '../../shared/export-permission';
 import {cloudOrigin,cloudCall,cloudAccess,resumeDesktop,sessionGeneration,setLogoutHandler,type Access} from './session-service';
-import {syncDesktop} from './sync-service';
+import {reloadDesktopBank} from './sync-service';
 export async function uploadDesktop(batchId:string,bankId:string){
  const origin=cloudOrigin(),attempt=sessionGeneration();
  const check=()=>{if(origin!==cloudOrigin()||attempt!==sessionGeneration())throw Error("服务地址或登录已改变，请重试原批次");};
@@ -41,7 +41,7 @@ export async function retryDesktopJobs(bankId?:string,includeFailed=false){
  await updateJobs(jobs=>{for(const j of jobs)if((!bankId||j.bankId===bankId)&&j.status!=='done'&&(includeFailed||j.status!=='failed')&&j.actor===me.openid&&j.endpoint===cloudOrigin()){j.status='queued';j.nextAt=0;j.error='';}});
 }
 export async function syncUploadedBank(bankId:string){
- try{await syncDesktop(bankId);await updateJobs(js=>{for(const j of js)if(j.bankId===bankId&&j.status==='done')j.syncError='';});}
+ try{await reloadDesktopBank(bankId);await updateJobs(js=>{for(const j of js)if(j.bankId===bankId&&j.status==='done')j.syncError='';});}
  catch(e){await updateJobs(js=>{for(const j of js)if(j.bankId===bankId&&j.status==='done')j.syncError=String(e);});throw e;}
 }
 export function runDesktopQueue():Promise<void>{

@@ -19,7 +19,9 @@ const pureQuestion={...JSON.parse(fixture.payload),bank:'测试库'};
 const pause=()=>{let resolve;const promise=new Promise(r=>{resolve=r;});return {promise,resolve};};
 function client(invoke, state=new Map(), storage=new Map(), initialOrigin='https://first.example'){
  const module={exports:{}};
- const native=invoke;invoke=async(command,args)=>{if(command==='client_state'){if(args.value!==null)state.set(args.key,structuredClone(args.value));return structuredClone(state.get(args.key)||null);}return native(command,args)};
+ const native=invoke;invoke=async(command,args)=>{if(command==='client_state'){if(args.value!==null)state.set(args.key,structuredClone(args.value));return structuredClone(state.get(args.key)||null);}
+  if(command==='cloud_clear_cached_snapshot'){const calls=state.get('cloud-cache-clears')||[];calls.push([...args.bankIds]);state.set('cloud-cache-clears',calls);return [...args.bankIds];}
+  return native(command,args)};
  const root=fileURLToPath(new URL('../',import.meta.url)),cache=new Map();
  const context=vm.createContext({BUILD_ENV:{DEV:false},localStorage:{getItem:k=>storage.get(k),setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)},URL,Date,Map,Promise,crypto:{randomUUID},window:{dispatchEvent(){}},Event:class {}});
  function load(file){
@@ -59,7 +61,7 @@ test('desktop protocol 3 downloads the pure bank and operation files together an
  const questionText=JSON.stringify({format:'qbank-question-bank-1',bank_id:bank,name:'测试库',revision:1,release_version:1,release_version_label:'v1',updated_at:'2026-10-17T00:00:00Z',merged_at:null,release_name:null,release_id:null,rollback_at:null,rollback_of:null,questions:[pureQuestion]});
  const operationText=JSON.stringify({format:'qbank-operations-1',bank_id:bank,name:'测试库',current_revision:1,current_release_version:1,current_release_version_label:'v1',updated_at:'2026-10-17T00:00:00Z',revisions:[{revision:1,kind:'seed',release_version:1,release_version_label:'v1',updated_at:'2026-10-17T00:00:00Z',merged_at:'2026-10-17T00:00:00Z',release_name:null,release_id:null,batch_id:null,question_count:1,added_count:1,changed_count:1,duplicate_count:0,revised_count:0,removed_count:0,rollback_of:null,uploader:{account_id:'a',real_name:'测试',nickname:null,auth_type:'key'},questions:[{question_id:pureQuestion.question_id,action:'added',uploaded_at:'2026-10-17T00:00:00Z',uploader:{account_id:'a',real_name:'测试',nickname:null,auth_type:'key'},entered_revision:1,entered_release_version:1,revision:1,release_version:1,release_version_label:'v1'}]}],questions:[{question_id:pureQuestion.question_id,first_revision:1,first_release_version:1,first_release_version_label:'v1',first_uploaded_at:'2026-10-17T00:00:00Z',first_uploader:{account_id:'a',real_name:'测试',nickname:null,auth_type:'key'},revisions:[]} ]});
  const questionWrapper=packText(questionText),operationWrapper=packText(operationText),next={...manifest,protocol:3,release_version_label:'v1',merged_at:null,release_name:null,release_id:null,rollback_at:null,rollback_of:null,question_file_sha256:questionWrapper.sha256,question_file_bytes:Buffer.byteLength(questionText),question_file_format:'qbank-question-bank-1',operations_file_sha256:operationWrapper.sha256,operations_file_bytes:Buffer.byteLength(operationText),operations_file_format:'qbank-operations-1',};
- const calls=[],saved=[],versions=[];
+ const calls=[],saved=[],versions=[],state=new Map();
  const c=client(async(command,args)=>{
   if(command==='credential_save')return;
   if(command==='cloud_versions')return versions;
@@ -68,7 +70,7 @@ test('desktop protocol 3 downloads the pure bank and operation files together an
   if(args.path==='/v1/auth/desktop')return {status:200,body:{access_token:'v1.test.signature',expires_in:900}};
   if(args.path==='/v1/me')return {status:200,body:{openid:'maintainer',banks:[],grants:{},permissions:[],uploads_enabled:false}};
   return {status:200,body:args.path.endsWith('/manifest')?next:args.path.endsWith('/question-file')?questionWrapper:operationWrapper};
- });
+ },state);
  await c.cloudLogin('test-key');calls.length=0;
  assert.equal(await c.syncDesktop(bank,next),true);
  assert.deepEqual(calls,[`/v1/banks/${bank}/question-file`,`/v1/banks/${bank}/operations-file`]);
@@ -76,6 +78,23 @@ test('desktop protocol 3 downloads the pure bank and operation files together an
  assert.equal((await c.loadCloudOperations(bank,next)).current_revision,1);
  assert.equal(await c.syncDesktop(bank,next),false);
  assert.equal(calls.length,2);
+ assert.deepEqual(state.get('cloud-cache-clears'),[[bank]]);
+});
+
+test('a successful upload reloads a complete cloud snapshot and clears the old cache first',async()=>{
+ const text=JSON.stringify({...JSON.parse(payload),revision:2,release_version:2,updated_at:'2026-10-31T00:00:00Z'});
+ const packed=packText(text),next={...manifest,revision:2,release_version:2,updated_at:'2026-10-31T00:00:00Z',bytes:Buffer.byteLength(text),sha256:packed.sha256};
+ const state=new Map(),saved=[];
+ const c=client(async(command,args)=>{
+  if(command==='cloud_versions')return [{bank_id:bank,revision:1,sha256:'0'.repeat(64)}];
+  if(command==='cloud_apply'){saved.push(args);return;}
+  assert.equal(command,'cloud_request');
+  return {status:200,body:args.path.endsWith('/manifest')?next:packed};
+ },state);
+ await c.syncUploadedBank(bank);
+ assert.deepEqual(state.get('cloud-cache-clears'),[[bank]]);
+ assert.equal(saved.length,1);
+ assert.equal(JSON.parse(saved[0].payload).revision,2);
 });
 
 test('one desktop bank failing validation does not prevent discovery of another bank',async()=>{

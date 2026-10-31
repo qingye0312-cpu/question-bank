@@ -46,7 +46,7 @@ export async function uploadBatch(bankId:string,batchId:string,actor?:string){
 }
 
 import {failedJob,readyJob,UploadError} from '../core/queue';
-import {syncBank} from './sync';
+import {reloadBank} from './sync';
 import {invalidateBank} from './bank';
 let running:Promise<void>|undefined;
 export async function enqueueBatches(bankId:string,_batchIds:string[]){
@@ -57,7 +57,14 @@ export async function enqueueBatches(bankId:string,_batchIds:string[]){
 export async function pauseUploads(){await updateLocal(data=>{for(const job of data.jobs||[])if(!['done','failed'].includes(job.status)){job.status='paused';job.error='已退出登录，任务保留';}});}
 export async function retryUploads(includeFailed=false){const actor=cloud.state().openid;if(!actor)return;await updateLocal(data=>{for(const j of data.jobs||[])if(j.actor===actor&&j.status!=='done'&&(includeFailed||j.status!=='failed')){j.status='queued';j.nextAt=0;j.error='';}});}
 export async function syncUploadedBank(bankId:string){
- try{await syncBank(bankId);invalidateBank(bankId);await updateLocal(d=>{for(const j of d.jobs||[])if(j.bankId===bankId&&j.status==='done')j.syncError='';});}
+ try{
+  await reloadBank(bankId);
+  invalidateBank(bankId);
+  await updateLocal(d=>{
+   d.entries=d.entries.filter(e=>e.bankId!==bankId||e.uploadStatus!=='uploaded');
+   for(const j of d.jobs||[])if(j.bankId===bankId&&j.status==='done')j.syncError='';
+  });
+ }
  catch(e){await updateLocal(d=>{for(const j of d.jobs||[])if(j.bankId===bankId&&j.status==='done')j.syncError=String(e);});throw e;}
 }
 export function runUploadQueue():Promise<void>{

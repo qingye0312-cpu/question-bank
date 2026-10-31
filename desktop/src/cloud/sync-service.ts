@@ -26,10 +26,14 @@ export function syncDesktop(bankId:string,advertised?:CloudManifest):Promise<boo
   if(m.question_file_sha256&&m.operations_file_sha256&&m.question_file_format==='qbank-question-bank-1'&&m.operations_file_format==='qbank-operations-1'){
    const includeOperations=!!cloudAccess(),[questionWrapper,operationsWrapper]=await Promise.all([cloudCall<unknown>(questionFilePath(m)),includeOperations?cloudCall<unknown>(operationsFilePath(m),undefined,true):Promise.resolve(null)]);
    const question=readQuestionFile(questionWrapper,m),operations=operationsWrapper?readOperationsFile(operationsWrapper,m):null;checkOrigin();
+   await invoke('cloud_clear_cached_snapshot',{bankIds:[bankId]});
+   checkOrigin();
    await invoke('cloud_apply',questionFileApplyPayload(questionWrapper));
    if(operations)await cacheOperations(bankId,operations);return true;
   }
   const wrapper=await cloudCall<unknown>(snapshotPath(m));readSnapshot(wrapper,m);
+  checkOrigin();
+  await invoke('cloud_clear_cached_snapshot',{bankIds:[bankId]});
   checkOrigin();
   await invoke('cloud_apply',snapshotPayload(wrapper));return true;
  })();syncing.set(key,task);void task.finally(()=>{if(syncing.get(key)===task)syncing.delete(key)}).catch(()=>{});return task;
@@ -55,6 +59,12 @@ export function reloadDesktopCache(bankId:string,advertised:CloudManifest):Promi
   return true;
  })();
  syncing.set(key,task);void task.finally(()=>{if(syncing.get(key)===task)syncing.delete(key)}).catch(()=>{});return task;
+}
+
+export async function reloadDesktopBank(bankId:string):Promise<boolean>{
+ const manifest=readManifest(await cloudCall(`/v1/banks/${bankId}/manifest`));
+ if(manifest.bank_id!==bankId)throw Error('题库身份不一致');
+ return reloadDesktopCache(bankId,manifest);
 }
 
 function questionFileApplyPayload(value:unknown){
@@ -98,14 +108,14 @@ export function startCloudWorker(onChanged:()=>void,onNotice:(message:string)=>v
   const message=error instanceof Error?error.message:String(error);
   return (message.replace(/^Error:\s*/,'').replace(/^NETWORK:\s*/,'网络请求未完成：')||'未知错误').slice(0,180);
  };
- const wake=()=>{
+ const wake=(force=false)=>{
   void runDesktopQueue().catch(()=>{});
   const mode=cloudAccess()?'authenticated':'guest';
   // Persistent-session restoration and login/logout both emit this event.
   // Reset the throttle when the mode changes so a newly authenticated user
   // starts the existing 30-second sync loop immediately.
   if(mode!==lastMode){lastMode=mode;nextAttemptAt=0;}
-  if(updating||Date.now()<nextAttemptAt)return;
+  if(updating||(!force&&Date.now()<nextAttemptAt))return;
   updating=true;
   void syncDesktopCatalog().then(({changed,failed})=>{
    if(changed)onChanged();
@@ -117,10 +127,13 @@ export function startCloudWorker(onChanged:()=>void,onNotice:(message:string)=>v
    onNotice(`云端同步失败：${errorMessage(error)}；继续使用本地题库。`);
   }).finally(()=>{updating=false;});
  };
- const timer=setInterval(wake,15000);
- window.addEventListener('online',wake);
- window.addEventListener('focus',wake);
- window.addEventListener('qbank-cloud-access-change',wake);
- wake();
- return()=>{clearInterval(timer);window.removeEventListener('online',wake);window.removeEventListener('focus',wake);window.removeEventListener('qbank-cloud-access-change',wake)};
+ const focus=()=>wake(true);
+ const online=()=>wake(true);
+ const accessChange=()=>wake(true);
+ const timer=setInterval(()=>wake(),15000);
+ window.addEventListener('online',online);
+ window.addEventListener('focus',focus);
+ window.addEventListener('qbank-cloud-access-change',accessChange);
+ wake(true);
+ return()=>{clearInterval(timer);window.removeEventListener('online',online);window.removeEventListener('focus',focus);window.removeEventListener('qbank-cloud-access-change',accessChange)};
 }

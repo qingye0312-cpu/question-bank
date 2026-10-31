@@ -71,6 +71,8 @@ pub fn clear_cached_snapshot(store: &Store, bank_ids: &[String]) -> Result<Vec<S
         if cached_cloud_bank {
             tx.execute("DELETE FROM cloud_snapshots WHERE bank_id=?1", [bank_id])
                 .map_err(err)?;
+            tx.execute("DELETE FROM cloud_baselines WHERE bank_id=?1", [bank_id])
+                .map_err(err)?;
             tx.execute(
                 "DELETE FROM client_state WHERE key=?1",
                 [format!("cloud-operations:{bank_id}")],
@@ -83,14 +85,15 @@ pub fn clear_cached_snapshot(store: &Store, bank_ids: &[String]) -> Result<Vec<S
     Ok(cleared)
 }
 
-fn clear_rolled_back_uploaded_entries(
+fn clear_missing_uploaded_entries(
     c: &Connection,
     bank_id: &str,
     formal: &[Question],
 ) -> Result<()> {
-    // A package imported from disk can be marked uploaded manually, while a
-    // cloud receipt uses the `uploaded` status. Both are safe to discard when
-    // rollback removes the question; `pending` entries remain as local drafts.
+    // An uploaded receipt is cache metadata for a formal question. If any
+    // snapshot update removes that question, including a rollback followed by
+    // another merge before this client reconnects, discard the stale receipt.
+    // Pending entries remain local drafts and are never removed here.
     let formal_ids: HashSet<_> = formal.iter().map(|q| q.question_id.as_str()).collect();
     let mut stmt = c
         .prepare("SELECT question_id,batch_id FROM intake_entries WHERE bank_id=?1 AND upload_status IN ('uploaded','uploaded_manual')")
@@ -266,10 +269,8 @@ pub fn apply(store: &Store, payload: &str, digest: &str) -> Result<()> {
             }
         }
     };
-    if s.rollback_of.is_some() {
-        if let Some(formal) = s.formal.as_deref() {
-            clear_rolled_back_uploaded_entries(&tx, &s.bank_id, formal)?;
-        }
+    if let Some(formal) = s.formal.as_deref() {
+        clear_missing_uploaded_entries(&tx, &s.bank_id, formal)?;
     }
     let mut st=tx.prepare("SELECT o.data FROM intake_originals o JOIN intake_entries e ON e.bank_id=o.bank_id AND e.question_id=o.question_id WHERE o.bank_id=?1 AND o.deleted=0 AND e.upload_status='pending' ORDER BY e.created_at,o.question_id").map_err(err)?;
     let drafts = st
@@ -328,13 +329,10 @@ pub fn apply(store: &Store, payload: &str, digest: &str) -> Result<()> {
         params![s.bank_id, s.revision as i64, payload, digest],
     )
     .map_err(err)?;
-    // A rollback can make a previously imported package valid again. The
-    // question-level checks above still prevent current formal questions from
-    // being added twice, so clear only the bank's package fingerprints.
-    if s.rollback_of.is_some() {
-        tx.execute("DELETE FROM delta_imports WHERE bank_id=?1", [&s.bank_id])
-            .map_err(err)?;
-    }
+    // Every accepted snapshot invalidates package fingerprints. Current formal
+    // questions are still protected by the question-level duplicate checks.
+    tx.execute("DELETE FROM delta_imports WHERE bank_id=?1", [&s.bank_id])
+        .map_err(err)?;
     if let (Some(name), Some(digest)) = (&s.release_name, &s.release_id) {
         let result_at = s.rollback_at.as_deref().or(s.merged_at.as_deref());
         db::set_result(&tx, &s.bank_id, result_at, name, digest)?;

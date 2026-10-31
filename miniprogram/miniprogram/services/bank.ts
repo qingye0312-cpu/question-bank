@@ -58,7 +58,10 @@ export function loadBank(id=activeBankId()):Promise<BankBundle>{
     }
     const formal=Array.from({length:bundle.bank.count},(_,i)=>bundle.bank.question(i)) as unknown as SyncQuestion[];
     const drafts=await readDraftFile(id),ids=new Set(drafts.map(r=>r.id));
-    const working=[...local.entries.filter(e=>e.bankId===id&&!ids.has(e.question.question_id)).map(e=>e.question),...drafts.filter(r=>!r.removed&&!r.issues.length&&r.question).map(r=>r.question!)];
+    const localBank=bundle.manifest.release_id==='local';
+    const workingEntries=local.entries.filter(e=>e.bankId===id&&(localBank||e.uploadStatus==='pending'));
+    const workingIds=new Set(workingEntries.map(e=>e.question.question_id));
+    const working=[...workingEntries.filter(e=>!ids.has(e.question.question_id)).map(e=>e.question),...drafts.filter(r=>!r.removed&&!r.issues.length&&r.question&&(!r.submissionId||workingIds.has(r.id))).map(r=>r.question!)];
     const merged=combineLayers(formal,working);
     bundle.bank.append(merged.filter(q=>q.cloud_layer!=='formal') as unknown as import('../core/search').Question[]);
     const localQuestionCount=merged.filter(q=>q.cloud_layer!=='formal').length;
