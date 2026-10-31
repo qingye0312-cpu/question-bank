@@ -202,8 +202,7 @@ export function QuestionExport({banks, defaultBankId, busy, onClose, onExport}: 
                   const displayRevision = String(row.revision);
                   return <tr key={row.revision} className={!canSelect ? 'unavailable' : ''}><td><input type="checkbox" checked={checked} disabled={busy || !canSelect} aria-label={`选择修订 ${displayRevision}`} onChange={() => setSelectedRevisions(current => checked ? current.filter(value => value !== row.revision) : [...current, row.revision])}/></td><td>修订 {displayRevision} · {row.release_version_label || `v${row.release_version}`}</td><td>{displayUploader(row.uploader_real_name,row.uploader_nickname)}</td><td>{changed.toLocaleString()} 题</td><td>{new Date(row.updated_at).toLocaleString()}</td></tr>;
                 })}</tbody></table></div>
-                <aside className="question-export-revision-summary" aria-live="polite"><strong>{selectedRevisionCount.toLocaleString()}<span>题</span></strong><p>导出题目总数</p><small>按所选修订去重计算</small></aside>
-                <p className="question-export-range-note">“本次变更”按各修订的变更记录统计；同一道题跨多个修订只导出一次，已删除题目自动跳过。</p>
+                <aside className="question-export-revision-summary" aria-live="polite"><strong>{selectedRevisionCount.toLocaleString()}<span>题</span></strong><p>导出题目总数</p><small>按所选修订去重计算</small><p className="question-export-revision-note">“本次变更”按各修订的变更记录统计；同一道题跨多个修订只导出一次，已删除题目自动跳过。</p></aside>
               </>}
             </div> : <div className="question-export-range">
               <div className="question-export-range-toolbar">
