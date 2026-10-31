@@ -91,7 +91,7 @@
   <main>
     <p class="eyebrow">Question Bank · Experimental</p>
     <h1>快速下载实验</h1>
-    <p class="intro">页面会先和小主机协商，优先尝试点对点直连；受 NAT 限制时自动经加密 TURN 中继。仍失败时可以改用普通 HTTPS 下载。</p>
+    <p class="intro">页面会先禁用 TURN，只尝试点对点直连；只有直连失败后才重新协商加密 TURN 回退。传输状态会显示实际路径。</p>
     <p class="status" id="status" role="status" aria-live="polite">正在获取版本和加速配置…</p>
 
     <section class="cards" aria-label="选择桌面版本">
@@ -194,14 +194,69 @@
       });
     }
 
+    function isTurnServer(server) {
+      const urls = Array.isArray(server.urls) ? server.urls : [server.urls];
+      return urls.some(url => /^turns?:/i.test(String(url)));
+    }
+
+    function waitForDataChannel(peer, channel, timeoutMs, label) {
+      if (channel.readyState === 'open') return Promise.resolve();
+      return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => finish(new Error(`${label}超时`)), timeoutMs);
+        const onOpen = () => finish();
+        const onState = () => {
+          if (peer.connectionState === 'failed' || peer.connectionState === 'closed') {
+            finish(new Error(`${label}失败`));
+          }
+        };
+        function finish(error) {
+          clearTimeout(timeout);
+          channel.removeEventListener('open', onOpen);
+          peer.removeEventListener('connectionstatechange', onState);
+          if (error) reject(error);
+          else resolve();
+        }
+        channel.addEventListener('open', onOpen);
+        peer.addEventListener('connectionstatechange', onState);
+      });
+    }
+
+    async function negotiateTransport(key, iceServers, allowTurn, label) {
+      const peer = new RTCPeerConnection({ iceServers });
+      try {
+        const channel = peer.createDataChannel('fastdownload', { ordered: true });
+        channel.binaryType = 'arraybuffer';
+        statusNode.textContent = `${label}：正在收集网络候选…`;
+        await peer.setLocalDescription(await peer.createOffer());
+        await waitForGathering(peer, 12_000);
+        if (!peer.localDescription?.sdp) throw new Error('无法生成 WebRTC 网络候选');
+        statusNode.textContent = `${label}：正在通过 HTTPS 协商加密通道…`;
+        const response = await fetch('/fastdowmload/api/offer', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ artifact: key, offer: peer.localDescription, allowTurn }),
+          cache: 'no-store',
+          signal: AbortSignal.timeout(35_000),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result.answer) throw new Error(result.error || `协商服务返回 HTTP ${response.status}`);
+        await peer.setRemoteDescription(result.answer);
+        await waitForDataChannel(peer, channel, 15_000, label);
+        return { peer, channel };
+      } catch (error) {
+        await peer.close().catch(() => {});
+        throw error;
+      }
+    }
+
     async function directDownload(key, button) {
       const expected = config.artifacts[key];
       const definition = definitions[key];
       const progress = document.getElementById(definition.progress);
       const fallback = document.getElementById(definition.fallback);
       let writable;
-      let writer;
       let peer;
+      let channel;
       let worker;
       let completed = false;
       let received = 0;
@@ -220,9 +275,26 @@
         }
 
         worker = new Worker('/fastdowmload/sha256-worker.js', { type: 'module' });
-        peer = new RTCPeerConnection({ iceServers: config.iceServers });
-        const channel = peer.createDataChannel('fastdownload', { ordered: true });
-        channel.binaryType = 'arraybuffer';
+        const directIceServers = config.iceServers.filter(server => !isTurnServer(server));
+        const relayConfigured = config.iceServers.some(isTurnServer);
+        let routeLabel = '点对点直连';
+        try {
+          ({ peer, channel } = await negotiateTransport(key, directIceServers, false, '点对点直连'));
+          statusNode.textContent = '点对点直连已建立，准备传输文件…';
+        } catch (directError) {
+          if (!relayConfigured) throw directError;
+          await new Promise(resolve => setTimeout(resolve, 200));
+          statusNode.textContent = '点对点直连未建立，正在切换 TURN 回退…';
+          try {
+            ({ peer, channel } = await negotiateTransport(key, config.iceServers, true, 'TURN 回退'));
+          } catch (relayError) {
+            const directMessage = directError instanceof Error ? directError.message : String(directError);
+            const relayMessage = relayError instanceof Error ? relayError.message : String(relayError);
+            throw new Error(`点对点直连失败（${directMessage}）；TURN 回退失败（${relayMessage}）`);
+          }
+          routeLabel = 'TURN 回退';
+          statusNode.textContent = 'TURN 回退已建立，准备传输文件…';
+        }
 
         const transfer = new Promise((resolve, reject) => {
           const timeout = setTimeout(() => reject(new Error('等待 WebRTC 通道或文件传输超时')), 120_000);
@@ -230,8 +302,8 @@
           peer.addEventListener('connectionstatechange', () => {
             if (peer.connectionState === 'failed' || peer.connectionState === 'closed') fail(new Error('WebRTC 加密通道建立失败'));
           });
-          channel.addEventListener('close', () => { if (!completed) fail(new Error('直连通道中断')); });
-          channel.addEventListener('error', () => fail(new Error('直连通道发生错误')));
+          channel.addEventListener('close', () => { if (!completed) fail(new Error('加速通道中断')); });
+          channel.addEventListener('error', () => fail(new Error('加速通道发生错误')));
           channel.addEventListener('message', event => {
             if (typeof event.data !== 'string') {
               if (!metadata) return fail(new Error('收到文件数据前没有文件信息'));
@@ -243,7 +315,7 @@
               if (writable) writeChain = writeChain.then(() => writable.write(bytes));
               else chunks.push(bytes);
               progress.value = Math.min(99, Math.floor(received / metadata.size * 100));
-              statusNode.textContent = `WebRTC 加速传输中：${(received / 1024 / 1024).toFixed(1)} / ${(metadata.size / 1024 / 1024).toFixed(1)} MB`;
+              statusNode.textContent = `${routeLabel}传输中：${(received / 1024 / 1024).toFixed(1)} / ${(metadata.size / 1024 / 1024).toFixed(1)} MB`;
               if (received - acknowledged >= 1024 * 1024 || received === metadata.size) {
                 const upto = received;
                 const writes = writeChain;
@@ -264,7 +336,7 @@
               if (!writable && message.size > 256 * 1024 * 1024) return fail(new Error('当前浏览器不支持大文件直写，请使用普通 HTTPS 下载'));
               metadata = message;
               channel.send(JSON.stringify({ type: 'ready' }));
-              statusNode.textContent = '已协商传输参数，正在建立 WebRTC 加密通道…';
+              statusNode.textContent = `已协商传输参数，开始${routeLabel}传输…`;
               return;
             }
             if (message.type === 'error') return fail(new Error(message.message || '发送端读取文件失败'));
@@ -280,20 +352,6 @@
         });
         void transfer.catch(() => {});
 
-        await peer.setLocalDescription(await peer.createOffer());
-        await waitForGathering(peer, 15_000);
-        if (!peer.localDescription?.sdp) throw new Error('无法生成 WebRTC 网络候选');
-        statusNode.textContent = '正在通过 HTTPS 协商服务器联系小主机…';
-        const response = await fetch('/fastdowmload/api/offer', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ artifact: key, offer: peer.localDescription }),
-          cache: 'no-store',
-          signal: AbortSignal.timeout(35_000),
-        });
-        const result = await response.json().catch(() => ({}));
-        if (!response.ok || !result.answer) throw new Error(result.error || `协商服务返回 HTTP ${response.status}`);
-        await peer.setRemoteDescription(result.answer);
         await transfer;
         await writeChain;
         const digest = await waitForDigest(worker);
@@ -313,7 +371,7 @@
         }
         if (channel.readyState === 'open') channel.send(JSON.stringify({ type: 'done' }));
         progress.value = 100;
-        statusNode.textContent = `加速下载完成并通过 SHA-256 校验：${expected.filename}`;
+        statusNode.textContent = `${routeLabel}完成并通过 SHA-256 校验：${expected.filename}`;
       } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') {
           statusNode.textContent = '已取消保存位置选择。';

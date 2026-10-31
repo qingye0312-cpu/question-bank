@@ -25,6 +25,7 @@ const turnUrls = (process.env.QBANK_FASTDOWNLOAD_TURN_URLS || '')
   .split(',').map(value => value.trim()).filter(Boolean);
 const turnSharedSecret = process.env.QBANK_FASTDOWNLOAD_TURN_SECRET || '';
 const turnCredentialTtlSec = Number(process.env.QBANK_FASTDOWNLOAD_TURN_TTL_SECONDS || 3600);
+const icePortRange = parseIcePortRange(process.env.QBANK_FASTDOWNLOAD_ICE_PORT_RANGE || '');
 const allowedOrigins = new Set((process.env.QBANK_FASTDOWNLOAD_ALLOWED_ORIGINS || 'https://qbank.acharrystar.top:8013')
   .split(',').map(value => value.trim()).filter(Boolean));
 
@@ -62,6 +63,17 @@ export function createTurnIceServer(urls, secret, ttlSec, nowMs = Date.now()) {
   const username = `${Math.floor(nowMs / 1000) + ttlSec}:qbank`;
   const credential = createHmac('sha1', secret).update(username).digest('base64');
   return { urls, username, credential };
+}
+
+export function parseIcePortRange(value) {
+  if (!value) return undefined;
+  const match = /^(\d{4,5})-(\d{4,5})$/.exec(value);
+  if (!match) throw new Error('ICE 端口范围格式无效');
+  const range = [Number(match[1]), Number(match[2])];
+  if (range[0] < 1024 || range[0] > 65535 || range[1] < range[0] || range[1] > 65535) {
+    throw new Error('ICE 端口范围无效');
+  }
+  return range;
 }
 
 function caddyRequest(path, method = 'GET') {
@@ -177,8 +189,8 @@ async function streamAsset(channel, asset, waitForAck, assetOpener) {
   channel.send(JSON.stringify({ type: 'complete', size: sent, sha256: asset.sha256 }));
 }
 
-function makePeer(offer, asset, activePeers, assetOpener, iceServers) {
-  const pc = new RTCPeerConnection({ iceServers });
+function makePeer(offer, asset, activePeers, assetOpener, iceServers, portRange) {
+  const pc = new RTCPeerConnection({ iceServers, icePortRange: portRange });
   let channel;
   let started = false;
   let closed = false;
@@ -271,13 +283,14 @@ export function createFastDownloadServer({
   turnIceUrls = turnUrls,
   turnSecret = turnSharedSecret,
   turnTtlSec = turnCredentialTtlSec,
+  portRange = icePortRange,
   assetLoader = loadArtifact,
   assetOpener = path => caddyRequest(path),
 } = {}) {
   const activePeers = new Set();
-  const createIceServers = () => [
+  const createIceServers = (includeTurn = true) => [
     ...iceUrls.map(urls => ({ urls })),
-    createTurnIceServer(turnIceUrls, turnSecret, turnTtlSec),
+    includeTurn ? createTurnIceServer(turnIceUrls, turnSecret, turnTtlSec) : null,
   ].filter(Boolean);
   const server = http.createServer(async (req, res) => {
     const pathname = new URL(req.url || '/', 'http://127.0.0.1').pathname;
@@ -297,8 +310,11 @@ export function createFastDownloadServer({
       if (body?.offer?.type !== 'offer' || typeof body.offer.sdp !== 'string' || body.offer.sdp.length > 80_000) {
         throw Object.assign(new Error('WebRTC offer 无效'), { status: 400 });
       }
+      if (body.allowTurn != null && typeof body.allowTurn !== 'boolean') {
+        throw Object.assign(new Error('WebRTC 中继选项无效'), { status: 400 });
+      }
       const asset = await assetLoader(body.artifact);
-      peer = makePeer(body.offer, asset, activePeers, assetOpener, createIceServers());
+      peer = makePeer(body.offer, asset, activePeers, assetOpener, createIceServers(body.allowTurn !== false), portRange);
       let timer;
       const answer = await Promise.race([
         peer.negotiate(),

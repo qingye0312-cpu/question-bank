@@ -8,6 +8,7 @@ STUN_URLS="${QBANK_FASTDOWNLOAD_STUN_URLS:-stun:stun.cloudflare.com:3478}"
 REQUESTED_TURN_URLS="${QBANK_FASTDOWNLOAD_TURN_URLS:-}"
 REQUESTED_TURN_SECRET="${QBANK_FASTDOWNLOAD_TURN_SECRET:-}"
 REQUESTED_TURN_TTL="${QBANK_FASTDOWNLOAD_TURN_TTL_SECONDS:-}"
+REQUESTED_ICE_PORT_RANGE="${QBANK_FASTDOWNLOAD_ICE_PORT_RANGE:-}"
 RELEASE_ROOT=/opt/qbank-fastdownload/releases
 CURRENT=/opt/qbank-fastdownload/current
 SITE_ROOT=/var/lib/qbank-fastdownload/site
@@ -19,15 +20,18 @@ SERVICE_CONF=/etc/conf.d/qbank-fastdownload
 EXISTING_TURN_URLS=''
 EXISTING_TURN_SECRET=''
 EXISTING_TURN_TTL=''
+EXISTING_ICE_PORT_RANGE=''
 if [ -f "$SERVICE_CONF" ]; then
   . "$SERVICE_CONF"
   EXISTING_TURN_URLS="${QBANK_FASTDOWNLOAD_TURN_URLS:-}"
   EXISTING_TURN_SECRET="${QBANK_FASTDOWNLOAD_TURN_SECRET:-}"
   EXISTING_TURN_TTL="${QBANK_FASTDOWNLOAD_TURN_TTL_SECONDS:-}"
+  EXISTING_ICE_PORT_RANGE="${QBANK_FASTDOWNLOAD_ICE_PORT_RANGE:-}"
 fi
 TURN_URLS="${REQUESTED_TURN_URLS:-$EXISTING_TURN_URLS}"
 TURN_SECRET="${REQUESTED_TURN_SECRET:-$EXISTING_TURN_SECRET}"
 TURN_TTL="${REQUESTED_TURN_TTL:-${EXISTING_TURN_TTL:-3600}}"
+ICE_PORT_RANGE="${REQUESTED_ICE_PORT_RANGE:-$EXISTING_ICE_PORT_RANGE}"
 
 [ "$(id -u)" -eq 0 ] || { echo 'fastdownload deployment requires root SSH access' >&2; exit 1; }
 [ -s "$ARCHIVE" ] || { echo "missing fastdownload package: $ARCHIVE" >&2; exit 1; }
@@ -50,6 +54,10 @@ if [ -n "$TURN_URLS" ]; then
   case "$TURN_TTL" in ''|*[!0-9]*) echo 'invalid TURN credential lifetime' >&2; exit 1;; esac
   [ "$TURN_TTL" -ge 60 ] && [ "$TURN_TTL" -le 86400 ] \
     || { echo 'TURN credential lifetime must be 60 to 86400 seconds' >&2; exit 1; }
+fi
+if [ -n "$ICE_PORT_RANGE" ]; then
+  printf '%s' "$ICE_PORT_RANGE" | grep -Eq '^[0-9]{4,5}-[0-9]{4,5}$' \
+    || { echo 'invalid ICE port range' >&2; exit 1; }
 fi
 
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
@@ -133,6 +141,9 @@ mkdir -p /etc/conf.d
   printf 'export QBANK_FASTDOWNLOAD_CADDY_PORT="%s"\n' "8443"
   printf 'export QBANK_FASTDOWNLOAD_ALLOWED_ORIGINS="%s"\n' "$PUBLIC_ORIGIN"
   printf 'export QBANK_FASTDOWNLOAD_STUN_URLS="%s"\n' "$STUN_URLS"
+  if [ -n "$ICE_PORT_RANGE" ]; then
+    printf 'export QBANK_FASTDOWNLOAD_ICE_PORT_RANGE="%s"\n' "$ICE_PORT_RANGE"
+  fi
   if [ -n "$TURN_URLS" ]; then
     printf 'export QBANK_FASTDOWNLOAD_TURN_URLS="%s"\n' "$TURN_URLS"
     printf 'export QBANK_FASTDOWNLOAD_TURN_SECRET="%s"\n' "$TURN_SECRET"

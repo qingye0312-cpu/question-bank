@@ -55,9 +55,11 @@ node tools/self-host/check-public-tls.mjs https://qbank.acharrystar.top:8013
 
 ## 快速下载
 
-快速下载页为 `https://qbank.acharrystar.top:8013/fastdowmload`，页面优先使用点对点 WebRTC；双方位于对称 NAT 时，会通过 `qbank-frps` 上的 TURN-over-TCP 中继建立加密数据通道。
+快速下载页为 `https://qbank.acharrystar.top:8013/fastdowmload`。第一次协商时浏览器和服务端都禁用 TURN，只尝试点对点 WebRTC；只有直连失败后才会关闭该连接并重新通过 `qbank-frps` 上的 TURN-over-TCP 建立加密回退通道。
 
 TURN 默认监听 `8004/tcp`，UDP relay 使用 `8005-8011`。服务端不保存固定客户端密码，而是用 `/etc/turnserver-auth.secret` 生成一小时内有效的 HMAC 凭据。共享密钥只存在于 root-only 的 `/etc/qbank-fastdownload` 和 coturn 配置中，不进入仓库。
+
+WAN 直连使用固定的服务端 UDP 端口 `42000-42010`；家庭路由器需要把该 UDP 端口段同端口转发到 `192.168.100.250`。未配置该转发时，远端客户端会明确显示并回退到 TURN。
 
 重复部署入口：
 
