@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {sha256,parseDelta} from '../desktop/shared/intake.ts';
-import {readManifest,readSnapshot} from '../desktop/shared/sync.ts';
+import {readManifest,readQuestionFile} from '../desktop/shared/sync.ts';
 import {encodeUpload} from '../tools/encode-upload.mjs';
 import servicePackage from '../cloud/qbank-auth/package.json' with {type:'json'};
 
@@ -108,8 +108,8 @@ test('packaged self-host merges an upload, reopens compressed disk state, replay
  server=createLocalServer({env}).server;
  const retry=await localRequest(server,'POST','/v1/uploads',encodeUpload(fixture),token);assert.equal(retry.data.receipt.status,'duplicate');assert.equal(retry.data.receipt.merged_at,merged.data.receipt.merged_at);
  const manifest=readManifest((await localRequest(server,'GET',`/v1/banks/${id}/manifest`)).data);
- const snapshot=readSnapshot((await localRequest(server,'GET',`/v1/banks/${id}/snapshot-file`)).data,manifest);assert.equal(snapshot.formal.length,2);assert.equal(snapshot.pending.length,0);
+ const questionFile=readQuestionFile((await localRequest(server,'GET',`/v1/banks/${id}/question-file`)).data,manifest);assert.equal(questionFile.questions.length,2);
  const rollback=await localRequest(server,'POST',`/v1/banks/${id}/rollback`,{base_revision:2,target_revision:1,operation_id:randomUUID()},token);assert.equal(rollback.status,200);assert.equal(rollback.data.revision,3);
- assert.equal((await localRequest(server,'GET',`/v1/banks/${id}/history`,undefined,token)).data.versions.length,1);
+ assert.equal((await localRequest(server,'GET',`/v1/banks/${id}/history`,undefined,token)).status,404);
  assert.equal((await createFileStore({root}).readState(id)).formal.length,1);
 });

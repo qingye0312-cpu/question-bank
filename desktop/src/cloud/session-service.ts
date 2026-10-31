@@ -7,6 +7,11 @@ export type Access={capabilities?:string[];permissions?:string[];pending_permiss
 type Session={token:string;origin:string;expires:number;access:Access;authType:'key'|'password';refreshToken?:string};
 type NativeResponse<T=Record<string,unknown>>={status:number;auth_type?:'key'|'password'|'';body:T&{error?:{message?:string;code?:string}}};
 const ORIGIN_KEY='qbank-cloud-origin-v1';
+const DEFAULT_ORIGIN=desktopService.origin;
+// The public service moved from a temporary IPv4 endpoint to the certificate
+// hostname. Migrate only HTTPS IPv4 origins on the public service port;
+// user-configured HTTPS hostnames remain supported.
+const isLegacyOrigin=(origin:string)=>/^https:\/\/(?:\d{1,3}\.){3}\d{1,3}:8013$/.test(origin);
 let session:Session|undefined;
 let generation=0;
 let onLogout=()=>{};
@@ -15,9 +20,32 @@ function notifyAccessChange(){if(typeof window!=='undefined')window.dispatchEven
 
 export function setLogoutHandler(handler:()=>void){onLogout=handler}
 export function sessionGeneration(){return generation}
-export function cloudOrigin(){return localStorage.getItem(ORIGIN_KEY)||import.meta.env.VITE_QBANK_API_ORIGIN||desktopService.origin;}
+function defaultOrigin(){return import.meta.env.VITE_QBANK_API_ORIGIN||DEFAULT_ORIGIN;}
+function saveStoredOrigin(origin:string){try{localStorage.setItem(ORIGIN_KEY,origin);}catch{/* A storage failure must not block offline use. */}}
+function removeStoredOrigin(){try{localStorage.removeItem(ORIGIN_KEY);}catch{/* Ignore unavailable local storage. */}}
+function storedOrigin(){
+ let stored:string|null=null;
+ try{stored=localStorage.getItem(ORIGIN_KEY);}catch{return defaultOrigin();}
+ if(!stored)return defaultOrigin();
+ try{
+  const u=new URL(stored);
+  if(u.protocol!=='https:'||u.username||u.password||u.pathname!=='/'||u.search||u.hash)throw Error('invalid origin');
+  const origin=u.origin;
+  if(isLegacyOrigin(origin)){
+   const migrated=defaultOrigin();
+   saveStoredOrigin(migrated);
+   return migrated;
+  }
+  if(origin!==stored)saveStoredOrigin(origin);
+  return origin;
+ }catch{
+  removeStoredOrigin();
+  return defaultOrigin();
+ }
+}
+export function cloudOrigin(){return storedOrigin();}
 export function setCloudOrigin(value:string){const u=new URL(value);if(u.protocol!=='https:'||u.username||u.password||u.pathname!=='/'||u.search||u.hash)throw Error('请填写不带路径的 HTTPS 地址');
- localStorage.setItem(ORIGIN_KEY,u.origin);session=undefined;generation++;notifyAccessChange();}
+ saveStoredOrigin(isLegacyOrigin(u.origin)?defaultOrigin():u.origin);session=undefined;generation++;notifyAccessChange();}
 export function cloudAccess(){if(session&&session.origin!==cloudOrigin()){session=undefined;generation++;}return session?.access;}
 const rememberKey=(origin=cloudOrigin())=>'qbank-remember:'+origin;
 function queueCredential(command:string,args:Record<string,unknown>){return invoke(command,args);}

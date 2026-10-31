@@ -1,6 +1,9 @@
 'use strict';
 const {createHash}=require('node:crypto');
 const sha256=text=>createHash('sha256').update(text).digest('hex');
+const path=require('node:path');
+function runtimeModule(name){try{return require(path.join(__dirname,name));}catch{return require(path.join(__dirname,'../../cloud/qbank-auth',name));}}
+const {diffQuestionIds}=runtimeModule('operations.cjs');
 
 // Repairs contradictory quality metadata only. Never creates or guesses answers.
 async function repairBankStatus({store,bankId,validateQuestion,releaseName,clock=Date.now}){
@@ -19,6 +22,8 @@ async function repairBankStatus({store,bankId,validateQuestion,releaseName,clock
  next.updated_at=at;next.merged_at=at;next.release_id=sha256(JSON.stringify(next.formal));
  next.release_name=releaseName(at,next.name,'状态修正',next.release_version,bankId,next.release_id);
  next.metadata_repairs=[...(next.metadata_repairs||[]),{at,from_revision:current.revision,revision:next.revision,changes:changed}];
+ const ids=diffQuestionIds(current.formal,next.formal);
+ next.operation_event={revision:next.revision,operated_at:at,kind:'state',operator:{account_id:null,real_name:'系统',nickname:null,auth_type:null},note:'题目状态修正',question_count:next.formal.length,duplicate_count:0,added:ids.added,revised:ids.revised,removed:ids.removed};
  if(Buffer.byteLength(JSON.stringify(next))>4194304)throw Error('修复后的题库超过大小限制');
  if(!await store.createState(next))throw Error('题库已被其他任务更新，请重新检查后重试');
  const verified=await store.readState(bankId);

@@ -1,8 +1,64 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { RTCPeerConnection } from 'werift';
-import { createFastDownloadServer } from '../server.mjs';
+import { createFastDownloadServer, createTurnIceServer, parseIcePortRange } from '../server.mjs';
+
+test('TURN credentials use the shared secret and expire after the configured lifetime', () => {
+  const nowMs = 1_700_000_000_000;
+  const secret = 'test-secret';
+  const turn = createTurnIceServer(['turn:turn.example.test:3478?transport=udp'], secret, 600, nowMs);
+  const expectedUsername = '1700000600:qbank';
+  assert.equal(turn.username, expectedUsername);
+  assert.equal(turn.credential, createHmac('sha1', secret).update(expectedUsername).digest('base64'));
+  assert.deepEqual(turn.urls, ['turn:turn.example.test:3478?transport=udp']);
+});
+
+test('ICE port range is optional and validated', () => {
+  assert.equal(parseIcePortRange(''), undefined);
+  assert.deepEqual(parseIcePortRange('42000-42010'), [42000, 42010]);
+  assert.throws(() => parseIcePortRange('42010-42000'), /ICE/);
+  assert.throws(() => parseIcePortRange('invalid'), /ICE/);
+});
+
+test('allowTurn false produces an answer without TURN relay candidates', async t => {
+  const serverInstance = createFastDownloadServer({
+    allowedOrigins: new Set(['http://127.0.0.1']),
+    iceUrls: [],
+    turnIceUrls: ['turn:turn.example.test:3478?transport=tcp'],
+    turnSecret: 'test-secret',
+    assetLoader: async () => ({
+      filename: 'fixture.bin',
+      version: '1.2.3',
+      size: 1,
+      sha256: '0'.repeat(64),
+      path: '/fixture',
+    }),
+  });
+  serverInstance.server.listen(0, '127.0.0.1');
+  await new Promise((resolve, reject) => {
+    serverInstance.server.once('listening', resolve);
+    serverInstance.server.once('error', reject);
+  });
+  t.after(async () => {
+    await new Promise(resolve => serverInstance.server.close(resolve));
+  });
+
+  const client = new RTCPeerConnection({ iceServers: [] });
+  t.after(async () => { await client.close(); });
+  client.createDataChannel('fastdownload', { ordered: true });
+  await client.setLocalDescription(await client.createOffer());
+  const address = serverInstance.server.address();
+  const response = await fetch(`http://127.0.0.1:${address.port}/fastdownload/api/offer`, {
+    method: 'POST',
+    headers: { origin: 'http://127.0.0.1', 'content-type': 'application/json' },
+    body: JSON.stringify({ artifact: 'macos', offer: client.localDescription, allowTurn: false }),
+  });
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.answer?.type, 'answer');
+  assert.doesNotMatch(body.answer.sdp, /\styp relay\s/);
+});
 
 test('the offer endpoint streams a package over a peer DataChannel with bounded acknowledgements', async t => {
   const content = Buffer.alloc(2 * 1024 * 1024 + 37, 0x5a);
@@ -70,7 +126,7 @@ test('the offer endpoint streams a package over a peer DataChannel with bounded 
 
   await client.setLocalDescription(await client.createOffer());
   const address = serverInstance.server.address();
-  const response = await fetch(`http://127.0.0.1:${address.port}/fastdowmload/api/offer`, {
+  const response = await fetch(`http://127.0.0.1:${address.port}/fastdownload/api/offer`, {
     method: 'POST',
     headers: { origin: 'http://127.0.0.1', 'content-type': 'application/json' },
     body: JSON.stringify({ artifact: 'macos', offer: client.localDescription }),

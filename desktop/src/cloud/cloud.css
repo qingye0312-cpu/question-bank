@@ -59,6 +59,7 @@
 .cloud-operation-title em{padding:.18rem .42rem;border:1px solid var(--line);border-radius:.35rem;color:var(--secondary);font-size:.72rem;font-style:normal;font-weight:650;white-space:nowrap}
 .cloud-operation-title time{color:var(--muted);font-size:.75rem;font-variant-numeric:tabular-nums;white-space:nowrap}
 .cloud-operation-meta{display:flex;gap:.45rem 1rem;flex-wrap:wrap;color:var(--muted);font-size:.76rem;line-height:1.45}
+.cloud-operation-note{margin:0;padding:.5rem .6rem;border-left:.18rem solid var(--accent-border);border-radius:.2rem;background:var(--accent-soft);color:var(--ink);font-size:.76rem;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere}
 .cloud-operation-release-name{margin:0;color:var(--muted);font-size:.72rem;overflow-wrap:anywhere}
 .cloud-history-item{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:1rem;padding:.95rem 1rem;border:1px solid var(--line);border-radius:.75rem;background:var(--surface-soft);box-shadow:0 .12rem .35rem var(--shadow-soft)}
 .cloud-history-main{display:grid;gap:.45rem;min-width:0}

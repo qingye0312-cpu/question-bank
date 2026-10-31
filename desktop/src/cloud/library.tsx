@@ -10,7 +10,7 @@ import type {Bank} from '../types';
 
 type LibraryTab='local'|'cloud'|'maintainers';
 
-export function CloudLibrary({banks,onClose,onChanged,onDeleted,onCreated}:{banks:Bank[];onClose:()=>void;onChanged:()=>Promise<unknown>;onDeleted:(id:string)=>Promise<unknown>;onCreated:(id:string)=>void}){
+export function CloudLibrary({banks,onClose,onChanged,onDeleted,onCreated,onFork}:{banks:Bank[];onClose:()=>void;onChanged:()=>Promise<unknown>;onDeleted:(id:string)=>Promise<unknown>;onCreated:(id:string)=>void;onFork:(id:string)=>Promise<unknown>}){
  const [tasks,setTasks]=useState<PromotionTask[]>([]),[busy,setBusy]=useState(''),[message,setMessage]=useState(''),[newBankName,setNewBankName]=useState(''),[,render]=useState(0);
  const [deleting,setDeleting]=useState<Bank|null>(null),[tab,setTab]=useState<LibraryTab>('local');
  const refresh=()=>promotionTasks().then(setTasks);
@@ -44,7 +44,8 @@ export function CloudLibrary({banks,onClose,onChanged,onDeleted,onCreated}:{bank
    <form className="library-create" onSubmit={e=>{e.preventDefault();void createLocalBank()}}><label htmlFor="library-new-bank">新建本地题库</label><input id="library-new-bank" value={newBankName} onChange={e=>setNewBankName(e.target.value)} maxLength={120} placeholder="输入题库名称" disabled={!!busy}/><button type="submit" disabled={!!busy||!newBankName.trim()}>{busy==='create'?'正在创建…':'创建题库'}</button></form>
    <div className="library-banks">{banks.map(bank=>{const task=tasks.find(t=>t.bankId===bank.id),confirming=deleting?.id===bank.id;return <article className="library-bank" key={bank.id}>
     <div className="library-bank-summary"><div><b>{bank.name}</b><p>{bank.count.toLocaleString()} 题 · {bank.read_only?'云端 / 发布题库':task?.status==='pending'?'转换结果待确认':'本地可编辑题库'} · v{bank.version}</p></div>
-     <div className="library-bank-actions">{bank.read_only?<span className="library-protected">不支持删除</span>:<>
+     <div className="library-bank-actions">{bank.read_only?<span className="library-protected">云端题库不可复制或删除</span>:<>
+      <button disabled={!!busy||!!deleting} onClick={()=>void onFork(bank.id)}>创建副本</button>
       {canCreate&&<button disabled={!!busy||!!deleting} onClick={()=>void run(bank,task)}>{busy===bank.id&&!deleting?'正在启用…':task?.status==='pending'?'恢复原转换任务':'设为云端题库'}</button>}
       <button className="danger" disabled={!!busy||!!deleting||!!task} title={task?'云端转换任务关联题库不可删除':undefined} aria-label={`删除本地题库：${bank.name}`} onClick={()=>{setMessage('');setDeleting(bank)}}>删除</button>
      </>}</div>

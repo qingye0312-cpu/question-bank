@@ -11,5 +11,5 @@ REMOTE_QUESTIONS="/tmp/qbank-questions.json"
 
 pnpm build:self-host
 scp "$ARCHIVE" "$HOST:$REMOTE_ARCHIVE"
-scp miniprogram/miniprogram/data/questions.json "$HOST:$REMOTE_QUESTIONS"
+scp tools/mobile-index/sources/basic/questions.jsonl "$HOST:$REMOTE_QUESTIONS"
 ssh "$HOST" "QBANK_ARCHIVE=$REMOTE_ARCHIVE QBANK_QUESTIONS=$REMOTE_QUESTIONS sh -s" < tools/self-host/install-alpine.sh

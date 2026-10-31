@@ -22,7 +22,7 @@ const esbuild = path.join(pnpmStore, esbuildEntry, 'node_modules/esbuild/bin/esb
 await fs.access(esbuild);
 
 await fs.rm(output, { recursive: true, force: true });
-await fs.mkdir(path.join(output, 'site/fastdowmload'), { recursive: true });
+await fs.mkdir(path.join(output, 'site/fastdownload'), { recursive: true });
 await fs.cp(source, path.join(output, 'server'), {
   recursive: true,
   verbatimSymlinks: true,
@@ -31,7 +31,7 @@ await fs.cp(source, path.join(output, 'server'), {
     return relative !== 'test' && !relative.startsWith(`test${path.sep}`);
   },
 });
-await fs.copyFile(page, path.join(output, 'site/fastdowmload/index.html'));
+await fs.copyFile(page, path.join(output, 'site/fastdownload/index.html'));
 await fs.mkdir(path.join(output, 'service'), { recursive: true });
 await fs.copyFile(path.join(root, 'tools/self-host/qbank-fastdownload.initd'), path.join(output, 'service/qbank-fastdownload.initd'));
 
@@ -41,7 +41,7 @@ const bundle = spawnSync(esbuild, [
   '--platform=browser',
   '--format=iife',
   '--target=es2020',
-  `--outfile=${path.join(output, 'site/fastdowmload/sha256-worker.js')}`,
+  `--outfile=${path.join(output, 'site/fastdownload/sha256-worker.js')}`,
 ], { encoding: 'utf8' });
 if (bundle.status !== 0) throw new Error(bundle.stderr || 'SHA-256 worker 打包失败');
 

@@ -153,8 +153,8 @@ fn compressed_exchange_freezes_identity_and_receipt_cannot_be_forged_by_mismatch
     );
     let original = intake::entries(&s, &entry.batch_id).unwrap().remove(0);
     let accepted_at = original.uploaded_at.clone();
-    let mut merged = json!({"format":"qbank-snapshot-2","bank_id":b,"name":"测试题库","revision":1,"release_version":1,"updated_at":now(),"formal":[original.question],"pending":[],"removed":[{"question_id":original.question.question_id,"status":"merged"}]});
-    merged["formal"][0]["status"] = json!("verified");
+    let mut merged = json!({"format":"qbank-question-bank-1","bank_id":b,"name":"测试题库","revision":1,"release_version":1,"updated_at":now(),"questions":[original.question],"pending":[],"removed":[{"question_id":original.question.question_id,"status":"merged"}]});
+    merged["questions"][0]["status"] = json!("verified");
     let raw = merged.to_string();
     cloud::apply(&s, &raw, &hash(raw.as_bytes())).unwrap();
     let history = intake::entries(&s, &entry.batch_id).unwrap().remove(0);
@@ -188,13 +188,13 @@ fn rollback_clears_manual_upload_entries_and_import_fingerprints() {
     let mut seed = question.clone();
     seed.status = "verified".into();
     let initial = json!({
-        "format": "qbank-snapshot-2",
+        "format": "qbank-question-bank-1",
         "bank_id": b,
         "name": "测试题库",
         "revision": 1,
         "release_version": 1,
         "updated_at": now(),
-        "formal": [seed],
+        "questions": [seed],
         "pending": [],
         "removed": []
     })
@@ -202,14 +202,14 @@ fn rollback_clears_manual_upload_entries_and_import_fingerprints() {
     cloud::apply(&s, &initial, &hash(initial.as_bytes())).unwrap();
 
     let rolled_back = json!({
-        "format": "qbank-snapshot-2",
+        "format": "qbank-question-bank-1",
         "bank_id": b,
         "name": "测试题库",
         "revision": 2,
         "release_version": 1,
         "updated_at": now(),
         "rollback_of": 1,
-        "formal": [],
+        "questions": [],
         "pending": [],
         "removed": []
     })
@@ -231,6 +231,73 @@ fn rollback_clears_manual_upload_entries_and_import_fingerprints() {
 }
 
 #[test]
+fn later_snapshot_clears_uploaded_rows_missing_from_formal_without_a_rollback_marker() {
+    let (_d, s, b) = setup();
+    let uploaded = intake::save(&s, &b, "", &reply()).unwrap();
+    let uploaded_question = uploaded.comparison.question.clone();
+    intake::mark_upload(&s, &b, &uploaded_question.question_id, true).unwrap();
+
+    let initial = json!({
+        "format": "qbank-question-bank-1",
+        "bank_id": b,
+        "name": "测试题库",
+        "revision": 1,
+        "release_version": 1,
+        "updated_at": now(),
+        "questions": [uploaded_question],
+        "pending": [],
+        "removed": []
+    })
+    .to_string();
+    cloud::apply(&s, &initial, &hash(initial.as_bytes())).unwrap();
+
+    let pending = intake::save(
+        &s,
+        &b,
+        "",
+        &reply().replace("本地新增", "尚未上传的本地新题"),
+    )
+    .unwrap();
+    let pending_id = pending.comparison.question.question_id;
+
+    // The client missed the rollback revision and only sees the later merge.
+    // The latest snapshot has no rollback marker, but the uploaded question is
+    // no longer formal and must not be resurrected as a local draft.
+    let later = json!({
+        "format": "qbank-question-bank-1",
+        "bank_id": b,
+        "name": "测试题库",
+        "revision": 3,
+        "release_version": 2,
+        "updated_at": now(),
+        "questions": [],
+        "pending": [],
+        "removed": []
+    })
+    .to_string();
+    cloud::apply(&s, &later, &hash(later.as_bytes())).unwrap();
+
+    let stale: Option<String> = s
+        .conn()
+        .unwrap()
+        .query_row(
+            "SELECT upload_status FROM intake_entries WHERE bank_id=?1 AND question_id=?2",
+            rusqlite::params![b, uploaded_question.question_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .unwrap();
+    assert_eq!(stale, None);
+    assert_eq!(intake::entries(&s, &pending.batch_id).unwrap().len(), 1);
+    assert_eq!(
+        intake::entries(&s, &pending.batch_id).unwrap()[0]
+            .question
+            .question_id,
+        pending_id
+    );
+}
+
+#[test]
 fn reimport_repairs_orphaned_manual_upload_entries_left_by_an_older_client() {
     let (d, s, b) = setup();
     let saved = intake::save(&s, &b, "", &reply()).unwrap();
@@ -242,13 +309,13 @@ fn reimport_repairs_orphaned_manual_upload_entries_left_by_an_older_client() {
     let mut seed = question;
     seed.status = "verified".into();
     let initial = json!({
-        "format": "qbank-snapshot-2",
+        "format": "qbank-question-bank-1",
         "bank_id": b,
         "name": "测试题库",
         "revision": 1,
         "release_version": 1,
         "updated_at": now(),
-        "formal": [seed],
+        "questions": [seed],
         "pending": [],
         "removed": []
     })
@@ -258,13 +325,13 @@ fn reimport_repairs_orphaned_manual_upload_entries_left_by_an_older_client() {
     // Simulate an older client that applied the rollback without cleaning the
     // uploaded-manual intake row. The import path must repair that state.
     let rolled_back = json!({
-        "format": "qbank-snapshot-2",
+        "format": "qbank-question-bank-1",
         "bank_id": b,
         "name": "测试题库",
         "revision": 2,
         "release_version": 1,
         "updated_at": now(),
-        "formal": [],
+        "questions": [],
         "pending": [],
         "removed": []
     })
@@ -334,7 +401,7 @@ fn cloud_layers_swap_atomically_preserve_drafts_and_reject_bad_updates() {
     s.delete(h.rowid).unwrap();
     let mut added = question("云端新增");
     added.bank = "测试题库".into();
-    let state = json!({"format":"qbank-snapshot-2","bank_id":b,"name":"测试题库","revision":1,"release_version":1,"updated_at":now(),"formal":[s.questions(&b).unwrap().into_iter().find(|q|q.stem=="正式题").unwrap(),added],"pending":[],"removed":[]});
+    let state = json!({"format":"qbank-question-bank-1","bank_id":b,"name":"测试题库","revision":1,"release_version":1,"updated_at":now(),"questions":[s.questions(&b).unwrap().into_iter().find(|q|q.stem=="正式题").unwrap(),added],"pending":[],"removed":[]});
     let raw = state.to_string();
     cloud::apply(&s, &raw, &hash(raw.as_bytes())).unwrap();
     assert_eq!(s.questions(&b).unwrap().len(), 3);
@@ -362,7 +429,7 @@ fn cloud_layers_swap_atomically_preserve_drafts_and_reject_bad_updates() {
     );
     let mut next = state.clone();
     next["revision"] = json!(2);
-    next["formal"].as_array_mut().unwrap().pop();
+    next["questions"].as_array_mut().unwrap().pop();
     let text = next.to_string();
     assert!(cloud::apply(&s, &text, &"0".repeat(64)).is_err());
     assert_eq!(s.questions(&b).unwrap().len(), 3);
@@ -374,9 +441,30 @@ fn cloud_layers_swap_atomically_preserve_drafts_and_reject_bad_updates() {
     let mut q = question("坏身份");
     q.bank = "测试题库".into();
     q.question_id.clear();
-    invalid["formal"] = json!([q]);
+    invalid["questions"] = json!([q]);
     let text = invalid.to_string();
     assert!(cloud::apply(&s, &text, &hash(text.as_bytes())).is_err());
+    assert_eq!(
+        cloud::clear_cached_snapshot(&s, &[b.clone()]).unwrap(),
+        vec![b.clone()]
+    );
+    let c = s.conn().unwrap();
+    let snapshots: i64 = c
+        .query_row(
+            "SELECT COUNT(*) FROM cloud_snapshots WHERE bank_id=?1",
+            [&b],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let baselines: i64 = c
+        .query_row(
+            "SELECT COUNT(*) FROM cloud_baselines WHERE bank_id=?1",
+            [&b],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(snapshots, 0);
+    assert_eq!(baselines, 0);
 }
 #[test]
 fn current_cloud_snapshot_preserves_all_seed_questions() {
@@ -392,7 +480,7 @@ fn current_cloud_snapshot_preserves_all_seed_questions() {
         };
     }
     let id = uid();
-    let raw=json!({"format":"qbank-snapshot-2","bank_id":id,"name":"HarmonyOS 初级认证","revision":1,"release_version":1,"updated_at":now(),"formal":qs,"pending":[],"removed":[]}).to_string();
+    let raw=json!({"format":"qbank-question-bank-1","bank_id":id,"name":"HarmonyOS 初级认证","revision":1,"release_version":1,"updated_at":now(),"questions":qs,"pending":[],"removed":[]}).to_string();
     cloud::apply(&s, &raw, &hash(raw.as_bytes())).unwrap();
     assert_eq!(s.questions(&id).unwrap().len(), qs.len());
 }

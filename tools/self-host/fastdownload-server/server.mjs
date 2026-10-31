@@ -1,5 +1,6 @@
 import http from 'node:http';
 import https from 'node:https';
+import { createHmac } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import tls from 'node:tls';
 import { fileURLToPath } from 'node:url';
@@ -16,28 +17,33 @@ const CHUNK_BYTES = 16 * 1024;
 const MAX_ACTIVE_PEERS = Number(process.env.QBANK_FASTDOWNLOAD_MAX_PEERS || 2);
 const bindHost = process.env.QBANK_FASTDOWNLOAD_BIND_HOST || '127.0.0.1';
 const port = Number(process.env.QBANK_FASTDOWNLOAD_PORT || 8090);
-const caddyHost = process.env.QBANK_FASTDOWNLOAD_CADDY_HOST || 'qbank.creart.top';
+const caddyHost = process.env.QBANK_FASTDOWNLOAD_CADDY_HOST || 'qbank.acharrystar.top';
 const caddyPort = Number(process.env.QBANK_FASTDOWNLOAD_CADDY_PORT || 8443);
 const stunUrls = (process.env.QBANK_FASTDOWNLOAD_STUN_URLS || 'stun:stun.cloudflare.com:3478')
   .split(',').map(value => value.trim()).filter(Boolean);
-const allowedOrigins = new Set((process.env.QBANK_FASTDOWNLOAD_ALLOWED_ORIGINS || 'https://qbank.creart.top:8013')
+const turnUrls = (process.env.QBANK_FASTDOWNLOAD_TURN_URLS || '')
+  .split(',').map(value => value.trim()).filter(Boolean);
+const turnSharedSecret = process.env.QBANK_FASTDOWNLOAD_TURN_SECRET || '';
+const turnCredentialTtlSec = Number(process.env.QBANK_FASTDOWNLOAD_TURN_TTL_SECONDS || 3600);
+const icePortRange = parseIcePortRange(process.env.QBANK_FASTDOWNLOAD_ICE_PORT_RANGE || '');
+const allowedOrigins = new Set((process.env.QBANK_FASTDOWNLOAD_ALLOWED_ORIGINS || 'https://qbank.acharrystar.top:8013')
   .split(',').map(value => value.trim()).filter(Boolean));
 
 const artifacts = {
   macos: version => ({
-    filename: `题库_${version}_macOS_arm64.dmg`,
-    path: `/v1/desktop/releases/macos/${version}/${encodeURIComponent(`题库_${version}_macOS_arm64.dmg`)}`,
-    checksumPath: `../macos/${version}/题库_${version}_macOS_arm64.dmg`,
+    filename: `qbank-${version}-macos-arm64.dmg`,
+    path: `/v1/desktop/releases/macos/${version}/qbank-${version}-macos-arm64.dmg`,
+    checksumPath: `../macos/${version}/qbank-${version}-macos-arm64.dmg`,
   }),
   'windows-setup': version => ({
-    filename: '题库_windows_x64_setup.exe',
-    path: `/v1/desktop/releases/windows/${version}/${encodeURIComponent('题库_windows_x64_setup.exe')}`,
-    checksumPath: `../windows/${version}/题库_windows_x64_setup.exe`,
+    filename: `qbank-${version}-windows-x64-setup.exe`,
+    path: `/v1/desktop/releases/windows/${version}/qbank-${version}-windows-x64-setup.exe`,
+    checksumPath: `../windows/${version}/qbank-${version}-windows-x64-setup.exe`,
   }),
   'windows-portable': version => ({
-    filename: '题库_windows_x64_portable.exe',
-    path: `/v1/desktop/releases/windows/${version}/${encodeURIComponent('题库_windows_x64_portable.exe')}`,
-    checksumPath: `../windows/${version}/题库_windows_x64_portable.exe`,
+    filename: `qbank-${version}-windows-x64-portable.exe`,
+    path: `/v1/desktop/releases/windows/${version}/qbank-${version}-windows-x64-portable.exe`,
+    checksumPath: `../windows/${version}/qbank-${version}-windows-x64-portable.exe`,
   }),
 };
 
@@ -46,6 +52,28 @@ function json(res, status, value) {
   res.setHeader('content-type', 'application/json; charset=utf-8');
   res.setHeader('cache-control', 'no-store');
   res.end(JSON.stringify(value));
+}
+
+export function createTurnIceServer(urls, secret, ttlSec, nowMs = Date.now()) {
+  if (urls.length === 0 && !secret) return null;
+  if (urls.length === 0 || !secret) throw new Error('TURN URL 和共享密钥必须同时配置');
+  if (!Number.isSafeInteger(ttlSec) || ttlSec < 60 || ttlSec > 86_400) {
+    throw new Error('TURN 凭据有效期必须是 60 到 86400 秒');
+  }
+  const username = `${Math.floor(nowMs / 1000) + ttlSec}:qbank`;
+  const credential = createHmac('sha1', secret).update(username).digest('base64');
+  return { urls, username, credential };
+}
+
+export function parseIcePortRange(value) {
+  if (!value) return undefined;
+  const match = /^(\d{4,5})-(\d{4,5})$/.exec(value);
+  if (!match) throw new Error('ICE 端口范围格式无效');
+  const range = [Number(match[1]), Number(match[2])];
+  if (range[0] < 1024 || range[0] > 65535 || range[1] < range[0] || range[1] > 65535) {
+    throw new Error('ICE 端口范围无效');
+  }
+  return range;
 }
 
 function caddyRequest(path, method = 'GET') {
@@ -161,8 +189,8 @@ async function streamAsset(channel, asset, waitForAck, assetOpener) {
   channel.send(JSON.stringify({ type: 'complete', size: sent, sha256: asset.sha256 }));
 }
 
-function makePeer(offer, asset, activePeers, assetOpener) {
-  const pc = new RTCPeerConnection({ iceServers: stunUrls.map(urls => ({ urls })) });
+function makePeer(offer, asset, activePeers, assetOpener, iceServers, portRange) {
+  const pc = new RTCPeerConnection({ iceServers, icePortRange: portRange });
   let channel;
   let started = false;
   let closed = false;
@@ -252,19 +280,27 @@ function makePeer(offer, asset, activePeers, assetOpener) {
 export function createFastDownloadServer({
   allowedOrigins: origins = allowedOrigins,
   iceUrls = stunUrls,
+  turnIceUrls = turnUrls,
+  turnSecret = turnSharedSecret,
+  turnTtlSec = turnCredentialTtlSec,
+  portRange = icePortRange,
   assetLoader = loadArtifact,
   assetOpener = path => caddyRequest(path),
 } = {}) {
   const activePeers = new Set();
+  const createIceServers = (includeTurn = true) => [
+    ...iceUrls.map(urls => ({ urls })),
+    includeTurn ? createTurnIceServer(turnIceUrls, turnSecret, turnTtlSec) : null,
+  ].filter(Boolean);
   const server = http.createServer(async (req, res) => {
     const pathname = new URL(req.url || '/', 'http://127.0.0.1').pathname;
     if (req.method === 'GET' && pathname === '/health') return json(res, 200, { ok: true, activePeers: activePeers.size });
-    if (req.method === 'GET' && pathname === '/fastdowmload/api/config') {
+    if (req.method === 'GET' && pathname === '/fastdownload/api/config') {
       const origin = req.headers.origin;
       if (origin && !origins.has(origin)) return json(res, 403, { error: '来源不受支持' });
-      return json(res, 200, { iceServers: iceUrls.map(urls => ({ urls })) });
+      return json(res, 200, { iceServers: createIceServers() });
     }
-    if (req.method !== 'POST' || pathname !== '/fastdowmload/api/offer') return json(res, 404, { error: 'Not found' });
+    if (req.method !== 'POST' || pathname !== '/fastdownload/api/offer') return json(res, 404, { error: 'Not found' });
     if (!origins.has(req.headers.origin)) return json(res, 403, { error: '来源不受支持' });
     if (activePeers.size >= MAX_ACTIVE_PEERS) return json(res, 503, { error: '当前直连人数较多，请稍后重试或使用普通下载' });
 
@@ -274,8 +310,11 @@ export function createFastDownloadServer({
       if (body?.offer?.type !== 'offer' || typeof body.offer.sdp !== 'string' || body.offer.sdp.length > 80_000) {
         throw Object.assign(new Error('WebRTC offer 无效'), { status: 400 });
       }
+      if (body.allowTurn != null && typeof body.allowTurn !== 'boolean') {
+        throw Object.assign(new Error('WebRTC 中继选项无效'), { status: 400 });
+      }
       const asset = await assetLoader(body.artifact);
-      peer = makePeer(body.offer, asset, activePeers, assetOpener);
+      peer = makePeer(body.offer, asset, activePeers, assetOpener, createIceServers(body.allowTurn !== false), portRange);
       let timer;
       const answer = await Promise.race([
         peer.negotiate(),
@@ -297,7 +336,8 @@ export function createFastDownloadServer({
   return { server, activePeers };
 }
 
-if (process.argv[1] && realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1])) {
+const entrypoint = process.argv[1];
+if (entrypoint && entrypoint !== '-' && realpathSync(fileURLToPath(import.meta.url)) === realpathSync(entrypoint)) {
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('QBANK_FASTDOWNLOAD_PORT 无效');
   const { server } = createFastDownloadServer();
   server.listen(port, bindHost, () => console.log(`qbank-fastdownload listening on ${bindHost}:${port}`));

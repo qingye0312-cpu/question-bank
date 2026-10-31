@@ -1,7 +1,7 @@
 import {themePageData,showPageTheme,hidePageTheme} from '../../services/appearance';
 import {LocalBank, VirtualList, Segment, queryTerms, snippet, answerText, typeNames} from '../../core/search';
-import {loadBank,listBanks,activeBankId,selectBank,invalidateBank,type BankSummary} from '../../services/bank';
-import {cloudCatalog,refreshCatalog,syncBank} from '../../services/sync';
+import {loadBank,listBanks,activeBankId,selectBank,invalidateBank,bankCacheGeneration,type BankSummary} from '../../services/bank';
+import {cloudCatalog,purgeCloudCache,refreshCatalog,reloadBank,syncBank} from '../../services/sync';
 import {foregroundGeneration} from '../../services/foreground';
 import {APP_VERSION} from '../../generated/client-assets';
 
@@ -24,8 +24,8 @@ function trimShareQuery(value: string): string {
   return result;
 }
 
-function shareContent(bankId: string, bundledBankId: string | undefined, bankName: string, searchQuery: string) {
-  const isShareable=bankId===bundledBankId||cloudCatalog().some(bank=>bank.bank_id===bankId);
+function shareContent(bankId: string, bankName: string, searchQuery: string) {
+  const isShareable=cloudCatalog().some(bank=>bank.bank_id===bankId);
   const params:string[]=[];
   if(isShareable){
     params.push(`bank=${encodeURIComponent(bankId)}`);
@@ -42,9 +42,9 @@ Page({
   data: {
     ...themePageData(),
     query: '', bankName: '正在打开题库', version: 1, total: 0, count: 0,
-    syncNotice:'',syncing:false,ready: false, loading: true, error: '', rows: [] as Row[],
+    syncNotice:'',syncing:false,forceRefreshing:false,ready: false, loading: true, error: '', rows: [] as Row[],
     before: 0, after: 0, scrollTop: 0, headerCollapsed: false,
-    appVersion:APP_VERSION,bankId:'',banks:[] as BankSummary[],bankIndex:0,bankLabel:'内置题库',
+    appVersion:APP_VERSION,bankId:'',banks:[] as BankSummary[],bankIndex:0,bankLabel:'云端题库',
   },
   bank: undefined as LocalBank | undefined,
   ids: [] as number[], terms: [] as string[], layout: null as VirtualList | null,
@@ -52,6 +52,7 @@ Page({
   viewport: 700, scrollTimer: undefined as number | undefined, alive: true,
   headerTimer: undefined as number | undefined,
   foregroundSeen:-1,
+  cacheGenerationSeen:0,
   // Page() deep-clones free data; construct class instances after that clone.
   async onLoad(options: Record<string, string | undefined> = {}): Promise<void> {
     this.layout = new VirtualList(0);
@@ -74,6 +75,11 @@ Page({
     showPageTheme(this);
     const generation=foregroundGeneration();
     if(this.foregroundSeen<0){this.foregroundSeen=generation;return;}
+    if(this.data.ready&&this.cacheGenerationSeen!==bankCacheGeneration()){
+      this.cacheGenerationSeen=bankCacheGeneration();
+      void this.initialize().then(()=>{if(this.alive&&this.data.ready)void this.syncCloud(false,true);}).catch(()=>{});
+      return;
+    }
     // Page onShow also fires when returning from detail; only app foreground entries sync.
     if(generation!==this.foregroundSeen){
       this.foregroundSeen=generation;
@@ -94,6 +100,12 @@ Page({
     this.setData({loading: true, error: ''});
     try {
       const banks=await listBanks();
+      if(!banks.length){
+        if(!this.alive||epoch!==this.loadEpoch)return;
+        this.bank=undefined;this.ids=[];this.start=-1;this.end=-1;
+        this.setData({loading:false,ready:false,banks:[],bankId:'',bankName:'等待云端题库',bankLabel:'',total:0,count:0,rows:[],before:0,after:0});
+        return;
+      }
       const id=banks.some(b=>b.id===preferredBankId)?preferredBankId:banks.some(b=>b.id===activeBankId())?activeBankId():banks[0].id;
       if(!this.alive||epoch!==this.loadEpoch)return;
       this.bank=undefined;this.ids=[];this.start=-1;this.end=-1;
@@ -102,21 +114,33 @@ Page({
       const {bank, manifest} = await loadBank(id);
       if (!this.alive||epoch!==this.loadEpoch) return;
       selectBank(id);
-      this.setData({banks,bankId:id,bankIndex:banks.findIndex(b=>b.id===id),bankLabel:manifest.release_id==='local'?'本地题库':'正式题库 + 本地新题'});
+      const cloudCount=manifest.cloud_question_count||0,localCount=manifest.local_question_count||0;
+      this.setData({banks,bankId:id,bankIndex:banks.findIndex(b=>b.id===id),bankLabel:manifest.release_id==='local'?'本地题库':localCount?`云端正式 ${cloudCount} + 本地新题 ${localCount}`:'云端正式题库'});
       this.bank = bank;
+      this.cacheGenerationSeen=bankCacheGeneration();
       this.setData({ready: true, bankName: banks.find(b=>b.id===id)?.name||manifest.name, version: manifest.release_version, total: manifest.question_count}, () => this.measureViewport());
       await this.runSearch(this.data.query);
     } catch (error) {
       if (this.alive&&epoch===this.loadEpoch) this.setData({loading: false, error: error instanceof Error ? error.message : '题库加载失败，请重试'});
     }
   },
-  async syncCloud(catalogRefreshAttempted=false,force=false){
-    if(this.data.syncing||!this.alive)return;this.setData({syncing:true});const id=this.data.bankId;
+  async syncCloud(catalogRefreshAttempted=false,force=false,replaceCache=false){
+    if(this.data.syncing||!this.alive)return;this.setData({syncing:true});let id=this.data.bankId;
     try{
-      if(!catalogRefreshAttempted)await refreshCatalog(force);
+      if(replaceCache){
+        this.setData({forceRefreshing:true,syncNotice:'正在删除本地云端题库缓存…'});
+        const cachedIds=[...new Set(this.data.banks.map(bank=>bank.id))];
+        await purgeCloudCache();
+        for(const cachedId of cachedIds)invalidateBank(cachedId);
+        this.setData({syncNotice:'本地缓存已删除，正在下载最新题库…'});
+      }
+      if(!catalogRefreshAttempted)await refreshCatalog(force||replaceCache);
       if(!this.alive)return;
       // Publish the directory independently of the selected bank's download.
-      const banks=await listBanks();this.setData({banks,bankIndex:banks.findIndex(b=>b.id===this.data.bankId),bankName:banks.find(b=>b.id===this.data.bankId)?.name||this.data.bankName},()=>this.measureViewport());
+      const banks=await listBanks(),preferred=id||activeBankId();
+      id=banks.some(bank=>bank.id===preferred)?preferred:banks[0]?.id||'';
+      if(id&&id!==this.data.bankId)selectBank(id);
+      this.setData({banks,bankId:id,bankIndex:banks.findIndex(b=>b.id===id),bankName:banks.find(b=>b.id===id)?.name||this.data.bankName},()=>this.measureViewport());
       // Download every discovered bank, current bank first. A failed download
       // must not prevent a different bank (including a new one) being cached.
       const manifests=[...cloudCatalog()].sort((a,b)=>Number(b.bank_id===id)-Number(a.bank_id===id));
@@ -125,7 +149,7 @@ Page({
         if(!this.alive)return;
         this.setData({syncNotice:`正在同步 ${manifest.name} · 共 ${manifests.length} 个云端题库`});
         try{
-          const changed=await syncBank(manifest.bank_id,manifest);
+          const changed=replaceCache?await reloadBank(manifest.bank_id,manifest):await syncBank(manifest.bank_id,manifest);
           if(changed)invalidateBank(manifest.bank_id);
           if(!this.alive)return;
           if(this.data.bankId===manifest.bank_id&&(changed||!this.data.ready))await this.initialize(manifest.bank_id);
@@ -133,11 +157,13 @@ Page({
       }
       if(!this.alive)return;
       this.setData({syncNotice:failures.length?`${failures.length} 个题库同步未完成 · ${failures[0]}`
+        :replaceCache?`已删除旧缓存并重新下载 ${manifests.length} 个云端题库`
         :`云端 ${manifests.length} 个题库 · 版本已核对，已缓存可离线使用`});
-    }catch(e){if(this.alive)this.setData({syncNotice:e instanceof Error?e.message:'同步暂未完成，本地题库仍可使用'});}
-    finally{if(this.alive){this.setData({syncing:false});if(this.data.bankId!==id)void this.syncCloud();}}
+    }catch(e){if(this.alive)this.setData({syncNotice:e instanceof Error?e.message:replaceCache?'刷新未完成，请联网后重新点击刷新':'同步暂未完成，已有缓存仍可使用'});}
+    finally{if(this.alive){this.setData({syncing:false,forceRefreshing:false});if(this.data.bankId!==id)void this.syncCloud();}}
   },
   onSync(){void this.syncCloud(false,true);},
+  onForceRefresh(){void this.syncCloud(false,true,true);},
   measureViewport() {
     if (!this.alive) return;
     wx.createSelectorQuery().in(this).select('.results').boundingClientRect(rect => {
@@ -163,8 +189,8 @@ Page({
   onAppearance(){wx.navigateTo({url:"/pages/settings/settings"});},
   onSharePage(){const bank=this.data.bankId||activeBankId();wx.navigateTo({url:`/pages/share/share?bank=${encodeURIComponent(bank)}`});},
   onIntake(){wx.navigateTo({url:`/pages/intake/intake?bank=${this.data.bankId||activeBankId()}`})},
-  onShareAppMessage(){const {title,path}=shareContent(this.data.bankId||activeBankId(),this.data.banks[0]?.id,this.data.bankName,this.data.query);return {title,path};},
-  onShareTimeline(){const {title,query}=shareContent(this.data.bankId||activeBankId(),this.data.banks[0]?.id,this.data.bankName,this.data.query);return {title,query};},
+  onShareAppMessage(){const {title,path}=shareContent(this.data.bankId||activeBankId(),this.data.bankName,this.data.query);return {title,path};},
+  onShareTimeline(){const {title,query}=shareContent(this.data.bankId||activeBankId(),this.data.bankName,this.data.query);return {title,query};},
   onBankChange(event:WechatMiniprogram.PickerChange){const b=this.data.banks[Number(event.detail.value)];if(!b)return;selectBank(b.id);void this.initialize().then(()=>this.syncCloud())},
   onInput(event: WechatMiniprogram.Input) {
     this.setData({query: event.detail.value});

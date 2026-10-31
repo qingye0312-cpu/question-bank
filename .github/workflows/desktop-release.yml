@@ -39,7 +39,7 @@ jobs:
 
       - name: Build macOS app, DMG, and signed updater archive
         env:
-          QBANK_UPDATER_ENDPOINT: https://qbank.creart.top:8013/v1/desktop/latest.json
+          QBANK_UPDATER_ENDPOINT: https://qbank.acharrystar.top:8013/v1/desktop/latest.json
           QBANK_UPDATER_PUBLIC_KEY: ${{ vars.QBANK_UPDATER_PUBLIC_KEY }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -58,12 +58,12 @@ jobs:
           fi
           [ -n "$built" ] && [ -s "$built" ] || { echo 'macOS updater archive missing' >&2; exit 1; }
           [ -s "$built.sig" ] || { echo 'macOS updater signature missing' >&2; exit 1; }
-          name="qbank-macos-arm64-${version}.app.tar.gz"
+          name="qbank-${version}-macos-arm64-app.tar.gz"
           cp "$built" "$output/$name"
           cp "$built.sig" "$output/$name.sig"
           dmg="$(find desktop/src-tauri/target/release/bundle/dmg -maxdepth 1 -type f -name '*.dmg' -print -quit)"
           [ -n "$dmg" ] && [ -s "$dmg" ] || { echo 'macOS DMG missing' >&2; exit 1; }
-          cp "$dmg" "$output/题库_${version}_macOS_arm64.dmg"
+          cp "$dmg" "$output/qbank-${version}-macos-arm64.dmg"
 
       - uses: actions/upload-artifact@v7
         with:
@@ -130,7 +130,7 @@ jobs:
           if (-not (Test-Path -LiteralPath $source)) { throw "Portable executable missing: $source" }
           $output = Join-Path $env:RUNNER_TEMP 'qbank-release/windows-portable'
           New-Item -ItemType Directory -Force -Path $output | Out-Null
-          Copy-Item -LiteralPath $source -Destination (Join-Path $output '题库_windows_x64_portable.exe')
+          Copy-Item -LiteralPath $source -Destination (Join-Path $output "qbank-$version-windows-x64-portable.exe")
 
       - uses: actions/upload-artifact@v7
         with:
@@ -210,7 +210,7 @@ jobs:
 
       - name: Build signed NSIS installer and updater archive
         env:
-          QBANK_UPDATER_ENDPOINT: https://qbank.creart.top:8013/v1/desktop/latest.json
+          QBANK_UPDATER_ENDPOINT: https://qbank.acharrystar.top:8013/v1/desktop/latest.json
           QBANK_UPDATER_PUBLIC_KEY: ${{ vars.QBANK_UPDATER_PUBLIC_KEY }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -236,10 +236,10 @@ jobs:
 
           $output = Join-Path $env:RUNNER_TEMP 'qbank-release/windows-installer'
           New-Item -ItemType Directory -Force -Path $output | Out-Null
-          $archiveName = "qbank-windows-x64-$version.nsis.zip"
+          $archiveName = "qbank-$version-windows-x64-nsis.zip"
           Copy-Item -LiteralPath $archive.FullName -Destination (Join-Path $output $archiveName)
           Copy-Item -LiteralPath $signature -Destination (Join-Path $output "$archiveName.sig")
-          Copy-Item -LiteralPath $setups[0].FullName -Destination (Join-Path $output '题库_windows_x64_setup.exe')
+          Copy-Item -LiteralPath $setups[0].FullName -Destination (Join-Path $output "qbank-$version-windows-x64-setup.exe")
 
       - uses: actions/upload-artifact@v7
         with:
@@ -309,7 +309,7 @@ jobs:
           chmod 600 "$HOME/.ssh/qbank-release" "$HOME/.ssh/known_hosts"
           ssh-keygen -y -P '' -f "$HOME/.ssh/qbank-release" >/dev/null
 
-      - name: Publish version to the self-hosted update service
+      - name: Trigger self-hosted release pull
         if: ${{ vars.QBANK_SELF_HOST_DEPLOY == 'enabled' }}
         env:
           QBANK_RELEASE_SSH_HOST: ${{ vars.QBANK_RELEASE_SSH_HOST }}
@@ -324,7 +324,17 @@ jobs:
           keep_versions=2
           [[ "$host" =~ ^[A-Za-z0-9.-]+$ ]] || { echo 'Invalid SSH host.' >&2; exit 1; }
           [[ "$port" =~ ^[0-9]+$ ]] || { echo 'Invalid SSH port.' >&2; exit 1; }
-          scp -P "$port" -i "$HOME/.ssh/qbank-release" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes \
-            release-assets/* "root@${host}:/tmp/"
-          ssh -p "$port" -i "$HOME/.ssh/qbank-release" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes \
-            "root@${host}" "QBANK_RELEASE_VERSION='$version' QBANK_DESKTOP_RELEASES_TO_KEEP='$keep_versions' sh -s" < tools/self-host/install-desktop-update-release.sh
+          # Keep the host-side verifier and puller in lockstep with this workflow.
+          # Otherwise a domain or asset-layout change can leave an older verifier
+          # on the host and fail after GitHub assets have already downloaded.
+          scp -P "$port" -i "$HOME/.ssh/qbank-release" -o IdentitiesOnly=yes -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes -o ConnectTimeout=15 \
+            tools/self-host/qbank-release-puller.sh \
+            tools/self-host/install-desktop-update-release.sh \
+            "root@${host}:/tmp/"
+          ssh -p "$port" -i "$HOME/.ssh/qbank-release" -o IdentitiesOnly=yes -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes -o ConnectTimeout=15 \
+            "root@${host}" "install -o root -g root -m 0755 /tmp/qbank-release-puller.sh /usr/local/sbin/qbank-release-puller && install -o root -g root -m 0755 /tmp/install-desktop-update-release.sh /usr/local/sbin/qbank-install-desktop-update && rm -f /tmp/qbank-release-puller.sh /tmp/install-desktop-update-release.sh"
+          ssh -p "$port" -i "$HOME/.ssh/qbank-release" -o IdentitiesOnly=yes -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+            "root@${host}" "QBANK_DESKTOP_RELEASES_TO_KEEP='$keep_versions' /usr/local/sbin/qbank-release-puller '$version'"

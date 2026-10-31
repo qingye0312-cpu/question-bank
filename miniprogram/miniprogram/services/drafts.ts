@@ -47,8 +47,9 @@ export function saveDraft(record:DraftRecord,expected:number){return withDraftLo
  const updated=records.some(r=>r.id===next.id)?records.map(r=>r.id===next.id?next:r):[...records,next];
  await writeDraftFile(record.bankId,updated);invalidateBank(record.bankId);return next;
  });}
-export async function submitDrafts(bankId:string,expected:{id:string;revision:number}[]){
+export async function submitDrafts(bankId:string,expected:{id:string;revision:number}[],note=''){
  const {manifest}=await loadBank(bankId),endpoint=await cloud.authorize(bankId,manifest.name),actor=cloud.state().openid;if(!actor)throw Error('请重新登录');
+ const normalized=note.trim();if(normalized.length>500)throw Error('上传备注不能超过 500 字');
  const health=await cloud.health();if(!(health.capabilities as string[]||[]).includes('session-upload-v1'))throw Error('请先更新云端服务');
  return withDraftLock(async()=>{
   const records=(await withSubmission(await readDraftFile(bankId))).filter(r=>!r.removed&&!r.submissionId);
@@ -60,7 +61,7 @@ export async function submitDrafts(bankId:string,expected:{id:string;revision:nu
    if(cloud.state().openid!==actor)throw Error('登录身份已改变，请重新核对');
    data.jobs=data.jobs||[];data.batches.push({id,bankId,createdAt:at,upload:{endpoint,text}});
    for(const r of records){data.entries=data.entries.filter(e=>!(e.bankId===bankId&&e.question.question_id===r.id));data.entries.push({bankId,batchId:id,question:r.question!,createdAt:r.recordedAt,uploadStatus:'pending',exportedAt:'',sharedAt:''});}
-   data.jobs.push({id,groupId:id,bankId,endpoint,actor,confirmedAt:at,status:'queued',attempts:0,nextAt:0,error:'',protocol:'session-v1',recordIds:records.map(r=>r.id)});
+   data.jobs.push({id,groupId:id,bankId,endpoint,actor,confirmedAt:at,status:'queued',attempts:0,nextAt:0,error:'',protocol:'session-v1',recordIds:records.map(r=>r.id),note:normalized});
   });return id;
  });
 }

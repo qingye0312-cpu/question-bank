@@ -9,8 +9,9 @@ export async function uploadBatch(bankId:string,batchId:string,actor?:string){
   if(uploading.has(batchId))throw new Error('本批次正在上传，请稍候');
   uploading.add(batchId);
   try{
-    const batch=(await readLocal()).batches.find(b=>b.id===batchId&&b.bankId===bankId);
+    const local=await readLocal(),batch=local.batches.find(b=>b.id===batchId&&b.bankId===bankId);
     if(!batch)throw new Error('请选择当前题库的录入批次');
+    const note=(local.jobs?.find(job=>job.id===batchId)?.note||'').trim();
     const {manifest}=await loadBank(bankId);
     const endpoint=await cloud.authorize(bankId,manifest.name);
     if(actor&&cloud.state().openid!==actor)throw new UploadError("登录身份已改变",403,"IDENTITY_CHANGED");
@@ -30,7 +31,7 @@ export async function uploadBatch(bankId:string,batchId:string,actor?:string){
     if(prepared.delta.bank_id!==bankId||prepared.delta.batch_id!==batchId)throw new Error('本地上传批次身份不一致，请先备份并联系维护者');
     if(snapshot.receipt)return {receipt:verifyReceipt(snapshot.receipt,prepared),duplicate:true};
     if(actor){const job=(await readLocal()).jobs?.find(j=>j.id===batchId);if(job?.status==='paused'||cloud.state().openid!==actor)throw new UploadError("任务已暂停",401,"SIGNED_OUT");}
-    const result=await cloud.upload(prepared,endpoint),receipt=verifyReceipt(result.receipt,prepared);
+    const result=await cloud.upload(prepared,endpoint,note),receipt=verifyReceipt(result.receipt,prepared);
     try{
       await updateLocal(data=>{
         const current=data.batches.find(b=>b.id===batchId&&b.bankId===bankId);
@@ -46,7 +47,7 @@ export async function uploadBatch(bankId:string,batchId:string,actor?:string){
 }
 
 import {failedJob,readyJob,UploadError} from '../core/queue';
-import {syncBank} from './sync';
+import {reloadBank} from './sync';
 import {invalidateBank} from './bank';
 let running:Promise<void>|undefined;
 export async function enqueueBatches(bankId:string,_batchIds:string[]){
@@ -57,7 +58,14 @@ export async function enqueueBatches(bankId:string,_batchIds:string[]){
 export async function pauseUploads(){await updateLocal(data=>{for(const job of data.jobs||[])if(!['done','failed'].includes(job.status)){job.status='paused';job.error='已退出登录，任务保留';}});}
 export async function retryUploads(includeFailed=false){const actor=cloud.state().openid;if(!actor)return;await updateLocal(data=>{for(const j of data.jobs||[])if(j.actor===actor&&j.status!=='done'&&(includeFailed||j.status!=='failed')){j.status='queued';j.nextAt=0;j.error='';}});}
 export async function syncUploadedBank(bankId:string){
- try{await syncBank(bankId);invalidateBank(bankId);await updateLocal(d=>{for(const j of d.jobs||[])if(j.bankId===bankId&&j.status==='done')j.syncError='';});}
+ try{
+  await reloadBank(bankId);
+  invalidateBank(bankId);
+  await updateLocal(d=>{
+   d.entries=d.entries.filter(e=>e.bankId!==bankId||e.uploadStatus!=='uploaded');
+   for(const j of d.jobs||[])if(j.bankId===bankId&&j.status==='done')j.syncError='';
+  });
+ }
  catch(e){await updateLocal(d=>{for(const j of d.jobs||[])if(j.bankId===bankId&&j.status==='done')j.syncError=String(e);});throw e;}
 }
 export function runUploadQueue():Promise<void>{

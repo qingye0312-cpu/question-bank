@@ -14,7 +14,7 @@ const bankId = packet.bank_id;
 const key = 'b'.repeat(64);
 
 function setup() {
-  const states = new Map(), records = new Map();
+  const states = new Map(), records = new Map(), operationFiles = new Map();
   let time = Date.now();
   const env = {
     QBANK_SESSION_SECRET: 'a'.repeat(64),
@@ -28,6 +28,8 @@ function setup() {
     async listStates(id) { return [...states.values()].filter(s => s.bank_id === id).sort((a, b) => b.revision - a.revision).map(s=>structuredClone(s)); },
     async createState(state) { const current = states.get(state.bank_id); if (current && current.revision >= state.revision) return false; states.set(state.bank_id, structuredClone(state)); states.set(`${state.bank_id}/${state.revision}`, structuredClone(state)); return true; },
     async createSubmission(path, record) { if (records.has(path)) return { record: records.get(path), created: false }; records.set(path, record); return { record, created: true }; },
+    async readOperations(id) { return operationFiles.has(id) ? structuredClone(operationFiles.get(id)) : null; },
+    async writeOperations(value) { operationFiles.set(value.bank_id, structuredClone(value)); return true; },
   };
   const handler = createHandler({ env: () => env, store, clock: () => time, parseDelta, validateStandardQuestion, parseModelReply });
   const call = async (method, path, body, token) => {

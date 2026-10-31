@@ -5,43 +5,47 @@ VERSION="${QBANK_RELEASE_VERSION:?missing release version}"
 printf '%s\n' "$VERSION" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' \
   || { echo 'invalid release version' >&2; exit 1; }
 [ "$(id -u)" -eq 0 ] || { echo 'release deployment requires root SSH access' >&2; exit 1; }
+PUBLIC_DOMAIN="${QBANK_PUBLIC_DOMAIN:-qbank.acharrystar.top}"
+printf '%s' "$PUBLIC_DOMAIN" | grep -Eq '^[A-Za-z0-9.-]+$' \
+  || { echo 'invalid public domain' >&2; exit 1; }
 
 ROOT=/var/lib/qbank-desktop-updates
 RELEASES="$ROOT/releases"
 RELEASE="$RELEASES/$VERSION"
 MACOS_RELEASE="$RELEASES/macos/$VERSION"
 WINDOWS_RELEASE="$RELEASES/windows/$VERSION"
-MAC_NAME="qbank-macos-arm64-$VERSION.app.tar.gz"
-MAC_DMG_NAME="题库_${VERSION}_macOS_arm64.dmg"
-WINDOWS_NAME="qbank-windows-x64-$VERSION.nsis.zip"
-PORTABLE_NAME='题库_windows_x64_portable.exe'
-SETUP_NAME='题库_windows_x64_setup.exe'
-MAC_IN="/tmp/$MAC_NAME"
-MAC_DMG_IN="/tmp/$MAC_DMG_NAME"
-WINDOWS_IN="/tmp/$WINDOWS_NAME"
-MANIFEST_IN=/tmp/latest.json
+MAC_NAME="qbank-${VERSION}-macos-arm64-app.tar.gz"
+MAC_DMG_NAME="qbank-${VERSION}-macos-arm64.dmg"
+WINDOWS_NAME="qbank-${VERSION}-windows-x64-nsis.zip"
+PORTABLE_NAME="qbank-${VERSION}-windows-x64-portable.exe"
+SETUP_NAME="qbank-${VERSION}-windows-x64-setup.exe"
+STAGING="${QBANK_RELEASE_STAGING:-/tmp}"
+MAC_IN="$STAGING/$MAC_NAME"
+MAC_DMG_IN="$STAGING/$MAC_DMG_NAME"
+WINDOWS_IN="$STAGING/$WINDOWS_NAME"
+MANIFEST_IN="$STAGING/latest.json"
 BACKUPS=/var/backups/qbank-desktop-updates
 DOMAIN_CONFIG=/etc/caddy/qbank-domain.caddy
 DESKTOP_RELEASES_TO_KEEP="${QBANK_DESKTOP_RELEASES_TO_KEEP:-2}"
 
 for file in "$MAC_IN" "$MAC_IN.sig" "$MAC_DMG_IN" "$WINDOWS_IN" "$WINDOWS_IN.sig" \
-  "/tmp/$PORTABLE_NAME" "/tmp/$SETUP_NAME" "$MANIFEST_IN"; do
+  "$STAGING/$PORTABLE_NAME" "$STAGING/$SETUP_NAME" "$MANIFEST_IN"; do
   [ -s "$file" ] || { echo "missing staged release file: $file" >&2; exit 1; }
 done
 
-node - "$MANIFEST_IN" "$VERSION" "$MAC_NAME" "$WINDOWS_NAME" <<'NODE'
+QBANK_PUBLIC_DOMAIN="$PUBLIC_DOMAIN" node - "$MANIFEST_IN" "$VERSION" "$MAC_NAME" "$WINDOWS_NAME" <<'NODE'
 const fs = require('node:fs');
 const [manifestPath, version, macName, windowsName] = process.argv.slice(2);
 const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
 const mac = manifest.platforms?.['darwin-aarch64'];
 const windows = manifest.platforms?.['windows-x86_64'];
-const base = 'https://qbank.creart.top:8013/v1/desktop/releases';
+const base = `https://${process.env.QBANK_PUBLIC_DOMAIN}:8013/v1/desktop/releases`;
 if (manifest.version !== version || !mac || !windows) throw new Error('release manifest version or platform entries are invalid');
 if (mac.url !== `${base}/${macName}` || windows.url !== `${base}/windows/${version}/${windowsName}`) {
   throw new Error('release manifest points outside the expected versioned asset paths');
 }
-if (mac.signature !== fs.readFileSync(`/tmp/${macName}.sig`, 'utf8').trim()) throw new Error('macOS signature differs from manifest');
-if (windows.signature !== fs.readFileSync(`/tmp/${windowsName}.sig`, 'utf8').trim()) throw new Error('Windows signature differs from manifest');
+if (mac.signature !== fs.readFileSync(`${process.env.QBANK_RELEASE_STAGING || '/tmp'}/${macName}.sig`, 'utf8').trim()) throw new Error('macOS signature differs from manifest');
+if (windows.signature !== fs.readFileSync(`${process.env.QBANK_RELEASE_STAGING || '/tmp'}/${windowsName}.sig`, 'utf8').trim()) throw new Error('Windows signature differs from manifest');
 NODE
 
 mkdir -p "$RELEASE" "$MACOS_RELEASE" "$WINDOWS_RELEASE" "$BACKUPS"
@@ -64,8 +68,8 @@ install_immutable "$MAC_IN.sig" "$RELEASE/$MAC_NAME.sig" 0640
 install_immutable "$MAC_DMG_IN" "$MACOS_RELEASE/$MAC_DMG_NAME" 0640
 install_immutable "$WINDOWS_IN" "$WINDOWS_RELEASE/$WINDOWS_NAME" 0640
 install_immutable "$WINDOWS_IN.sig" "$WINDOWS_RELEASE/$WINDOWS_NAME.sig" 0640
-install_immutable "/tmp/$SETUP_NAME" "$WINDOWS_RELEASE/$SETUP_NAME" 0640
-install_immutable "/tmp/$PORTABLE_NAME" "$WINDOWS_RELEASE/$PORTABLE_NAME" 0640
+install_immutable "$STAGING/$SETUP_NAME" "$WINDOWS_RELEASE/$SETUP_NAME" 0640
+install_immutable "$STAGING/$PORTABLE_NAME" "$WINDOWS_RELEASE/$PORTABLE_NAME" 0640
 
 # Preserve the flat macOS archive URL used by already-installed clients.
 for name in "$MAC_NAME" "$MAC_NAME.sig"; do
@@ -75,6 +79,21 @@ for name in "$MAC_NAME" "$MAC_NAME.sig"; do
     ln "$RELEASE/$name" "$RELEASES/$name"
   fi
 done
+
+# Already-installed clients still request the historical flat macOS archive name.
+LEGACY_MAC_NAME="qbank-macos-arm64-${VERSION}.app.tar.gz"
+if [ -e "$RELEASES/$LEGACY_MAC_NAME" ]; then
+  cmp -s "$RELEASE/$MAC_NAME" "$RELEASES/$LEGACY_MAC_NAME" \
+    || { echo "legacy compatibility asset differs: $RELEASES/$LEGACY_MAC_NAME" >&2; exit 1; }
+else
+  ln "$RELEASE/$MAC_NAME" "$RELEASES/$LEGACY_MAC_NAME"
+fi
+if [ -e "$RELEASES/$LEGACY_MAC_NAME.sig" ]; then
+  cmp -s "$RELEASE/$MAC_NAME.sig" "$RELEASES/$LEGACY_MAC_NAME.sig" \
+    || { echo "legacy compatibility asset differs: $RELEASES/$LEGACY_MAC_NAME.sig" >&2; exit 1; }
+else
+  ln "$RELEASE/$MAC_NAME.sig" "$RELEASES/$LEGACY_MAC_NAME.sig"
+fi
 
 (cd "$RELEASE" && sha256sum "$MAC_NAME" "$MAC_NAME.sig" \
   "../macos/$VERSION/$MAC_DMG_NAME" \
@@ -113,12 +132,15 @@ if command -v curl >/dev/null 2>&1; then
   attempt=0
   while [ "$attempt" -lt 6 ]; do
     attempt=$((attempt + 1))
-    if curl --fail --silent --show-error --resolve qbank.creart.top:8443:127.0.0.1 \
-      https://qbank.creart.top:8443/v1/desktop/latest.json -o /tmp/qbank-desktop-update-check.json \
-      && curl --fail --silent --show-error --head --resolve qbank.creart.top:8443:127.0.0.1 \
-        "https://qbank.creart.top:8443/v1/desktop/releases/$MAC_NAME" >/dev/null \
-      && curl --fail --silent --show-error --head --resolve qbank.creart.top:8443:127.0.0.1 \
-        "https://qbank.creart.top:8443/v1/desktop/releases/windows/$VERSION/$WINDOWS_NAME" >/dev/null; then
+    # The proxy variables in /etc/qbank-release-puller.env are exported for the
+    # GitHub download only. This loopback health check must bypass them, or curl
+    # sends the request to the proxy and the TLS handshake fails.
+    if curl --noproxy '*' --fail --silent --show-error --resolve "$PUBLIC_DOMAIN:8443:127.0.0.1" \
+      "https://$PUBLIC_DOMAIN:8443/v1/desktop/latest.json" -o /tmp/qbank-desktop-update-check.json \
+      && curl --noproxy '*' --fail --silent --show-error --head --resolve "$PUBLIC_DOMAIN:8443:127.0.0.1" \
+        "https://$PUBLIC_DOMAIN:8443/v1/desktop/releases/$MAC_NAME" >/dev/null \
+      && curl --noproxy '*' --fail --silent --show-error --head --resolve "$PUBLIC_DOMAIN:8443:127.0.0.1" \
+        "https://$PUBLIC_DOMAIN:8443/v1/desktop/releases/windows/$VERSION/$WINDOWS_NAME" >/dev/null; then
       verified=1
       break
     fi
@@ -168,25 +190,46 @@ if (!Number.isSafeInteger(keepCount) || keepCount < 1 || keepCount > 20) {
   throw new Error('Desktop release retention must be an integer from 1 to 20.');
 }
 
+// Assets created before the qbank-<version>-<system>-<arch> rename still use the
+// historical names, so completeness checks accept either scheme.
 const hasCompleteRelease = version => {
-  const files = [
-    path.join(releaseRoot, version, 'SHA256SUMS'),
-    path.join(releaseRoot, version, `qbank-macos-arm64-${version}.app.tar.gz`),
-    path.join(releaseRoot, version, `qbank-macos-arm64-${version}.app.tar.gz.sig`),
-    path.join(releaseRoot, 'macos', version, `题库_${version}_macOS_arm64.dmg`),
-    path.join(releaseRoot, 'windows', version, `qbank-windows-x64-${version}.nsis.zip`),
-    path.join(releaseRoot, 'windows', version, `qbank-windows-x64-${version}.nsis.zip.sig`),
-    path.join(releaseRoot, 'windows', version, '题库_windows_x64_setup.exe'),
-    path.join(releaseRoot, 'windows', version, '题库_windows_x64_portable.exe'),
+  const layouts = [
+    {
+      mac: `qbank-${version}-macos-arm64-app.tar.gz`,
+      macSig: `qbank-${version}-macos-arm64-app.tar.gz.sig`,
+      dmg: `qbank-${version}-macos-arm64.dmg`,
+      nsis: `qbank-${version}-windows-x64-nsis.zip`,
+      nsisSig: `qbank-${version}-windows-x64-nsis.zip.sig`,
+      setup: `qbank-${version}-windows-x64-setup.exe`,
+      portable: `qbank-${version}-windows-x64-portable.exe`,
+    },
+    {
+      mac: `qbank-macos-arm64-${version}.app.tar.gz`,
+      macSig: `qbank-macos-arm64-${version}.app.tar.gz.sig`,
+      dmg: `题库_${version}_macOS_arm64.dmg`,
+      nsis: `qbank-windows-x64-${version}.nsis.zip`,
+      nsisSig: `qbank-windows-x64-${version}.nsis.zip.sig`,
+      setup: '题库_windows_x64_setup.exe',
+      portable: '题库_windows_x64_portable.exe',
+    },
   ];
-  return files.every(file => {
+  return layouts.some(layout => [
+    path.join(releaseRoot, version, 'SHA256SUMS'),
+    path.join(releaseRoot, version, layout.mac),
+    path.join(releaseRoot, version, layout.macSig),
+    path.join(releaseRoot, 'macos', version, layout.dmg),
+    path.join(releaseRoot, 'windows', version, layout.nsis),
+    path.join(releaseRoot, 'windows', version, layout.nsisSig),
+    path.join(releaseRoot, 'windows', version, layout.setup),
+    path.join(releaseRoot, 'windows', version, layout.portable),
+  ].every(file => {
     try {
       const stat = fs.statSync(file);
       return stat.isFile() && stat.size > 0;
     } catch {
       return false;
     }
-  });
+  }));
 };
 
 if (!hasCompleteRelease(currentVersion)) {
@@ -238,10 +281,11 @@ for (const parent of [releaseRoot, path.join(releaseRoot, 'macos'), path.join(re
     if (entry.isDirectory() && parseVersion(entry.name)) directories.add(entry.name);
   }
 }
-const compatibilityArchivePattern = /^qbank-macos-arm64-(\d+(?:\.\d+){2})\.app\.tar\.gz(?:\.sig)?$/;
+const compatibilityArchivePattern = /^qbank-(?:(\d+(?:\.\d+){2})-macos-arm64-app|macos-arm64-(\d+(?:\.\d+){2}))\.app\.tar\.gz(?:\.sig)?$/;
 for (const name of fs.readdirSync(releaseRoot)) {
   const match = compatibilityArchivePattern.exec(name);
-  if (match && parseVersion(match[1])) directories.add(match[1]);
+  const version = match ? (match[1] || match[2]) : '';
+  if (version && parseVersion(version)) directories.add(version);
 }
 
 const obsoleteVersions = [...directories].filter(version => !retainedVersions.has(version)).sort(compareVersions);
@@ -250,6 +294,8 @@ for (const version of obsoleteVersions) {
     path.join(releaseRoot, version),
     path.join(releaseRoot, 'macos', version),
     path.join(releaseRoot, 'windows', version),
+    path.join(releaseRoot, `qbank-${version}-macos-arm64-app.tar.gz`),
+    path.join(releaseRoot, `qbank-${version}-macos-arm64-app.tar.gz.sig`),
     path.join(releaseRoot, `qbank-macos-arm64-${version}.app.tar.gz`),
     path.join(releaseRoot, `qbank-macos-arm64-${version}.app.tar.gz.sig`),
   ]) {

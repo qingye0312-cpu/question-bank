@@ -63,10 +63,11 @@ for(const envVersion of ['develop','trial','release'])test(`Mini Program ${envVe
   const access=await client.loginPassword('+86 13812345678','StrongPass123');
   assert.equal(access.loggedIn,true);assert.equal(access.banks[0].bank_id,bankId);
   assert.equal(await client.authorize(bankId,bank.name),origin);
-  const prepared=prepareUpload(fixture),result=await client.upload(prepared,origin);
+  const prepared=prepareUpload(fixture),result=await client.upload(prepared,origin,'小程序上传备注');
   assert.equal(result.receipt.status,'merged');assert.equal(result.duplicate,false);
   assert.equal(requests[0].path,'/v1/auth/password-login');assert.equal(requests[0].body.phone,'13812345678');assert.equal(requests[0].body.password,'StrongPass123');assert.equal(requests[0].body.client,'miniprogram');
   assert.equal(requests.at(-1).body.format,'qbank-confirmed-upload-1');assert.equal(requests.at(-1).body.package.format,'qbank-upload-1');
+  assert.equal(requests.at(-1).body.note,'小程序上传备注');
   assert.equal(client.state().openid,'p_account');assert.ok(!JSON.stringify(client.state()).includes('v1.token.signature'));
 });
 

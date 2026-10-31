@@ -23,31 +23,31 @@ fn https_catalog_downloads_all_banks_into_an_isolated_desktop() {
     for bank in banks {
         let id = bank["bank_id"].as_str().unwrap();
         let response =
-            cloud::request(origin, &format!("/v1/banks/{id}/snapshot-file"), None, None).unwrap();
+            cloud::request(origin, &format!("/v1/banks/{id}/question-file"), None, None).unwrap();
         assert_eq!(response["status"], 200);
         let wrapper = &response["body"];
         assert_eq!(wrapper["format"], "qbank-cloud-file-1");
         assert_eq!(wrapper["encoding"], "gzip+base64");
-        assert_eq!(wrapper["sha256"], bank["sha256"]);
+        assert_eq!(wrapper["sha256"], bank["question_file_sha256"]);
         let compressed = STANDARD.decode(wrapper["data"].as_str().unwrap()).unwrap();
         let mut text = String::new();
         flate2::read::GzDecoder::new(compressed.as_slice())
             .take(4 * 1024 * 1024 + 1)
             .read_to_string(&mut text)
             .unwrap();
-        assert_eq!(text.len() as u64, bank["bytes"].as_u64().unwrap());
-        assert_eq!(wrapper["uncompressed_size"], bank["bytes"]);
-        cloud::apply(&store, &text, bank["sha256"].as_str().unwrap()).unwrap();
+        assert_eq!(text.len() as u64, bank["question_file_bytes"].as_u64().unwrap());
+        assert_eq!(wrapper["uncompressed_size"], bank["question_file_bytes"]);
+        cloud::apply(&store, &text, bank["question_file_sha256"].as_str().unwrap()).unwrap();
         let snapshot: Value = serde_json::from_str(&text).unwrap();
         let count = store.questions(id).unwrap().len();
-        assert_eq!(count, snapshot["formal"].as_array().unwrap().len());
+        assert_eq!(count, snapshot["questions"].as_array().unwrap().len());
         assert!(count > 0);
         eprintln!(
             "{}: {} questions, revision {}",
             bank["name"], count, bank["revision"]
         );
         // Applying the same immutable snapshot again is safe and does not duplicate questions.
-        cloud::apply(&store, &text, bank["sha256"].as_str().unwrap()).unwrap();
+        cloud::apply(&store, &text, bank["question_file_sha256"].as_str().unwrap()).unwrap();
         assert_eq!(store.questions(id).unwrap().len(), count);
     }
     assert_eq!(cloud::versions(&store).unwrap().len(), banks.len());

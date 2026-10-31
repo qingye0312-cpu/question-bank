@@ -6,8 +6,8 @@ if (!version || !artifactDir || !manifestPath || !/^\d+\.\d+\.\d+$/.test(version
   throw new Error('Usage: node create-manifest.mjs <version> <artifact-directory> <manifest-path>');
 }
 
-const macName = `qbank-macos-arm64-${version}.app.tar.gz`;
-const windowsName = `qbank-windows-x64-${version}.nsis.zip`;
+const macName = `qbank-${version}-macos-arm64-app.tar.gz`;
+const windowsName = `qbank-${version}-windows-x64-nsis.zip`;
 const artifactRoot = path.resolve(artifactDir);
 async function readSignature(name) {
   const signature = (await fs.readFile(path.join(artifactRoot, `${name}.sig`), 'utf8')).trim();
@@ -20,7 +20,7 @@ const [macSignature, windowsSignature] = await Promise.all([
   readSignature(macName),
   readSignature(windowsName),
 ]);
-const base = 'https://qbank.creart.top:8013/v1/desktop/releases';
+const base = 'https://qbank.acharrystar.top:8013/v1/desktop/releases';
 const manifest = {
   version,
   notes: `题库 ${version} 桌面版更新。Windows 便携版用于手动下载；自动更新请安装 NSIS 安装版。`,

@@ -5,7 +5,7 @@ const {unpackText}=require('./codec.cjs');
 const {REGISTRY_ID,createAccessRegistry}=require('./access.cjs');
 const UUID=/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
 const fail=(status,code,message)=>{throw new HttpError(status,code,message)};
-function createCatalog({store,validateStandardQuestion,clock,releaseName,manifest}){
+function createCatalog({store,validateStandardQuestion,clock,releaseName,manifest,manifestFor}){
  const registry=createAccessRegistry({store,clock}).read;
  async function resolve(config){
   if(!config.syncEnabled)return config;
@@ -31,7 +31,7 @@ function createCatalog({store,validateStandardQuestion,clock,releaseName,manifes
   let state=await store.readState(id);
   if(state&&!matches(state)||!state&&config.banks.some(b=>b.bank_id===id))fail(409,'BANK_EXISTS','该题库身份已在云端使用，请检查目录；不会覆盖');
   if(!state&&config.banks.length>=100)fail(413,'CATALOG_FULL','云端目录已满');
-  if(!state){const at=new Date(clock()).toISOString(),releaseId=sha256(JSON.stringify(questions));state={format:'qbank-state-1',bank_id:id,name,revision:1,release_version:1,release_version_label:'v1',formal:questions,pending:[],resolved:[],batches:[],merge_history:[],updated_at:at,merged_at:at,release_id:releaseId,release_name:releaseName(at,name,'初建',1,id,releaseId),seed_uploader_account_id:auth.maintainer_id||auth.openid,seed_uploader_real_name:typeof auth.real_name==='string'&&auth.real_name.trim()&&auth.real_name.trim()!=='未记录'?auth.real_name.trim():'star',promotion:{id:body.operation_id,hash,owner:auth.openid}};
+  if(!state){const at=new Date(clock()).toISOString(),releaseId=sha256(JSON.stringify(questions)),operator={account_id:auth.maintainer_id||auth.account_id||auth.openid,real_name:typeof auth.real_name==='string'&&auth.real_name.trim()&&auth.real_name.trim()!=='未记录'?auth.real_name.trim():'star',nickname:typeof auth.nickname==='string'&&auth.nickname.trim()&&auth.nickname.trim()!=='未记录'?auth.nickname.trim():'star',auth_type:auth.password_account?'password':'key'};state={format:'qbank-state-1',bank_id:id,name,revision:1,release_version:1,release_version_label:'v1',formal:questions,pending:[],resolved:[],batches:[],merge_history:[],updated_at:at,merged_at:at,release_id:releaseId,release_name:releaseName(at,name,'初建',1,id,releaseId),seed_uploader_account_id:auth.maintainer_id||auth.openid,seed_uploader_real_name:typeof auth.real_name==='string'&&auth.real_name.trim()&&auth.real_name.trim()!=='未记录'?auth.real_name.trim():'star',promotion:{id:body.operation_id,hash,owner:auth.openid},operation_event:{revision:1,operated_at:at,kind:'seed',operator,note:'云端题库首版初始化',question_count:questions.length,duplicate_count:0,added:questions.map(question=>question.question_id),revised:[],removed:[]}};
    if(Buffer.byteLength(JSON.stringify(state))>4194304)fail(413,'BANK_TOO_LARGE','完整题库超过 4 MiB 上限，本地数据已保留');
    if(!await store.createState(state)){state=await store.readState(id);if(!matches(state))fail(409,'BANK_EXISTS','另一任务已使用此题库身份');}
   }
@@ -39,10 +39,10 @@ function createCatalog({store,validateStandardQuestion,clock,releaseName,manifes
   const verified=await store.readState(id);if(!matches(verified))fail(502,'STATE_NOT_VERIFIED','首版尚未确认可读，请重试原任务');
   for(let attempt=0;attempt<5;attempt++){
    const r=await registry(),old=r.banks.find(b=>b.bank_id===id);
-   if(old){if(old.operation_id!==body.operation_id||old.owner!==auth.openid)fail(409,'BANK_EXISTS','题库已由其他创建任务激活');return manifest(verified);}
+   if(old){if(old.operation_id!==body.operation_id||old.owner!==auth.openid)fail(409,'BANK_EXISTS','题库已由其他创建任务激活');return manifestFor?manifestFor(verified,{bank_id:id,name}):manifest(verified);}
    if(r.banks.length>=100)fail(413,'CATALOG_FULL','云端目录已满，首版任务保留');
    r.banks.push({bank_id:id,name,owner:auth.openid,operation_id:body.operation_id});r.revision++;r.updated_at=new Date(clock()).toISOString();
-   if(await store.createState(r))return manifest(verified);
+   if(await store.createState(r))return manifestFor?manifestFor(verified,{bank_id:id,name}):manifest(verified);
   }
   fail(409,'REVISION_CONFLICT','目录正在更新，请重试同一转换任务');
  }

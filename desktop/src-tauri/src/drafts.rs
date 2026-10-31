@@ -225,7 +225,7 @@ pub fn commit_local(store: &Store, bank: &str, expected: Value) -> Result<usize>
         .map_err(err)?;
     let b = db::get_bank(&tx, bank)?;
     if b.read_only {
-        return Err("云端题库请使用上传；如需本地提交，请先建立可编辑副本".into());
+        return Err("云端题库请使用上传；不能直接提交到本地题库".into());
     }
 
     let completed: Vec<Value> = records(&tx, bank)?
@@ -334,9 +334,14 @@ pub fn enqueue(
     expected: Value,
     endpoint: &str,
     actor: &str,
+    note: &str,
 ) -> Result<Value> {
     if !endpoint.starts_with("https://") || actor.is_empty() {
         return Err("请先完成上传授权".into());
+    }
+    let note = note.trim();
+    if note.chars().count() > 500 {
+        return Err("上传备注不能超过 500 字".into());
     }
     let mut c = store.conn()?;
     let tx = c
@@ -385,7 +390,7 @@ pub fn enqueue(
     })
     .map_err(err)?;
     crate::cloud::encode(&raw)?; // One bounded package; never silently split a session.
-    let job = json!({"id":id,"groupId":id,"bankId":bank,"endpoint":endpoint,"actor":actor,"confirmedAt":at,"status":"queued","attempts":0,"nextAt":0,"error":"","protocol":"session-v1"});
+    let job = json!({"id":id,"groupId":id,"bankId":bank,"endpoint":endpoint,"actor":actor,"confirmedAt":at,"status":"queued","attempts":0,"nextAt":0,"error":"","protocol":"session-v1","note":note});
     let queue: Option<String> = tx
         .query_row(
             "SELECT value FROM client_state WHERE key='upload-queue'",

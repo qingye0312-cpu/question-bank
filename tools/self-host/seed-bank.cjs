@@ -14,8 +14,10 @@ const { releaseName } = runtimeModule('projection.cjs');
 async function main() {
   const [input, root = process.env.QBANK_STORAGE_ROOT || '/var/lib/qbank-auth'] = process.argv.slice(2);
   if (!input) { console.error('用法：node tools/self-host/seed-bank.cjs <questions.json> [storage-root]'); process.exitCode = 2; return; }
-  const wrapper = JSON.parse(await fs.readFile(path.resolve(input), 'utf8'));
-  const lines = typeof wrapper.payload === 'string' ? wrapper.payload.split(/\r?\n/).filter(Boolean) : [];
+  const text = await fs.readFile(path.resolve(input), 'utf8');
+  let wrapper;
+  try { wrapper = JSON.parse(text); } catch { /* The cloud source is also accepted as JSONL. */ }
+  const lines = typeof wrapper?.payload === 'string' ? wrapper.payload.split(/\r?\n/).filter(Boolean) : text.split(/\r?\n/).filter(Boolean);
   const questions = lines.map(line => JSON.parse(line));
   if (!questions.length) throw new Error('题库文件没有题目');
   const first = questions[0];
@@ -23,9 +25,12 @@ async function main() {
   const name = first.bank || process.env.QBANK_SEED_BANK_NAME || 'HarmonyOS 初级认证';
   const at = process.env.QBANK_SEED_AT || new Date().toISOString();
   const releaseId = createHash('sha256').update(JSON.stringify(questions)).digest('hex');
+  const operator = { account_id: null, real_name: '系统', nickname: null, auth_type: null };
   const state = { format: 'qbank-state-1', bank_id: bankId, name, revision: 1, release_version: 1,
     formal: questions, pending: [], resolved: [], batches: [], merge_history: [], updated_at: at, merged_at: at,
-    release_id: releaseId, release_name: releaseName(at, name, '初建', 1, bankId, releaseId) };
+    release_id: releaseId, release_name: releaseName(at, name, '初建', 1, bankId, releaseId),
+    operation_event: { revision: 1, operated_at: at, kind: 'seed', operator, note: '自托管题库首版初始化',
+      question_count: questions.length, duplicate_count: 0, added: questions.map(question => question.question_id), revised: [], removed: [] } };
   const store = createFileStore({ root });
   if (await store.readState(bankId)) throw new Error('目标题库已有状态，拒绝覆盖');
   if (!await store.createState(state)) throw new Error('题库状态已存在，拒绝覆盖');

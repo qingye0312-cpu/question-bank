@@ -2,16 +2,38 @@ import './cloud/cloud.css';
 import {useEffect,useRef,useState} from 'react';
 import {invoke} from '@tauri-apps/api/core';
 import {save} from '@tauri-apps/plugin-dialog';
-import {cloudAccess,cloudCall,fetchCatalog,syncDesktop,cloudMutation} from './cloud-client';
-import type {CloudManifest} from '../shared/sync';
+import {cloudAccess,fetchCatalog,syncDesktop,loadCloudOperations,cloudMutation} from './cloud-client';
+import type {CloudManifest,CloudOperationsFile} from '../shared/sync';
 import {hasPermission} from '../shared/export-permission';
 import type {Bank,Question} from './types';
+import {operationQuestionIds,selectRevisionQuestions} from './cloud/revision-export';
 
-type Version={revision:number;formal_revision?:string;release_version:number;release_version_label?:string|null;updated_at:string;merged_at?:string|null;release_name?:string|null;release_id?:string|null;rollback_at?:string|null;rollback_of?:number|null;rollback_to_release_version_label?:string|null;merge_count:number;batch_id?:string|null;question_count?:number;added_count?:number;has_incremental_json?:boolean;has_revision_questions?:boolean;uploader_account_id?:string|null;uploader_real_name?:string|null;uploader_nickname?:string|null;uploader_auth_type?:'password'|'key'|null};
-type Operation={revision:number;kind:'seed'|'merge'|'rollback'|'state';release_version:number;release_version_label?:string|null;updated_at:string;merged_at?:string|null;release_name?:string|null;release_id?:string|null;batch_id?:string|null;question_count?:number|null;added_count?:number|null;duplicate_count?:number|null;rollback_of?:number|null;rollback_to_release_version_label?:string|null;uploader_account_id?:string|null;uploader_real_name?:string|null;uploader_nickname?:string|null};
-type History={current_revision:number;current_formal_revision?:string;release_version:number;release_version_label?:string|null;versions:Version[];operations?:Operation[]};
-type RevisionQuestions={revision:number;batch_id?:string|null;question_count:number;added_count:number;questions:Question[]};
+type Version={revision:number;release_version:number;release_version_label?:string|null;updated_at:string;merged_at?:string|null;release_name?:string|null;release_id?:string|null;rollback_at?:string|null;rollback_of?:number|null;rollback_to_release_version_label?:string|null;batch_id?:string|null;note?:string|null;question_count?:number;added_count?:number;changed_count?:number;revised_count?:number;removed_count?:number;uploader_account_id?:string|null;uploader_real_name?:string|null;uploader_nickname?:string|null;uploader_auth_type?:'password'|'key'|null};
+type Operation=Version&{kind:'bootstrap'|'seed'|'merge'|'rollback'|'state';duplicate_count?:number|null};
+type History={current_revision:number;release_version:number;release_version_label?:string|null;versions:Version[];operations?:Operation[]};
 const displayUploader=(...values:Array<string|null|undefined>)=>values.map(value=>value?.trim()).find(value=>value&&value!=='未记录')||'star';
+function operationRowsFromFile(file:CloudOperationsFile):Operation[]{
+ const releaseLabels=new Map(file.revisions.map(operation=>[operation.revision,operation.release_version_label||`v${operation.release_version}`]));
+ const map=(operation:CloudOperationsFile['revisions'][number]):Operation=>{const operator=operation.operator;return {...operation,updated_at:operation.operated_at,uploader_account_id:operator.account_id||null,uploader_real_name:operator.real_name||null,uploader_nickname:operator.nickname||null,uploader_auth_type:(operator.auth_type==='password'||operator.auth_type==='key')?operator.auth_type:null,duplicate_count:operation.duplicate_count,rollback_to_release_version_label:operation.rollback_of?releaseLabels.get(operation.rollback_of)||null:null};};
+ return file.revisions.map(map);
+}
+
+function historyFromOperations(file:CloudOperationsFile):History{
+ const operations=operationRowsFromFile(file),formal=new Map<string,{latest:Operation;added_count:number;changed_count:number;revised_count:number;removed_count:number}>();
+ for(const operation of operations){
+  const label=operation.release_version_label||`v${operation.release_version}`,previous=formal.get(label);
+  if(previous){
+   previous.added_count+=(operation.added_count||0);previous.changed_count+=(operation.changed_count||0);previous.revised_count+=(operation.revised_count||0);previous.removed_count+=(operation.removed_count||0);
+   if(operation.revision>previous.latest.revision)previous.latest=operation;
+  }else formal.set(label,{latest:operation,added_count:operation.added_count||0,changed_count:operation.changed_count||0,revised_count:operation.revised_count||0,removed_count:operation.removed_count||0});
+ }
+ const versions=[...formal.values()].map(group=>({...group.latest,added_count:group.added_count,changed_count:group.changed_count,revised_count:group.revised_count,removed_count:group.removed_count}));
+ return {current_revision:file.current_revision,release_version:file.current_release_version,release_version_label:file.current_release_version_label,versions,operations};
+}
+
+async function loadDisplayHistory(bankId:string,advertised?:CloudManifest):Promise<History>{
+ return historyFromOperations(await loadCloudOperations(bankId,advertised));
+}
 
 export function CloudPanel({banks,onChanged,onClose,onBusy,embedded=false}:{banks:Bank[];onChanged:()=>Promise<unknown>;onClose:()=>void;onBusy:(value:boolean)=>void;embedded?:boolean}){
  const [catalog,setCatalog]=useState<CloudManifest[]>([]);
@@ -24,16 +46,18 @@ export function CloudPanel({banks,onChanged,onClose,onBusy,embedded=false}:{bank
  const access=cloudAccess(),roles=access?.grants[selected]||[],canMerge=hasPermission(access?.capabilities,'maintainer:manage')||roles.includes('merge'),canCreate=hasPermission(access?.capabilities,'cloud_bank:create');
  const task=async(fn:()=>Promise<void>)=>{if(busy)return;setBusy(true);onBusy(true);setMessage('');try{await fn()}catch(e){setMessage(String(e))}finally{setBusy(false);onBusy(false)}};
  const exportRevision=async(v:Version)=>{await task(async()=>{
-  const expected=v.added_count||0;if(!expected)return;
-  const result=await cloudCall<RevisionQuestions>(`/v1/banks/${selected}/history/${v.revision}/questions`,undefined,true);
-  if(!Array.isArray(result.questions)||result.questions.length!==expected)throw Error('云端没有返回完整的本批次新增题目');
+  const operations=await loadCloudOperations(selected,selectedBank),label=v.release_version_label||`v${v.release_version}`,selectedRevisions=operations.revisions.filter(item=>(item.release_version_label||`v${item.release_version}`)===label).map(item=>item.revision),ids=new Set(selectedRevisions.flatMap(revision=>{const operation=operations.revisions.find(item=>item.revision===revision);return operation?operationQuestionIds(operation):[]}));
+  if(!ids.size)throw Error('此修订没有可导出的题目变更');
+  const latest=await invoke<Question[]>('bank_questions',{bankId:selected});
+  const {questions,skipped}=selectRevisionQuestions(operations,selectedRevisions,latest);
+  if(!questions.length)throw Error('所选修订中的题目均已删除，没有可导出的题目');
   const bankName=selectedBank?.name||banks.find(bank=>bank.id===selected)?.name||'题库';
   const safeName=bankName.replace(/[\\/:*?"<>|\u0000-\u001f]/g,'_').replace(/\s+/g,'_').replace(/^[_ .-]+|[_ .-]+$/g,'').slice(0,48)||'题库';
   const displayRevision=String(v.revision);
-  const path=await save({title:'导出修订新增题目',defaultPath:`${safeName}_修订${displayRevision}_${v.release_version_label||`v${v.release_version}`}_新增${expected}题.docx`,filters:[{name:'Word 文档',extensions:['docx']}]});
+  const path=await save({title:'导出修订变更题目',defaultPath:`${safeName}_修订${displayRevision}_${v.release_version_label||`v${v.release_version}`}_变更${questions.length}题.docx`,filters:[{name:'Word 文档',extensions:['docx']}]});
   if(!path)return;
-  const count=await invoke<number>('export_remote_questions',{questions:result.questions,path});
-  setMessage(`已导出 ${count.toLocaleString()} 道题：${path}`);
+  const count=await invoke<number>('export_remote_questions',{questions,path});
+  setMessage(`已导出 ${count.toLocaleString()} 道题${skipped?`，已跳过 ${skipped.toLocaleString()} 道已删除题目`:''}：${path}`);
  })};
  async function checkUpdates(){
   const entries=await fetchCatalog();setCatalog(entries);
@@ -46,10 +70,10 @@ export function CloudPanel({banks,onChanged,onClose,onBusy,embedded=false}:{bank
   else setMessage(`检查完成：已检查 ${installed.length} 个云端题库，${updated} 个有更新${failed.length?`；${failed.length} 个失败：${String(failed[0].reason)}`:''}。`);
  }
  useEffect(()=>{if(initialRefresh.current)return;initialRefresh.current=true;void task(checkUpdates)},[]);
- const refreshHistory=async()=>{setHistory(await cloudCall<History>('/v1/banks/'+selected+'/history',undefined,true));};
+ const refreshHistory=async()=>{setHistory(await loadDisplayHistory(selected,selectedBank));};
  useEffect(()=>{
   let active=true;setHistory(null);setHistoryLoading(false);setDetailsOpen(false);
-  if(selected&&canMerge){setHistoryLoading(true);void cloudCall<History>('/v1/banks/'+selected+'/history',undefined,true).then(value=>{if(active)setHistory(value)}).catch(error=>{if(active)setMessage(String(error))}).finally(()=>{if(active)setHistoryLoading(false)});}
+  if(selected&&canMerge){setHistoryLoading(true);void loadDisplayHistory(selected,selectedBank).then(value=>{if(active)setHistory(value)}).catch(error=>{if(active)setMessage(String(error))}).finally(()=>{if(active)setHistoryLoading(false)});}
   return ()=>{active=false};
  },[selected,access?.openid,canMerge]);
  const selectedBank=catalog.find(bank=>bank.bank_id===selected);
@@ -65,7 +89,7 @@ export function CloudPanel({banks,onChanged,onClose,onBusy,embedded=false}:{bank
   </>:<>
    <div className="cloud-history-bank-header">
     <button type="button" className="cloud-history-back-button" disabled={busy} onClick={returnToCatalog}><span aria-hidden="true">←</span><span>返回</span></button>
-    <div className="cloud-history-bank-copy"><h3>{selectedBank?.name||'题库历史版本'}</h3>{history&&<p className="cloud-history-summary">正式版本 {history.release_version_label||`v${history.release_version}`} · 修订 {history.current_revision} · 新上传会直接合并</p>}</div>
+    <div className="cloud-history-bank-copy"><h3>{selectedBank?.name||'题库历史版本'}</h3>{history&&<p className="cloud-history-summary">当前正式版 {history.release_version_label||`v${history.release_version}`} · 共 {history.versions.length} 个正式版 · 新上传会直接合并</p>}</div>
    </div>
    {!canMerge?<p className="callout">当前账号没有此题库的版本历史查看权限。</p>:historyLoading?<p>正在读取历史版本…</p>:null}
   </>}
@@ -77,8 +101,8 @@ export function CloudPanel({banks,onChanged,onClose,onBusy,embedded=false}:{bank
    })}>从本机正式题初始化首版</button>}
   {!!history.versions.length ? (detailsOpen ? <section className="cloud-operation-page">
    <div className="cloud-operation-page-heading"><div><h3>详细修订操作记录</h3><p>记录该题库的每次内部修订，包括正式合并、回退和状态更新。</p></div><button type="button" disabled={busy} onClick={()=>setDetailsOpen(false)}>返回版本历史</button></div>
-   <div className="cloud-operation-list">{[...(history.operations||[])].sort((left,right)=>right.revision-left.revision).map(operation=>{const label=operation.release_version_label||`v${operation.release_version}`,kind=operation.kind==='seed'?'首版初始化':operation.kind==='merge'?'上传合并':operation.kind==='rollback'?'回退':'状态更新',uploader=operation.uploader_account_id||operation.uploader_real_name||operation.uploader_nickname?displayUploader(operation.uploader_real_name,operation.uploader_nickname):'系统';return <article className="cloud-operation-item" key={operation.revision}><div className="cloud-operation-title"><div><b>修订 {operation.revision}</b><span className="cloud-history-release">正式 {label}</span><em>{kind}</em></div><time dateTime={operation.updated_at}>{new Date(operation.updated_at).toLocaleString()}</time></div><div className="cloud-operation-meta"><span>上传者 {uploader}</span>{Number.isSafeInteger(operation.question_count)&&<span>处理 {operation.question_count!.toLocaleString()} 题</span>}{Number.isSafeInteger(operation.added_count)&&<span>新增 {operation.added_count!.toLocaleString()} 题</span>}{Number.isSafeInteger(operation.duplicate_count)&&<span>重复 {operation.duplicate_count!.toLocaleString()} 题</span>}{operation.batch_id&&<span title={operation.batch_id}>批次 {operation.batch_id.slice(0,8)}</span>}{operation.rollback_of&&<span>回退目标修订 {operation.rollback_of}</span>}</div>{operation.release_name&&<p className="cloud-operation-release-name">{operation.release_name}</p>}</article>})}</div>
-  </section> : <section className="cloud-history"><div className="cloud-history-heading"><h3>版本历史与回退</h3><div className="cloud-history-heading-actions"><button type="button" disabled={busy} onClick={()=>setDetailsOpen(true)}>查看详细修订变更</button><span>最新修订在前</span></div></div>{[...history.versions].sort((left,right)=>right.revision-left.revision).map(v=>{const added=v.added_count||0;const label=v.release_version_label||`v${v.release_version}`,displayRevision=String(v.revision),uploader=displayUploader(v.uploader_real_name,v.uploader_nickname);const canExport=!!(v.has_revision_questions??v.has_incremental_json)&&added>0;return <article className="cloud-history-item" key={v.revision}><div className="cloud-history-main"><div className="cloud-history-title"><b>修订 {displayRevision}</b><span className="cloud-history-release">{label}</span>{v.rollback_to_release_version_label&&<span className="cloud-history-rollback">回退到正式版 {v.rollback_to_release_version_label}</span>}</div><div className="cloud-history-meta"><span>上传者 <strong title={v.uploader_account_id?'上传账号 ID：'+v.uploader_account_id:undefined}>{uploader}</strong></span><span>新增 <strong>{added.toLocaleString()} 题</strong></span><time dateTime={v.updated_at}>{new Date(v.updated_at).toLocaleString()}</time></div></div><div className="cloud-history-actions"><button disabled={busy||v.revision>=history.current_revision} onClick={()=>void task(async()=>{if(!window.confirm('确认将正式题库回退到修订 '+displayRevision+'？当前版本会保留为历史记录。'))return;await cloudMutation('/v1/banks/'+selected+'/rollback',{base_revision:history.current_revision,target_revision:v.revision});await refreshHistory();await syncDesktop(selected);await onChanged();setMessage('已创建回退修订')})}>回退到此版本</button><button disabled={busy||!canExport} title={!canExport?'此修订没有可导出的新增题目记录':undefined} onClick={()=>void exportRevision(v)}>导出此次修订新增题目</button></div></article>})}</section>) : <p className="callout">当前暂无可回退的历史版本。</p>}
+   <div className="cloud-operation-list">{[...(history.operations||[])].sort((left,right)=>right.revision-left.revision).map(operation=>{const label=operation.release_version_label||`v${operation.release_version}`,kind=operation.kind==='bootstrap'?'历史初始化':operation.kind==='seed'?'首版初始化':operation.kind==='merge'?'上传合并':operation.kind==='rollback'?'回退':'状态更新',uploader=operation.uploader_account_id||operation.uploader_real_name||operation.uploader_nickname?displayUploader(operation.uploader_real_name,operation.uploader_nickname):'系统';return <article className="cloud-operation-item" key={operation.revision}><div className="cloud-operation-title"><div><b>修订 {operation.revision}</b><span className="cloud-history-release">正式 {label}</span><em>{kind}</em></div><time dateTime={operation.updated_at}>{new Date(operation.updated_at).toLocaleString()}</time></div><div className="cloud-operation-meta"><span>操作人 {uploader}</span>{Number.isSafeInteger(operation.question_count)&&<span>正式版题数 {operation.question_count!.toLocaleString()} 题</span>}{Number.isSafeInteger(operation.added_count)&&<span>新增 {operation.added_count!.toLocaleString()} 题</span>}{Number.isSafeInteger(operation.revised_count)&&<span>修改 {operation.revised_count!.toLocaleString()} 题</span>}{Number.isSafeInteger(operation.removed_count)&&<span>删除 {operation.removed_count!.toLocaleString()} 题</span>}{Number.isSafeInteger(operation.duplicate_count)&&<span>重复 {operation.duplicate_count!.toLocaleString()} 题</span>}{operation.batch_id&&<span title={operation.batch_id}>批次 {operation.batch_id.slice(0,8)}</span>}{operation.rollback_of&&<span>回退目标修订 {operation.rollback_of}</span>}</div>{operation.note&&<p className="cloud-operation-note">备注：{operation.note}</p>}{operation.release_name&&<p className="cloud-operation-release-name">{operation.release_name}</p>}</article>})}</div>
+   </section> : <section className="cloud-history"><div className="cloud-history-heading"><h3>版本历史与回退</h3><div className="cloud-history-heading-actions"><button type="button" disabled={busy} onClick={()=>setDetailsOpen(true)}>查看详细修订变更</button><span>最新正式版在前</span></div></div>{[...history.versions].sort((left,right)=>right.revision-left.revision).map(v=>{const added=v.added_count||0,changed=v.changed_count??added;const label=v.release_version_label||`v${v.release_version}`,displayRevision=String(v.revision),uploader=displayUploader(v.uploader_real_name,v.uploader_nickname);const canExport=changed>0;return <article className="cloud-history-item" key={v.revision}><div className="cloud-history-main"><div className="cloud-history-title"><b>正式版 {label}</b>{v.rollback_to_release_version_label&&<span className="cloud-history-rollback">回退到正式版 {v.rollback_to_release_version_label}</span>}</div><div className="cloud-history-meta"><span>操作人 <strong title={v.uploader_account_id?'操作账号 ID：'+v.uploader_account_id:undefined}>{uploader}</strong></span><span>新增/修改 <strong>{changed.toLocaleString()} 题</strong></span><time dateTime={v.updated_at}>{new Date(v.updated_at).toLocaleString()}</time></div></div><div className="cloud-history-actions"><button disabled={busy||v.revision>=history.current_revision} onClick={()=>void task(async()=>{if(!window.confirm('确认将正式题库回退到正式版 '+label+'？当前版本会保留为历史记录。'))return;await cloudMutation('/v1/banks/'+selected+'/rollback',{base_revision:history.current_revision,target_revision:v.revision});await refreshHistory();await syncDesktop(selected);await onChanged();setMessage('已创建回退修订')})}>回退到此版本</button><button disabled={busy||!canExport} title={!canExport?'此正式版没有可导出的题目变更记录':undefined} onClick={()=>void exportRevision(v)}>导出此次修订变更题目</button></div></article>})}</section>) : <p className="callout">当前暂无可回退的正式版本。</p>}
   </>}
   {selected&&message&&<p className="callout" role="status">{message}</p>}{busy&&<p>正在处理…</p>}
  </section>;

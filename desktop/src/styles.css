@@ -669,6 +669,13 @@ h1+p {
 .explanation-heading { display:flex; align-items:center; gap:.615385rem; font-size:.8rem; color:var(--muted); }
 .answer-review-status { padding:.076923rem .384615rem; border-radius:.307692rem; font-size:.75rem; background:var(--warning-bg); color:var(--warning); }
 .question-explanation .explanation-text { font-size:inherit; line-height:inherit; white-space:pre-wrap; overflow-wrap:anywhere; margin:.384615rem 0 0; }
+.formula-text { white-space:inherit; overflow-wrap:inherit; }
+.formula-plain { white-space:inherit; }
+.formula-math { display:inline-block; max-width:100%; vertical-align:-0.12em; font-family:serif; font-size:1.04em; line-height:1; }
+.formula-math-display { display:block; margin:.6em auto; overflow-x:auto; overflow-y:hidden; padding:.1em .2em; text-align:center; vertical-align:middle; }
+.formula-math[aria-label] { user-select:text; }
+.formula-math mtext { font-family:inherit; }
+.formula-math-display + .formula-plain { display:block; }
 .answer-sources { margin-top:.769231rem; font-size:.8rem; color:var(--secondary); }
 .answer-sources summary { cursor:pointer; width:fit-content; padding:.230769rem 0; }
 .answer-sources summary:focus-visible { outline:.153846rem solid var(--accent); outline-offset:.153846rem; border-radius:.153846rem; }

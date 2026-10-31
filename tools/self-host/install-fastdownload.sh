@@ -2,9 +2,13 @@
 set -eu
 
 ARCHIVE="${QBANK_FASTDOWNLOAD_ARCHIVE:-/tmp/qbank-fastdownload-0.1.0.tar.gz}"
-CADDY_HOST="${QBANK_FASTDOWNLOAD_HOSTNAME:-qbank.creart.top}"
-PUBLIC_ORIGIN="${QBANK_FASTDOWNLOAD_PUBLIC_ORIGIN:-https://qbank.creart.top:8013}"
+CADDY_HOST="${QBANK_FASTDOWNLOAD_HOSTNAME:-qbank.acharrystar.top}"
+PUBLIC_ORIGIN="${QBANK_FASTDOWNLOAD_PUBLIC_ORIGIN:-https://qbank.acharrystar.top:8013}"
 STUN_URLS="${QBANK_FASTDOWNLOAD_STUN_URLS:-stun:stun.cloudflare.com:3478}"
+REQUESTED_TURN_URLS="${QBANK_FASTDOWNLOAD_TURN_URLS:-}"
+REQUESTED_TURN_SECRET="${QBANK_FASTDOWNLOAD_TURN_SECRET:-}"
+REQUESTED_TURN_TTL="${QBANK_FASTDOWNLOAD_TURN_TTL_SECONDS:-}"
+REQUESTED_ICE_PORT_RANGE="${QBANK_FASTDOWNLOAD_ICE_PORT_RANGE:-}"
 RELEASE_ROOT=/opt/qbank-fastdownload/releases
 CURRENT=/opt/qbank-fastdownload/current
 SITE_ROOT=/var/lib/qbank-fastdownload/site
@@ -12,6 +16,22 @@ DOMAIN_CONFIG=/etc/caddy/qbank-domain.caddy
 MAIN_CONFIG=/etc/caddy/Caddyfile
 SERVICE_INITD=/etc/init.d/qbank-fastdownload
 SERVICE_CONF=/etc/conf.d/qbank-fastdownload
+
+EXISTING_TURN_URLS=''
+EXISTING_TURN_SECRET=''
+EXISTING_TURN_TTL=''
+EXISTING_ICE_PORT_RANGE=''
+if [ -f "$SERVICE_CONF" ]; then
+  . "$SERVICE_CONF"
+  EXISTING_TURN_URLS="${QBANK_FASTDOWNLOAD_TURN_URLS:-}"
+  EXISTING_TURN_SECRET="${QBANK_FASTDOWNLOAD_TURN_SECRET:-}"
+  EXISTING_TURN_TTL="${QBANK_FASTDOWNLOAD_TURN_TTL_SECONDS:-}"
+  EXISTING_ICE_PORT_RANGE="${QBANK_FASTDOWNLOAD_ICE_PORT_RANGE:-}"
+fi
+TURN_URLS="${REQUESTED_TURN_URLS:-$EXISTING_TURN_URLS}"
+TURN_SECRET="${REQUESTED_TURN_SECRET:-$EXISTING_TURN_SECRET}"
+TURN_TTL="${REQUESTED_TURN_TTL:-${EXISTING_TURN_TTL:-3600}}"
+ICE_PORT_RANGE="${REQUESTED_ICE_PORT_RANGE:-$EXISTING_ICE_PORT_RANGE}"
 
 [ "$(id -u)" -eq 0 ] || { echo 'fastdownload deployment requires root SSH access' >&2; exit 1; }
 [ -s "$ARCHIVE" ] || { echo "missing fastdownload package: $ARCHIVE" >&2; exit 1; }
@@ -24,19 +44,34 @@ node -e 'if(Number(process.versions.node.split(".")[0])<22)process.exit(1)' \
 printf '%s' "$CADDY_HOST" | grep -Eq '^[A-Za-z0-9.-]+$' || { echo 'invalid Caddy host' >&2; exit 1; }
 printf '%s' "$PUBLIC_ORIGIN" | grep -Eq '^https://[A-Za-z0-9.-]+(:[0-9]+)?$' || { echo 'invalid public origin' >&2; exit 1; }
 printf '%s' "$STUN_URLS" | grep -Eq '^[A-Za-z0-9:.,/_-]+$' || { echo 'invalid STUN URL list' >&2; exit 1; }
+if [ -n "$TURN_URLS$TURN_SECRET" ] && { [ -z "$TURN_URLS" ] || [ -z "$TURN_SECRET" ]; }; then
+  echo 'TURN URL and shared secret must be configured together' >&2
+  exit 1
+fi
+if [ -n "$TURN_URLS" ]; then
+  printf '%s' "$TURN_URLS" | grep -Eq '^[A-Za-z0-9:.,/_?=&-]+$' || { echo 'invalid TURN URL list' >&2; exit 1; }
+  printf '%s' "$TURN_SECRET" | grep -Eq '^[A-Za-z0-9_-]{32,128}$' || { echo 'invalid TURN shared secret' >&2; exit 1; }
+  case "$TURN_TTL" in ''|*[!0-9]*) echo 'invalid TURN credential lifetime' >&2; exit 1;; esac
+  [ "$TURN_TTL" -ge 60 ] && [ "$TURN_TTL" -le 86400 ] \
+    || { echo 'TURN credential lifetime must be 60 to 86400 seconds' >&2; exit 1; }
+fi
+if [ -n "$ICE_PORT_RANGE" ]; then
+  printf '%s' "$ICE_PORT_RANGE" | grep -Eq '^[0-9]{4,5}-[0-9]{4,5}$' \
+    || { echo 'invalid ICE port range' >&2; exit 1; }
+fi
 
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 release="$RELEASE_ROOT/$stamp"
-mkdir -p "$release" "$SITE_ROOT/fastdowmload" /var/log
+mkdir -p "$release" "$SITE_ROOT/fastdownload" /var/log
 tar -xzf "$ARCHIVE" -C "$release"
 [ -s "$release/server/server.mjs" ] || { echo 'package is missing server/server.mjs' >&2; exit 1; }
 [ -s "$release/server/node_modules/werift/package.json" ] || { echo 'package is missing the pinned werift runtime' >&2; exit 1; }
-[ -s "$release/site/fastdowmload/index.html" ] || { echo 'package is missing the separate fastdownload page' >&2; exit 1; }
-[ -s "$release/site/fastdowmload/sha256-worker.js" ] || { echo 'package is missing the SHA-256 worker' >&2; exit 1; }
+[ -s "$release/site/fastdownload/index.html" ] || { echo 'package is missing the separate fastdownload page' >&2; exit 1; }
+[ -s "$release/site/fastdownload/sha256-worker.js" ] || { echo 'package is missing the SHA-256 worker' >&2; exit 1; }
 chmod -R a+rX "$release"
 
-install -o root -g caddy -m 0640 "$release/site/fastdowmload/index.html" "$SITE_ROOT/fastdowmload/index.html"
-install -o root -g caddy -m 0640 "$release/site/fastdowmload/sha256-worker.js" "$SITE_ROOT/fastdowmload/sha256-worker.js"
+install -o root -g caddy -m 0640 "$release/site/fastdownload/index.html" "$SITE_ROOT/fastdownload/index.html"
+install -o root -g caddy -m 0640 "$release/site/fastdownload/sha256-worker.js" "$SITE_ROOT/fastdownload/sha256-worker.js"
 
 OLD_TARGET=''
 if [ -L "$CURRENT" ]; then OLD_TARGET=$(readlink "$CURRENT"); fi
@@ -55,8 +90,8 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 
-ln -s "$release" "$CURRENT.next"
-mv -f "$CURRENT.next" "$CURRENT"
+rm -f "$CURRENT"
+ln -s "$release" "$CURRENT"
 
 rollback() {
   cp -p "$BACKUP" "$DOMAIN_CONFIG"
@@ -64,8 +99,8 @@ rollback() {
   if [ -n "$OLD_TARGET" ]; then
     if [ "$OLD_INITD" = yes ]; then cp -p "$INITD_BACKUP" "$SERVICE_INITD"; else rm -f "$SERVICE_INITD"; fi
     if [ "$OLD_CONF" = yes ]; then cp -p "$CONF_BACKUP" "$SERVICE_CONF"; else rm -f "$SERVICE_CONF"; fi
-    ln -s "$OLD_TARGET" "$CURRENT.rollback"
-    mv -f "$CURRENT.rollback" "$CURRENT"
+    rm -f "$CURRENT"
+    ln -s "$OLD_TARGET" "$CURRENT"
     rc-service qbank-fastdownload restart >/dev/null 2>&1 || true
   else
     rc-update del qbank-fastdownload default >/dev/null 2>&1 || true
@@ -76,16 +111,20 @@ rollback() {
   rm -rf -- "$release"
 }
 
-if ! grep -q 'handle /fastdowmload/api\*' "$DOMAIN_CONFIG"; then
+if grep -q 'fastdowmload' "$DOMAIN_CONFIG"; then
+  sed 's#/fastdowmload#/fastdownload#g' "$DOMAIN_CONFIG" > "$TEMP"
+  cat "$TEMP" > "$DOMAIN_CONFIG"
+fi
+if ! grep -q 'handle /fastdownload/api\*' "$DOMAIN_CONFIG"; then
   awk '
     /^[[:space:]]*handle_path \/v1\/desktop\/releases\/\*/ && !inserted {
-      print "\thandle /fastdowmload/api* {"
+      print "\thandle /fastdownload/api* {"
       print "\t\treverse_proxy 127.0.0.1:8090"
       print "\t}"
-      print "\thandle /fastdowmload* {"
+      print "\thandle /fastdownload* {"
       print "\t\troot * /var/lib/qbank-fastdownload/site"
-      print "\t\t@fastdownloadIndex path /fastdowmload /fastdowmload/"
-      print "\t\trewrite @fastdownloadIndex /fastdowmload/index.html"
+      print "\t\t@fastdownloadIndex path /fastdownload /fastdownload/"
+      print "\t\trewrite @fastdownloadIndex /fastdownload/index.html"
       print "\t\theader Cache-Control \"no-cache\""
       print "\t\tfile_server"
       print "\t}"
@@ -93,21 +132,35 @@ if ! grep -q 'handle /fastdowmload/api\*' "$DOMAIN_CONFIG"; then
     }
     { print }
     END { if (!inserted) exit 1 }
-  ' "$DOMAIN_CONFIG" > "$TEMP" || { echo 'could not add the isolated /fastdowmload routes' >&2; exit 1; }
+  ' "$DOMAIN_CONFIG" > "$TEMP" || { echo 'could not add the isolated /fastdownload routes' >&2; exit 1; }
   cat "$TEMP" > "$DOMAIN_CONFIG"
+fi
+if grep -q 'fastdowmload' "$DOMAIN_CONFIG"; then
+  echo 'legacy fastdowmload route remains in the Caddy configuration' >&2
+  rollback
+  exit 1
 fi
 
 install -o root -g root -m 0755 "$release/service/qbank-fastdownload.initd" "$SERVICE_INITD"
 mkdir -p /etc/conf.d
-cat > "$SERVICE_CONF" <<EOF
-export QBANK_FASTDOWNLOAD_BIND_HOST="127.0.0.1"
-export QBANK_FASTDOWNLOAD_PORT="8090"
-export QBANK_FASTDOWNLOAD_CADDY_HOST="$CADDY_HOST"
-export QBANK_FASTDOWNLOAD_CADDY_PORT="8443"
-export QBANK_FASTDOWNLOAD_ALLOWED_ORIGINS="$PUBLIC_ORIGIN"
-export QBANK_FASTDOWNLOAD_STUN_URLS="$STUN_URLS"
-EOF
-chmod 0644 "$SERVICE_CONF"
+{
+  printf 'export QBANK_FASTDOWNLOAD_BIND_HOST="%s"\n' "127.0.0.1"
+  printf 'export QBANK_FASTDOWNLOAD_PORT="%s"\n' "8090"
+  printf 'export QBANK_FASTDOWNLOAD_CADDY_HOST="%s"\n' "$CADDY_HOST"
+  printf 'export QBANK_FASTDOWNLOAD_CADDY_PORT="%s"\n' "8443"
+  printf 'export QBANK_FASTDOWNLOAD_ALLOWED_ORIGINS="%s"\n' "$PUBLIC_ORIGIN"
+  printf 'export QBANK_FASTDOWNLOAD_STUN_URLS="%s"\n' "$STUN_URLS"
+  if [ -n "$ICE_PORT_RANGE" ]; then
+    printf 'export QBANK_FASTDOWNLOAD_ICE_PORT_RANGE="%s"\n' "$ICE_PORT_RANGE"
+  fi
+  if [ -n "$TURN_URLS" ]; then
+    printf 'export QBANK_FASTDOWNLOAD_TURN_URLS="%s"\n' "$TURN_URLS"
+    printf 'export QBANK_FASTDOWNLOAD_TURN_SECRET="%s"\n' "$TURN_SECRET"
+    printf 'export QBANK_FASTDOWNLOAD_TURN_TTL_SECONDS="%s"\n' "$TURN_TTL"
+  fi
+} > "$SERVICE_CONF"
+chown root:qbank "$SERVICE_CONF"
+chmod 0640 "$SERVICE_CONF"
 rc-update add qbank-fastdownload default
 touch /var/log/qbank-fastdownload.log /var/log/qbank-fastdownload.err
 chown qbank:qbank /var/log/qbank-fastdownload.log /var/log/qbank-fastdownload.err
@@ -131,10 +184,10 @@ fi
 verified=no
 attempt=0
 while [ "$attempt" -lt 30 ]; do
-  if curl --fail --silent --resolve "$CADDY_HOST:8443:127.0.0.1" \
-    "https://$CADDY_HOST:8443/fastdowmload" -o /tmp/qbank-fastdownload-page-check.html \
+  if curl --noproxy '*' --fail --silent --resolve "$CADDY_HOST:8443:127.0.0.1" \
+    "https://$CADDY_HOST:8443/fastdownload" -o /tmp/qbank-fastdownload-page-check.html \
     && grep -q '快速下载实验' /tmp/qbank-fastdownload-page-check.html \
-    && curl --fail --silent http://127.0.0.1:8090/fastdowmload/api/config \
+    && curl --fail --silent http://127.0.0.1:8090/fastdownload/api/config \
       -H "Origin: $PUBLIC_ORIGIN" -o /tmp/qbank-fastdownload-config-check.json \
     && grep -q 'iceServers' /tmp/qbank-fastdownload-config-check.json; then
     verified=yes
@@ -145,9 +198,9 @@ while [ "$attempt" -lt 30 ]; do
 done
 if [ "$verified" != yes ]; then
   page_status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
-    --resolve "$CADDY_HOST:8443:127.0.0.1" "https://$CADDY_HOST:8443/fastdowmload" 2>&1 || true)
+    --resolve "$CADDY_HOST:8443:127.0.0.1" "https://$CADDY_HOST:8443/fastdownload" 2>&1 || true)
   api_status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
-    http://127.0.0.1:8090/fastdowmload/api/config \
+    http://127.0.0.1:8090/fastdownload/api/config \
     -H "Origin: $PUBLIC_ORIGIN" 2>&1 || true)
   echo "fastdownload diagnostics: page=$page_status api=$api_status"
   rc-service qbank-fastdownload status || true
@@ -164,5 +217,5 @@ for old_release in "$RELEASE_ROOT"/*; do
   rm -rf -- "$old_release"
 done
 
-echo "Experimental direct-download page installed at https://$CADDY_HOST:8013/fastdowmload"
+echo "Experimental direct-download page installed at https://$CADDY_HOST:8013/fastdownload"
 echo 'The existing /download page and its deployment script were not changed by this installer.'

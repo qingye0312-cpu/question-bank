@@ -31,7 +31,10 @@ pub fn initialize(c: &rusqlite::Connection) -> Result<()> {
  CREATE TABLE IF NOT EXISTS question_layers(bank_id TEXT NOT NULL,question_id TEXT NOT NULL,layer TEXT NOT NULL,PRIMARY KEY(bank_id,question_id));").map_err(err)
 }
 pub fn client_state(store: &Store, key: &str, value: Option<Value>) -> Result<Value> {
-    if !(key.starts_with("draft:") || key == "upload-queue" || key == "publish-operations")
+    if !(key.starts_with("draft:")
+        || key.starts_with("cloud-operations:")
+        || key == "upload-queue"
+        || key == "publish-operations")
         || key.len() > 100
     {
         return Err("状态键无效".into());

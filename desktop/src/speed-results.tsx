@@ -4,13 +4,13 @@ import {Check} from 'lucide-react';
 import {QuestionPreview} from './question-preview';
 import type {PreviewAnchor} from './question-preview';
 import {useQuestionResults} from './use-question-results';
-import {matchRanges, queryTerms, searchSnippet} from './search-presentation';
+import {queryTerms, searchSnippet} from './search-presentation';
 import type {SnippetLine} from './search-presentation';
 import type {Hit, Results} from './types';
+import {FormulaText} from './formula';
 
 export function SearchMark({text, query}: {text: string; query: string}) {
-  const ranges = useMemo(() => matchRanges(text, queryTerms(query)), [text, query]);
-  return <>{ranges.map((range, i) => <span key={`${range.start}:${range.end}`}>{text.slice(i ? ranges[i - 1].end : 0, range.start)}<mark data-term={range.termIndex % 12} title={`搜索词：${range.term}`}>{text.slice(range.start, range.end)}</mark></span>)}{text.slice(ranges.length ? ranges[ranges.length - 1].end : 0)}</>;
+  return <FormulaText text={text} query={query}/>;
 }
 
 const SpeedQuestion = memo(function SpeedQuestion({question, query, line, previewEnabled}: {question: Hit['question']; query: string; line: SnippetLine; previewEnabled: boolean}) {

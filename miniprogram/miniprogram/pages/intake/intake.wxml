@@ -100,4 +100,13 @@
  </view></view>
  <view wx:if="{{error}}" class="issue" role="alert">{{error}}</view><view wx:if="{{notice}}" class="notice">{{notice}}</view>
  <view class="footer"><view class="save-status" bindtap="onBlur">{{saved}}</view><view class="footer-actions"><button bindtap="onNext" disabled="{{busy || !ready}}">下一题</button><button type="primary" bindtap="onUpload" disabled="{{busy || !ready || !pendingCount}}">{{busy?'处理中…':'上传 '+pendingCount+' 题'}}</button></view></view>
+ <view wx:if="{{uploadConfirm}}" class="upload-confirm-mask" role="dialog" aria-modal="true" aria-label="确认上传">
+  <view class="upload-confirm-dialog">
+   <view class="label">是否确认上传？</view>
+   <view class="muted">将把当前 {{pendingCount}} 道题提交到云端上传队列。未补全或校验失败的题目会保留在本机。</view>
+   <textarea maxlength="500" value="{{uploadNote}}" bindinput="onUploadNote" placeholder="备注（可选，最多 500 字）" placeholder-class="theme-placeholder" disabled="{{busy}}"/>
+   <view class="muted upload-note-count">{{uploadNote.length}} / 500</view>
+   <view class="upload-confirm-actions"><button bindtap="onCancelUpload" disabled="{{busy}}">取消</button><button type="primary" bindtap="onConfirmUpload" disabled="{{busy}}">{{busy?'正在上传…':'确认上传'}}</button></view>
+  </view>
+ </view>
 </view>

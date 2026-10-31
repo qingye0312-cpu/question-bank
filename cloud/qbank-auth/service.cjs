@@ -41,14 +41,15 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
       if (method === 'GET' && path === '/health') return respond(200, {
         service: 'qbank-auth', version: VERSION, auth_configured: authConfigured(config),
         auth_checks: authChecks(config),
-        uploads_enabled: config.uploadsEnabled, sync_enabled: config.syncEnabled, capabilities:['confirmed-upload-v1','snapshot-v2','cloud-file-gzip-base64-v1','recorded-at-v1','merge-v1','cloud-bank-promotion-v1','session-upload-v1','maintainer-approval-v1','certificate-import-v1','password-maintainer-v1','global-export-permission-v1'], limits: LIMITS,
+        uploads_enabled: config.uploadsEnabled, sync_enabled: config.syncEnabled, capabilities:['confirmed-upload-v1','question-bank-file-v1','operations-file-v2','cloud-file-gzip-base64-v1','recorded-at-v1','merge-v1','cloud-bank-promotion-v1','session-upload-v1','maintainer-approval-v1','certificate-import-v1','password-maintainer-v1','global-export-permission-v1'], limits: LIMITS,
       });
+      const operationsFileRoute = method==='GET' && /^\/v1\/banks\/[0-9a-f-]{36}\/operations-file$/.test(path||'');
       const publicResult = await workflow.read(method,path,config);
-      if(publicResult !== undefined)return respond(200,publicResult);
-      const workflowRoute = /^\/v1\/banks\/[0-9a-f-]{36}\/(seed|history|history\/[0-9]+\/questions|rollback)$/.test(path||'');
+      if(publicResult !== undefined && !operationsFileRoute)return respond(200,publicResult);
+      const workflowRoute = /^\/v1\/banks\/[0-9a-f-]{36}\/(seed|rollback)$/.test(path||'');
       const maintainerRoute = method==='GET' && ['/v1/maintainer-applications','/v1/maintainer-accounts'].includes(path)
         || method==='POST' && (path==='/v1/maintainer-applications' || /^\/v1\/maintainer-applications\/[0-9a-f-]{36}\/decision$/.test(path) || /^\/v1\/maintainer-accounts\/[0-9a-f-]{36}\/(?:permissions|revoke|password-reset)$/.test(path));
-      if (!workflowRoute && !maintainerRoute && !['POST /v1/auth/desktop', 'POST /v1/auth/register', 'POST /v1/auth/password-login', 'POST /v1/auth/password-reset', 'POST /v1/auth/refresh', 'POST /v1/auth/logout', 'GET /v1/me', 'POST /v1/uploads', 'POST /v1/banks/promote'].includes(`${method} ${path}`))
+      if (!workflowRoute && !operationsFileRoute && !maintainerRoute && !['POST /v1/auth/desktop', 'POST /v1/auth/register', 'POST /v1/auth/password-login', 'POST /v1/auth/password-reset', 'POST /v1/auth/refresh', 'POST /v1/auth/logout', 'GET /v1/me', 'POST /v1/uploads', 'POST /v1/banks/promote'].includes(`${method} ${path}`))
         fail(404, 'NOT_FOUND', '接口不存在');
       requireSessionConfig(config);
       const now = Math.floor(clock() / 1000);
@@ -189,6 +190,7 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
       }
       const auth = verify(typeof headers.authorization === 'string' && headers.authorization.startsWith('Bearer ')
         ? headers.authorization.slice(7) : null, config, now, await access.read());
+      if (operationsFileRoute) return respond(200, await workflow.read(method,path,config,auth));
       if (path === '/v1/me') {
         const pendingApplication=auth.password_account?(await access.read()).maintainer_applications.find(application=>application.status==='pending'&&application.account_id===auth.account_id):undefined;
         return respond(200, { openid: auth.openid, auth_type:auth.password_account?'password':auth.desktop?'key':'', phone: auth.phone_masked||'', real_name:auth.real_name||'', nickname:auth.nickname||'', account_status:auth.account_status|| (auth.desktop?'desktop':'approved'),
@@ -351,7 +353,12 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
       if (!config.syncEnabled) fail(503, 'SYNC_DISABLED', '云端合并服务尚未启用，本地批次仍然保留');
       throttle(`upload:${auth.openid}`, 20);
       const body=jsonBody(event,LIMITS.requestBytes);
-      if(!exact(body,['format','package'])||body.format!=='qbank-confirmed-upload-1')fail(422,'CONFIRMATION_INVALID','上传必须使用当前确认包格式');
+      if(!(exact(body,['format','package'])||exact(body,['format','package','status_mode'])
+        ||exact(body,['format','package','note'])||exact(body,['format','package','status_mode','note']))
+        ||body.format!=='qbank-confirmed-upload-1'
+        ||body.status_mode!==undefined&&!['preserve','verified'].includes(body.status_mode)
+        ||body.note!==undefined&&(typeof body.note!=='string'||body.note.length>500))fail(422,'CONFIRMATION_INVALID','上传必须使用当前确认包格式');
+      const note=typeof body.note==='string'?body.note.trim():'';
       const { delta, envelope } = decodeUpload(body.package, parseDelta, parseModelReply);
       if (!auth.capabilities?.includes('maintainer:manage')&&!auth.grants[delta.bank_id]?.includes('upload')) fail(403, 'BANK_FORBIDDEN', '没有此题库的上传权限');
       if (config.banks.find(b => b.bank_id === delta.bank_id)?.name !== delta.name)
@@ -363,7 +370,7 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
       const record = { format: 'qbank-submission-1', submission_id: sha256(`${delta.bank_id}/${delta.batch_id}`),
         bank_id: delta.bank_id, batch_id: delta.batch_id, sha256: envelope.sha256, payload_sha256: delta.sha256,
         question_count: delta.question_count, status:'merging', accepted_at: new Date(clock()).toISOString(),
-        submitted_by: sha256(`${config.appId}\0${auth.openid}`), package: envelope };
+        submitted_by: sha256(`${config.appId}\0${auth.openid}`), status_mode:body.status_mode||'preserve', note, package: envelope };
       record.confirmation={version:1,actor:record.submitted_by,confirmed_at:record.accepted_at,sha256:record.sha256};
       record.uploader_account_id=auth.account_id||auth.maintainer_id||auth.openid;
       record.uploader_real_name=typeof auth.real_name==='string'&&auth.real_name.trim()&&auth.real_name.trim()!=='未记录'
@@ -376,7 +383,8 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
       catch { fail(502, 'STORAGE_UNAVAILABLE', '云端保存未确认，请保留本地批次并重试'); }
       if (!accepted || accepted.record?.format !== 'qbank-submission-1')
         fail(502, 'STORAGE_UNAVAILABLE', '云端记录无效，请联系维护者');
-      if (accepted.record.sha256 !== record.sha256 || accepted.record.bank_id !== delta.bank_id || accepted.record.batch_id !== delta.batch_id || accepted.record.submitted_by !== record.submitted_by)
+      if (accepted.record.sha256 !== record.sha256 || accepted.record.bank_id !== delta.bank_id || accepted.record.batch_id !== delta.batch_id
+        || accepted.record.submitted_by !== record.submitted_by || (accepted.record.note||'') !== note)
         fail(409, 'BATCH_CONFLICT', '此批次已提交不同内容，请使用新批次提交修改');
       let merged;
       try { merged=await workflow.mergeSubmission(config,accepted.record,delta,auth); }

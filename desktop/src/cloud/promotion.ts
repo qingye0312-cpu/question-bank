@@ -1,6 +1,6 @@
 import {invoke} from '@tauri-apps/api/core';
 import {packText} from '../../shared/codec';
-import {readManifest,readSnapshot,snapshotPath,snapshotPayload} from '../../shared/sync';
+import {readManifest,readQuestionFile,questionFilePath,questionFilePayload} from '../../shared/sync';
 import {hasPermission} from '../../shared/export-permission';
 import {cloudAccess,cloudCall,cloudOrigin,fetchCatalog,refreshAccess} from '../cloud-client';
 import type {Bank} from '../types';
@@ -21,8 +21,8 @@ export async function promoteBank(bank:Bank,retry?:PromotionTask){
   const catalog=await fetchCatalog(),entry=catalog.find(b=>b.bank_id===bank.id);check();
   if(!entry||entry.revision<1)throw Error('首版目录尚未激活，请恢复原任务');
   const manifest=readManifest(await cloudCall(`/v1/banks/${bank.id}/manifest`));
-  const wrapper=await cloudCall(snapshotPath(manifest));readSnapshot(wrapper,manifest);check();
-  await invoke('cloud_apply',snapshotPayload(wrapper));
+  const wrapper=await cloudCall(questionFilePath(manifest));readQuestionFile(wrapper,manifest);check();
+  await invoke('cloud_apply',questionFilePayload(wrapper,manifest));
   if(!(await promotionTasks()).some(t=>t.id===task.id&&t.status==='done'))throw Error('本地转换尚未完成，请恢复原任务');
   await refreshAccess();return task.backup;
  }finally{running=false;}
