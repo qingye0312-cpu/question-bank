@@ -70,7 +70,7 @@
 .question-export-revision-summary strong span { margin-left:.4rem; font-size:.9rem; font-weight:500; letter-spacing:0; }
 .question-export-revision-summary p { margin:.65rem 0 0; color:var(--secondary); font-size:.82rem; font-weight:600; }
 .question-export-revision-summary small { margin-top:.4rem; color:var(--muted); font-size:.7rem; line-height:1.5; }
-.question-export-revisions > .question-export-range-note:not(:only-child) { grid-column:1 / -1; grid-row:2; margin-top:1.35rem; }
+.question-export-revisions > .question-export-range-note:not(:only-child) { grid-column:1 / -1; grid-row:2; margin-top:2.4rem; }
 .question-export-revisions > .question-export-range-note:only-child { grid-column:1 / -1; grid-row:1 / -1; align-self:center; justify-self:center; }
 .question-export-range-summary { flex:1 1 auto; min-height:7rem; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; }
 .question-export-range-summary strong { display:block; color:var(--accent); font-size:3.25rem; font-weight:650; letter-spacing:-.045em; line-height:1.15; font-variant-numeric:tabular-nums; }
