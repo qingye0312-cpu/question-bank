@@ -2,14 +2,18 @@
 import {unpackText,CLOUD_FILE_FORMAT} from './codec';
 import {validTime,validateStandardQuestion,sha256,identityKey,type IntakeQuestion} from './intake';
 export type SyncQuestion=Omit<IntakeQuestion,'answer'> & {answer:string[]|boolean|null; cloud_layer?:string};
-export type CloudManifest={bank_id:string;name:string;revision:number;release_version:number;release_version_label?:string|null;question_count?:number|null;sha256:string;bytes:number;minimum_client:string;updated_at:string;snapshot_format:string;protocol:2|3;question_file_sha256?:string|null;question_file_bytes?:number|null;question_file_format?:string|null;operations_file_sha256?:string|null;operations_file_bytes?:number|null;operations_file_format?:string|null;merged_at?:string|null;release_name?:string|null;release_id?:string|null;rollback_at?:string|null;rollback_of?:number|null};
+export type CloudManifest={bank_id:string;name:string;revision:number;release_version:number;release_version_label?:string|null;question_count?:number|null;sha256:string;bytes:number;minimum_client:string;updated_at:string;snapshot_format:string;protocol:2|3;question_file_sha256?:string|null;question_file_bytes?:number|null;question_file_format?:string|null;operations_file_sha256?:string|null;operations_file_bytes?:number|null;operations_file_format?:'qbank-operations-1'|'qbank-operations-2'|null;merged_at?:string|null;release_name?:string|null;release_id?:string|null;rollback_at?:string|null;rollback_of?:number|null};
 export type CloudSnapshot={format:'qbank-snapshot-2';merged_at?:string|null;release_name?:string|null;release_id?:string|null;release_version_label?:string|null;rollback_at?:string|null;rollback_of?:number|null;merges?:{batch_id:string;merged_at:string;question_count:number;added_count:number;duplicate_count:number;revision:number;release_version:number;release_version_label?:string|null;note?:string|null}[];bank_id:string;name:string;revision:number;release_version:number;updated_at:string;
  formal:SyncQuestion[]|null;pending:SyncQuestion[];removed:{question_id:string;status:'merged'}[]};
 export type CloudQuestionFile={format:'qbank-question-bank-1';bank_id:string;name:string;revision:number;release_version:number;release_version_label?:string|null;updated_at:string;merged_at?:string|null;release_name?:string|null;release_id?:string|null;rollback_at?:string|null;rollback_of?:number|null;questions:SyncQuestion[]|null};
 export type CloudOperationQuestion={question_id:string;action:'added'|'revised'|'restored'|'removed';uploaded_at:string;uploader:{account_id?:string|null;real_name?:string|null;nickname?:string|null;auth_type?:string|null};entered_revision?:number|null;entered_release_version?:number|null;revision?:number;release_version?:number;release_version_label?:string|null};
 export type CloudOperationRevision={revision:number;kind:'seed'|'merge'|'rollback'|'state';release_version:number;release_version_label?:string|null;updated_at:string;merged_at?:string|null;release_name?:string|null;release_id?:string|null;batch_id?:string|null;note?:string|null;question_count:number;added_count:number;changed_count:number;duplicate_count:number;revised_count:number;removed_count:number;rollback_of?:number|null;uploader:{account_id?:string|null;real_name?:string|null;nickname?:string|null;auth_type?:string|null};questions:CloudOperationQuestion[]};
 export type CloudOperationAggregate={question_id:string;first_revision?:number|null;first_release_version?:number|null;first_release_version_label?:string|null;first_uploaded_at?:string|null;first_uploader?:CloudOperationRevision['uploader']|null;revisions:CloudOperationQuestion[]};
-export type CloudOperationsFile={format:'qbank-operations-1';bank_id:string;name:string;current_revision:number;current_release_version:number;current_release_version_label?:string|null;updated_at:string;revisions:CloudOperationRevision[];questions:CloudOperationAggregate[]};
+export type CloudOperationOperator={account_id?:string|null;real_name?:string|null;nickname?:string|null;auth_type?:string|null};
+export type CloudOperationRevisionV2={revision:number;kind:'bootstrap'|'seed'|'merge'|'rollback'|'state';release_version:number;release_version_label?:string|null;operated_at:string;merged_at?:string|null;release_name?:string|null;release_id?:string|null;batch_id?:string|null;note?:string|null;question_count:number;added_count:number;changed_count:number;duplicate_count:number;revised_count:number;removed_count:number;rollback_of?:number|null;operator:CloudOperationOperator;added:string[];revised:string[];removed:string[]};
+export type CloudOperationsFileV1={format:'qbank-operations-1';bank_id:string;name:string;current_revision:number;current_release_version:number;current_release_version_label?:string|null;updated_at:string;revisions:CloudOperationRevision[];questions:CloudOperationAggregate[]};
+export type CloudOperationsFileV2={format:'qbank-operations-2';bank_id:string;name:string;current_revision:number;current_release_version:number;current_release_version_label?:string|null;updated_at:string;question_index:Record<string,number>;revisions:CloudOperationRevisionV2[]};
+export type CloudOperationsFile=CloudOperationsFileV1|CloudOperationsFileV2;
 const uuid=/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
 const nonnegative=(value:unknown):value is number=>typeof value==='number'&&Number.isSafeInteger(value)&&value>=0;
 const validUploader=(value:unknown)=>{if(!value||typeof value!=='object')return false;const item=value as Record<string,unknown>;return ['account_id','real_name','nickname','auth_type'].every(key=>item[key]==null||typeof item[key]==='string');};
@@ -22,7 +26,7 @@ export function readManifest(value:unknown):CloudManifest{
  if((m.protocol!==2&&m.protocol!==3)||m.snapshot_format!==CLOUD_FILE_FORMAT)throw Error('题库协议不受支持，请升级程序');
  const questionFields=[m.question_file_sha256,m.question_file_bytes,m.question_file_format],operationFields=[m.operations_file_sha256,m.operations_file_bytes,m.operations_file_format],hasQuestionFields=questionFields.some(value=>value!=null),hasOperationFields=operationFields.some(value=>value!=null);
  const validQuestionFields=typeof m.question_file_sha256==='string'&&/^[a-f0-9]{64}$/.test(m.question_file_sha256)&&typeof m.question_file_bytes==='number'&&Number.isSafeInteger(m.question_file_bytes)&&m.question_file_bytes>=0&&m.question_file_bytes<=4194304&&m.question_file_format==='qbank-question-bank-1';
- const validOperationFields=typeof m.operations_file_sha256==='string'&&/^[a-f0-9]{64}$/.test(m.operations_file_sha256)&&typeof m.operations_file_bytes==='number'&&Number.isSafeInteger(m.operations_file_bytes)&&m.operations_file_bytes>=0&&m.operations_file_bytes<=4194304&&m.operations_file_format==='qbank-operations-1';
+ const validOperationFields=typeof m.operations_file_sha256==='string'&&/^[a-f0-9]{64}$/.test(m.operations_file_sha256)&&typeof m.operations_file_bytes==='number'&&Number.isSafeInteger(m.operations_file_bytes)&&m.operations_file_bytes>=0&&m.operations_file_bytes<=4194304&&(m.operations_file_format==='qbank-operations-1'||m.operations_file_format==='qbank-operations-2');
  if(hasQuestionFields&&!validQuestionFields||hasOperationFields&&!validOperationFields)throw Error('云端题库文件清单无效');
  const needed=m.minimum_client.split('.').map(Number),current=[0,2,7];
  for(let i=0;i<3;i++){if(needed[i]>current[i])throw Error('此题库需要更新客户端，请先升级程序');if(needed[i]<current[i])break;}
@@ -65,10 +69,8 @@ export function readQuestionFile(value:unknown,m:CloudManifest):CloudQuestionFil
  const ids=new Set<string>();for(const question of file.questions){if(question&&question.status==='verified'&&question.type!=='programming'&&question.answer===null&&Array.isArray(question.issues)&&question.issues.length)question.status='needs_review';validateStandardQuestion(question,file.name);if(ids.has(question.question_id))throw Error('云端题目 ID 重复');ids.add(question.question_id);}
  return file;
 }
-export function readOperationsFile(value:unknown,m:CloudManifest):CloudOperationsFile{
- const w=operationsFilePayload(value,m);if(w.payload.length>4194304)throw Error('云端修订记录过大');
- const file=JSON.parse(w.payload) as CloudOperationsFile;
- if(file.format!=='qbank-operations-1'||file.bank_id!==m.bank_id||file.name!==m.name||file.current_revision!==m.revision||file.current_release_version!==m.release_version||file.current_release_version_label!==m.release_version_label||!Array.isArray(file.revisions)||!Array.isArray(file.questions)||file.revisions.length>10000||file.questions.length>20000||typeof file.updated_at!=='string'||file.updated_at!==m.updated_at||!validTime(file.updated_at))throw Error('云端修订记录身份或结构无效');
+function readLegacyOperationsFile(file:CloudOperationsFileV1,m:CloudManifest){
+ if(file.format!=='qbank-operations-1'||file.bank_id!==m.bank_id||file.name!==m.name||file.current_revision!==m.revision||file.current_release_version!==m.release_version||file.current_release_version_label!==m.release_version_label||!Array.isArray(file.revisions)||!Array.isArray(file.questions)||file.revisions.length>10000||file.questions.length>20000||typeof file.updated_at!=='string'||file.updated_at!==m.updated_at||file.current_revision===0&&file.updated_at!==''||file.current_revision>0&&!validTime(file.updated_at))throw Error('云端修订记录身份或结构无效');
  const revisions=new Set<number>();
  for(const revision of file.revisions){
   if(!revision||!Number.isSafeInteger(revision.revision)||revision.revision<1||revisions.has(revision.revision)
@@ -94,6 +96,43 @@ export function readOperationsFile(value:unknown,m:CloudManifest):CloudOperation
  if(file.current_revision>0&&!revisions.has(file.current_revision))throw Error('云端修订记录缺少当前修订');
  for(const aggregate of file.questions){if(!aggregate||!uuid.test(aggregate.question_id)||aggregate.first_uploader!=null&&!validUploader(aggregate.first_uploader)||!Array.isArray(aggregate.revisions)||aggregate.first_revision!=null&&!nonnegative(aggregate.first_revision)||aggregate.first_release_version!=null&&!nonnegative(aggregate.first_release_version)||aggregate.first_uploaded_at!=null&&!validTime(aggregate.first_uploaded_at))throw Error('云端题目历史记录无效');}
  return file;
+}
+
+function idList(value:unknown):value is string[]{
+ if(!Array.isArray(value))return false;const seen=new Set<string>();
+ for(const item of value){if(typeof item!=='string'||!uuid.test(item)||seen.has(item))return false;seen.add(item);}
+ return true;
+}
+
+function readPipelineOperationsFile(file:CloudOperationsFileV2,m:CloudManifest){
+ if(file.format!=='qbank-operations-2'||file.bank_id!==m.bank_id||file.name!==m.name||file.current_revision!==m.revision||file.current_release_version!==m.release_version||file.current_release_version_label!==m.release_version_label||typeof file.updated_at!=='string'||file.updated_at!==m.updated_at||file.current_revision===0&&file.updated_at!==''||file.current_revision>0&&!validTime(file.updated_at)||!file.question_index||typeof file.question_index!=='object'||Array.isArray(file.question_index)||Object.keys(file.question_index).length>20000||!Array.isArray(file.revisions)||file.revisions.length>10000)throw Error('云端修订流水身份或结构无效');
+ for(const [questionId,lastRevision] of Object.entries(file.question_index))if(!uuid.test(questionId)||!Number.isSafeInteger(lastRevision)||lastRevision<1||lastRevision>file.current_revision)throw Error('云端当前题目索引无效');
+ const revisions=new Set<number>();let previousRevision=0;
+ for(const revision of file.revisions){
+  if(!revision||!Number.isSafeInteger(revision.revision)||revision.revision<1||revision.revision>file.current_revision||revision.revision<=previousRevision||revisions.has(revision.revision)
+   ||!['bootstrap','seed','merge','rollback','state'].includes(revision.kind)||!nonnegative(revision.release_version)
+   ||!nonnegative(revision.question_count)||!nonnegative(revision.added_count)||!nonnegative(revision.changed_count)
+   ||!nonnegative(revision.duplicate_count)||!nonnegative(revision.revised_count)||!nonnegative(revision.removed_count)
+   ||!idList(revision.added)||!idList(revision.revised)||!idList(revision.removed)
+   ||revision.added_count!==revision.added.length||revision.revised_count!==revision.revised.length||revision.removed_count!==revision.removed.length
+   ||revision.changed_count!==revision.added_count+revision.revised_count||!validUploader(revision.operator)
+   ||typeof revision.operated_at!=='string'||!validTime(revision.operated_at)||revision.merged_at!=null&&!validTime(revision.merged_at)
+   ||revision.release_version_label!=null&&!/^v\d+(?:\.\d+)?$/.test(revision.release_version_label)
+   ||revision.rollback_of!=null&&!nonnegative(revision.rollback_of)
+   ||revision.note!=null&&(typeof revision.note!=='string'||revision.note.length>500))throw Error('云端修订流水记录无效');
+  const overlap=new Set(revision.added);for(const questionId of [...revision.revised,...revision.removed])if(overlap.has(questionId))throw Error('云端修订流水动作重复');else overlap.add(questionId);
+  revisions.add(revision.revision);previousRevision=revision.revision;
+ }
+ if(file.current_revision>0&&!revisions.has(file.current_revision))throw Error('云端修订流水缺少当前修订');
+ return file;
+}
+
+export function readOperationsFile(value:unknown,m:CloudManifest):CloudOperationsFile{
+ const w=operationsFilePayload(value,m);if(w.payload.length>4194304)throw Error('云端修订记录过大');
+ const file=JSON.parse(w.payload) as CloudOperationsFile;
+ if(file.format==='qbank-operations-1')return readLegacyOperationsFile(file,m);
+ if(file.format==='qbank-operations-2')return readPipelineOperationsFile(file,m);
+ throw Error('云端修订记录格式不受支持');
 }
 export function readSnapshot(value:unknown,m:CloudManifest):CloudSnapshot{
  const w=snapshotPayload(value);

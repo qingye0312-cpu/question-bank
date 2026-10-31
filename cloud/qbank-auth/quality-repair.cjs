@@ -2,6 +2,7 @@
 
 const {sha256}=require('./common.cjs');
 const {key,answer,releaseName}=require('./projection.cjs');
+const {diffQuestionIds}=require('./operations.cjs');
 
 const statusRank={verified:0,unreviewed:1,needs_review:2};
 const uniqueStrings=values=>[...new Set(values.filter(value=>typeof value==='string'&&value.trim()).map(value=>value.trim()))];
@@ -101,6 +102,9 @@ function repairQuestionBank(state,{validateQuestion,clock=Date.now}={}){
     duplicates,
     option_repairs:optionRepairs,
   }];
+  const changes=diffQuestionIds(state.formal,next.formal);
+  next.operation_event={revision:next.revision,operated_at:at,kind:'state',operator:{account_id:null,real_name:'系统',nickname:null,auth_type:null},note:'题目质量修复',
+    question_count:next.formal.length,duplicate_count:duplicates.length,added:changes.added,revised:changes.revised,removed:changes.removed};
   if(Buffer.byteLength(JSON.stringify(next))>4194304)throw new Error('修复后的题库超过大小限制');
   return {
     state:next,

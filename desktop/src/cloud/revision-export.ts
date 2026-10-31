@@ -1,10 +1,19 @@
 import type {CloudOperationsFile} from '../../shared/sync';
 
+export function operationQuestionIds(operation:CloudOperationsFile['revisions'][number]){
+  if('questions' in operation)return operation.questions.map(question => question.question_id);
+  return [...operation.added,...operation.revised,...operation.removed];
+}
+
+export function operationUploader(operation:CloudOperationsFile['revisions'][number]){
+  return 'operator' in operation ? operation.operator : operation.uploader;
+}
+
 export function revisionQuestionIds(operations: CloudOperationsFile, revisions: number[]) {
   const selected = new Set(revisions), touched = new Set<string>();
   for (const operation of operations.revisions) {
     if (!selected.has(operation.revision)) continue;
-    for (const question of operation.questions) touched.add(question.question_id);
+    for (const questionId of operationQuestionIds(operation)) touched.add(questionId);
   }
   return [...touched];
 }

@@ -51,11 +51,32 @@ async function writePackedExclusive(file, value) {
   }
 }
 
+async function writePackedAtomic(file, value) {
+  const text = JSON.stringify(value);
+  const packed = JSON.stringify(packText(text));
+  const temporary = `${file}.${randomUUID()}.tmp`;
+  let handle;
+  try {
+    await fs.mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
+    handle = await fs.open(temporary, 'wx', 0o600);
+    await handle.writeFile(packed, 'utf8');
+    await handle.sync();
+    await handle.close(); handle = undefined;
+    await fs.rename(temporary, file);
+    const directory = await fs.open(path.dirname(file), 'r');
+    try { await directory.sync(); } finally { await directory.close(); }
+  } finally {
+    if (handle) await handle.close();
+    await fs.rm(temporary, {force:true});
+  }
+}
+
 function createFileStore({ root = process.env.QBANK_STORAGE_ROOT || '/var/lib/qbank-auth' } = {}) {
   const base = assertRoot(root);
   const states = path.join(base, 'states');
   const archivedStates = path.join(base, 'archive', 'states');
   const inbox = path.join(base, 'inbox');
+  const operations = path.join(base, 'operations');
 
   const revisionName = revision => String(999999999999 - revision).padStart(12, '0') + '.json';
   const archivedRevisionName = revision => revisionName(revision).replace(/\.json$/, '-archived.json');
@@ -280,7 +301,25 @@ function createFileStore({ root = process.env.QBANK_STORAGE_ROOT || '/var/lib/qb
     return readPacked(path.join(inbox, bankId, `${batchId}.json`), 2 * LIMITS.requestBytes + 4096);
   }
 
-  return { root: base, readState, readStateAt, listStates, createState, createRollback, finalizeRollback, createSubmission, readSubmission };
+  async function readOperations(bankId) {
+    assertUuid(bankId, 'bank id');
+    try { return await readPacked(path.join(operations, bankId, 'pipeline.json'), LIMITS.expandedBytes); }
+    catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+  }
+
+  async function writeOperations(value) {
+    assertUuid(value?.bank_id, 'bank id');
+    if (value?.format !== 'qbank-operations-2' || !Number.isSafeInteger(value.current_revision) || value.current_revision < 0)
+      throw new Error('Invalid operation pipeline');
+    if (Buffer.byteLength(JSON.stringify(value), 'utf8') > LIMITS.expandedBytes) throw new Error('Operation pipeline exceeds limit');
+    const file = path.join(operations, value.bank_id, 'pipeline.json');
+    const current = await readOperations(value.bank_id);
+    if (current && current.current_revision > value.current_revision) return false;
+    await writePackedAtomic(file, value);
+    return true;
+  }
+
+  return { root: base, readState, readStateAt, listStates, createState, createRollback, finalizeRollback, createSubmission, readSubmission, readOperations, writeOperations };
 }
 
 module.exports = { createFileStore };

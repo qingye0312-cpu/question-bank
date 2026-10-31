@@ -11,4 +11,4 @@
 
 修改后运行 `node scripts/sync-client-assets.mjs`；小程序 `core/` 中对应文件是生成副本，不要直接编辑。
 
-新桌面协议使用 `question-file` 与 `operations-file` 两个独立对象。题库文件只承载当前正式题目；操作文件承载修订事件，桌面端在具备版本查看权限时缓存它并据此直接重建版本历史和导出范围。`snapshot-file` 仅用于旧客户端兼容。
+新桌面协议使用 `question-file` 与 `operations-file` 两个独立对象。题库文件只承载当前正式题目；操作文件使用 `qbank-operations-2` 流水线：`question_index` 用于当前题目最后变更修订号，`revisions` 只追加新增、修改、删除三类题目 ID。桌面端在具备版本查看权限时缓存它，并据此重建版本历史、修订详情和导出范围。解析器仍兼容旧的 `qbank-operations-1` 文件。`snapshot-file` 仅用于旧客户端兼容。

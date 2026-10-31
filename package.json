@@ -23,6 +23,7 @@
     "prepare:ocr": "node scripts/prepare-ocr.mjs",
     "test:intake": "node scripts/sync-client-assets.mjs --check && node --test tests/intake.test.mjs",
     "build:self-host": "node scripts/build-self-host.mjs",
+    "migrate:operation-pipeline": "node tools/self-host/migrate-operation-pipeline.cjs",
     "release:self-host": "node scripts/release-self-host.mjs",
     "build:fastdownload": "node scripts/build-fastdownload.mjs",
     "test:fastdownload": "node --test tools/self-host/fastdownload-server/test/*.test.mjs",

@@ -5,7 +5,7 @@
 const {HttpError,sha256}=require('./common.cjs');
 const {packText}=require('./codec.cjs');
 const {key,answer,releaseName,projected,manifest,safeQuestion,questionFile}=require('./projection.cjs');
-const {buildOperationFile}=require('./operations.cjs');
+const {buildOperationFile,buildInitialOperation,appendOperation,diffQuestionIds}=require('./operations.cjs');
 const MAX_STATE_BYTES=4*1024*1024;
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const deny=(status,code,message)=>{throw new HttpError(status,code,message)};
@@ -19,9 +19,47 @@ function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission})
   if(!Number.isSafeInteger(revision)||revision<1)return null;
   return store.readStateAt(b.bank_id,revision);
  }
+ async function operationFileFor(b,state){
+  // Test doubles and older stores do not have the pipeline sidecar yet. Keep
+  // the old projection only for those stores; the production filesystem store
+  // reads and advances the append-only pipeline directly.
+  if(typeof store.readOperations!=='function'||typeof store.writeOperations!=='function'){
+   const states=await store.listStates(b.bank_id);
+   return buildOperationFile(states,{bankId:b.bank_id,name:b.name});
+  }
+  let pipeline=await store.readOperations(b.bank_id);
+  if(!pipeline){
+   const initial=buildInitialOperation(state,{name:b.name,event:state.revision===1?state.operation_event:null});
+   await store.writeOperations(initial);
+   return (await store.readOperations(b.bank_id))||initial;
+  }
+  if(pipeline.format!=='qbank-operations-2'){
+   const initial=buildInitialOperation(state,{name:b.name,event:state.revision===1?state.operation_event:null});
+   await store.writeOperations(initial);
+   return (await store.readOperations(b.bank_id))||initial;
+  }
+  if(pipeline.current_revision>state.revision)throw new Error('操作流水版本高于题库版本');
+  if(pipeline.current_revision<state.revision){
+   let next=pipeline;
+   for(let revision=pipeline.current_revision+1;revision<=state.revision;revision++){
+    const historical=revision===state.revision?state:await store.readStateAt(b.bank_id,revision);
+    if(!historical?.operation_event){
+     // Existing banks are migrated with one synthetic initial record. A gap
+     // without an operation event belongs to that legacy history; do not
+     // rebuild every old state on every request.
+     next=buildInitialOperation(state,{name:b.name});
+     break;
+    }
+    next=appendOperation(next,historical,historical.operation_event);
+   }
+   await store.writeOperations(next);
+   pipeline=(await store.readOperations(b.bank_id))||next;
+  }
+  return pipeline;
+ }
  async function manifestFor(b,state){
-  const states=await store.listStates(b.bank_id),operations=buildOperationFile(states,{bankId:b.bank_id,name:b.name}),payload=JSON.stringify(operations);
-  return manifest(state,{operations_file_sha256:sha256(payload),operations_file_bytes:Buffer.byteLength(payload)});
+  const operations=await operationFileFor(b,state),payload=JSON.stringify(operations);
+  return manifest(state,{operations_file_sha256:sha256(payload),operations_file_bytes:Buffer.byteLength(payload),operations_file_format:operations.format});
  }
  function stateDiff(previous,current){
   if(current?.rollback_reference||!Array.isArray(current?.formal))return [];
@@ -76,18 +114,25 @@ function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission})
   }).reverse();
  }
  async function operationHistory(b){
-  const states=await store.listStates(b.bank_id);
-  return states.sort((left,right)=>left.revision-right.revision).map(s=>{
-   const merge=(s.merge_history||[]).find(item=>item.revision===s.revision),rollbackTarget=s.rollback?.target_revision||null,rollbackState=rollbackTarget?states.find(item=>item.revision===rollbackTarget):null;
-   const kind=s.rollback||s.rollback_reference?'rollback':merge?'merge':s.revision===1?'seed':'state';
-   return {revision:s.revision,kind,release_version:s.release_version,release_version_label:revisionLabel(s),updated_at:s.updated_at,merged_at:s.merged_at||null,release_name:s.release_name||null,release_id:s.release_id||null,batch_id:merge?.batch_id||null,note:merge?.note||null,question_count:Number.isSafeInteger(merge?.question_count)?merge.question_count:null,added_count:Number.isSafeInteger(merge?.added_count)?merge.added_count:null,duplicate_count:Number.isSafeInteger(merge?.duplicate_count)?merge.duplicate_count:null,rollback_of:rollbackTarget,rollback_to_release_version_label:rollbackState?revisionLabel(rollbackState):null,uploader_account_id:merge?.uploader_account_id||s.seed_uploader_account_id||null,uploader_real_name:uploaderName(merge?.uploader_real_name,s.seed_uploader_real_name),uploader_nickname:uploaderName(merge?.uploader_nickname)};
-  }).reverse();
+  const state=await latest(b),file=await operationFileFor(b,state);
+  if(file.format==='qbank-operations-2'){
+   const releaseLabels=new Map(file.revisions.map(item=>[item.revision,item.release_version_label||`v${item.release_version}`]));
+   return file.revisions.slice().sort((left,right)=>right.revision-left.revision).map(item=>({
+    revision:item.revision,kind:item.kind,release_version:item.release_version,release_version_label:item.release_version_label||`v${item.release_version}`,
+    updated_at:item.operated_at,merged_at:item.merged_at||null,release_name:item.release_name||null,release_id:item.release_id||null,batch_id:item.batch_id||null,
+    note:item.note||null,question_count:item.question_count,added_count:item.added_count,changed_count:item.changed_count,revised_count:item.revised_count,removed_count:item.removed_count,
+    duplicate_count:item.duplicate_count,rollback_of:item.rollback_of||null,rollback_to_release_version_label:item.rollback_of?releaseLabels.get(item.rollback_of)||null:null,
+    uploader_account_id:item.operator?.account_id||null,uploader_real_name:item.operator?.real_name||null,uploader_nickname:item.operator?.nickname||null,uploader_auth_type:item.operator?.auth_type||null,
+   }));
+  }
+  return file.revisions.map(item=>({revision:item.revision,kind:item.kind,release_version:item.release_version,release_version_label:item.release_version_label||`v${item.release_version}`,updated_at:item.updated_at,merged_at:item.merged_at||null,release_name:item.release_name||null,release_id:item.release_id||null,batch_id:item.batch_id||null,note:item.note||null,question_count:item.question_count,added_count:item.added_count,changed_count:item.changed_count,revised_count:item.revised_count,removed_count:item.removed_count,duplicate_count:item.duplicate_count,rollback_of:item.rollback_of||null,uploader_account_id:item.uploader?.account_id||null,uploader_real_name:item.uploader?.real_name||null,uploader_nickname:item.uploader?.nickname||null,uploader_auth_type:item.uploader?.auth_type||null}));
  }
  function validateQuestion(q,name){
   try{validateStandardQuestion(q,name);}catch{deny(422,'QUESTION_INVALID','请核对题目结构、题库身份、选项和答案');}
  }
- async function commit(s,b,at=new Date(clock()).toISOString()){
+ async function commit(s,b,at=new Date(clock()).toISOString(),operationEvent=null){
   s.revision++;s.updated_at=at;
+  if(operationEvent)s.operation_event={...operationEvent,revision:s.revision,operated_at:at};
   if(Buffer.byteLength(JSON.stringify(s))>MAX_STATE_BYTES)deny(413,'BANK_TOO_LARGE','当前题库超过单次同步上限，请先归档处理记录或拆分题库');
   if(!await store.createState(s))deny(409,'REVISION_CONFLICT','云端题库已更新，请刷新后重新核对');
   return manifestFor(b,s);
@@ -113,7 +158,7 @@ function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission})
     if(!auth)return;
     const roles=auth.grants?.[match[1]]||[],canView=auth.capabilities?.includes('maintainer:manage')||(auth.desktop&&roles.includes('merge'))||roles.includes('upload')||auth.permissions?.includes('export');
     if(!canView)deny(403,'ROLE_FORBIDDEN','没有此题库的版本查看权限');
-    const b=bank(config,match[1]),operations=buildOperationFile(await store.listStates(b.bank_id),{bankId:b.bank_id,name:b.name});
+    const b=bank(config,match[1]),operations=await operationFileFor(b,s);
     return packText(JSON.stringify(operations));
    }
    const payload=JSON.stringify(projected(s));return packText(payload);
@@ -169,7 +214,8 @@ function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission})
     }
     s.merge_history.at(-1).release_name=s.release_name;
     try{
-     const result=await commit(s,b,mergedAt);
+     const result=await commit(s,b,mergedAt,{kind:'merge',operator:{account_id:uploaderAccountId,real_name:uploaderRealName,nickname:uploaderNickname,auth_type:uploaderAuthType},
+      note:record.note||null,batch_id:delta.batch_id,question_count:qs.length,duplicate_count:duplicates,added:addedQuestionIds,revised:[],removed:[]});
      return {manifest:result,merged:added>0,duplicate:false,merge:s.merge_history.at(-1)};
     }catch(e){if(e.code!=='REVISION_CONFLICT')throw e;}
    }
@@ -236,12 +282,14 @@ function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission})
     if(!operation)deny(422,'OPERATION_REQUIRED','回退任务必须提供操作 ID');
     if(!Number.isSafeInteger(body.target_revision)||body.target_revision<1||body.target_revision>=s.revision)
       deny(422,'ROLLBACK_INVALID','请选择较早的题库版本');
+    const rollbackNote=typeof body.note==='string'?body.note.trim():null;
+    if(rollbackNote&&rollbackNote.length>500)deny(422,'ROLLBACK_INVALID','回退备注不能超过 500 字');
     const target=await atRevision(b,body.target_revision);
     if(!target)deny(404,'VERSION_MISSING','目标版本不存在或已损坏');
     if(target.formal===null)deny(409,'SEED_REQUIRED','目标版本尚未形成正式题库');
     // The bank's current name belongs to its identity, even when restoring
     // question content from a version created before a rename.
-    const restored=structuredClone(target.formal).map(q=>({...q,bank:s.name}));
+    const restored=structuredClone(target.formal).map(q=>({...q,bank:s.name})),changes=diffQuestionIds(s.formal,restored);
     const rolledAt=new Date(clock()).toISOString(),releaseId=target.name===s.name&&target.release_id?target.release_id:sha256(JSON.stringify(restored));
     s.formal=restored;s.pending=[];s.resolved=structuredClone(target.resolved||[]);s.batches=structuredClone(target.batches||[]);s.merge_history=structuredClone(target.merge_history||[]);s.seed_uploader_account_id=null;s.seed_uploader_real_name=null;
     s.release_version=target.release_version;s.release_version_label=target.release_version_label||`v${target.release_version}`;s.merged_at=target.merged_at||rolledAt;s.release_id=releaseId;
@@ -251,6 +299,9 @@ function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission})
     const projectedResult=manifest({...s,revision:nextRevision,updated_at:rolledAt});
     const operationRecord={id:operation,hash:operationHash,result:projectedResult};
     s.revision=nextRevision;s.updated_at=rolledAt;
+    s.operation_event={revision:nextRevision,operated_at:rolledAt,kind:'rollback',operator:{account_id:auth.account_id||auth.maintainer_id||auth.openid,
+      real_name:uploaderName(auth.real_name),nickname:uploaderName(auth.nickname),auth_type:auth.password_account?'password':'key'},note:rollbackNote||null,
+      added:changes.added,revised:changes.revised,removed:changes.removed,question_count:restored.length,duplicate_count:0};
     s.operations=[...(s.operations||[]),operationRecord];
     delete s.rollback_reference;
     if(!await store.createState(s)){
@@ -271,7 +322,8 @@ function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission})
    const committedAt=new Date(clock()).toISOString();s.merged_at=committedAt;s.release_id=sha256(JSON.stringify(s.formal));
    s.release_name=releaseName(committedAt,s.name,'初建',s.release_version,s.bank_id,s.release_id);
    if(operation){s.operations=s.operations||[];const projectedResult=manifest({...s,revision:s.revision+1,updated_at:committedAt});s.operations.push({id:operation,hash:operationHash,result:projectedResult});}
-   return commit(s,b,committedAt);
+   return commit(s,b,committedAt,{kind:'seed',operator:{account_id:auth.account_id||auth.maintainer_id||auth.openid,real_name:uploaderName(auth.real_name),nickname:uploaderName(auth.nickname),auth_type:auth.password_account?'password':'key'},
+    note:'正式题库首版初始化',question_count:body.questions.length,duplicate_count:0,added:body.questions.map(question=>question.question_id),revised:[],removed:[]});
   }
  };
 }

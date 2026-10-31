@@ -25,9 +25,12 @@ async function main() {
   const name = first.bank || process.env.QBANK_SEED_BANK_NAME || 'HarmonyOS 初级认证';
   const at = process.env.QBANK_SEED_AT || new Date().toISOString();
   const releaseId = createHash('sha256').update(JSON.stringify(questions)).digest('hex');
+  const operator = { account_id: null, real_name: '系统', nickname: null, auth_type: null };
   const state = { format: 'qbank-state-1', bank_id: bankId, name, revision: 1, release_version: 1,
     formal: questions, pending: [], resolved: [], batches: [], merge_history: [], updated_at: at, merged_at: at,
-    release_id: releaseId, release_name: releaseName(at, name, '初建', 1, bankId, releaseId) };
+    release_id: releaseId, release_name: releaseName(at, name, '初建', 1, bankId, releaseId),
+    operation_event: { revision: 1, operated_at: at, kind: 'seed', operator, note: '自托管题库首版初始化',
+      question_count: questions.length, duplicate_count: 0, added: questions.map(question => question.question_id), revised: [], removed: [] } };
   const store = createFileStore({ root });
   if (await store.readState(bankId)) throw new Error('目标题库已有状态，拒绝覆盖');
   if (!await store.createState(state)) throw new Error('题库状态已存在，拒绝覆盖');
