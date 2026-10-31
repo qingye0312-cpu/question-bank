@@ -2,7 +2,7 @@ import './cloud/cloud.css';
 import {useEffect,useRef,useState} from 'react';
 import {invoke} from '@tauri-apps/api/core';
 import {save} from '@tauri-apps/plugin-dialog';
-import {cloudAccess,cloudCall,fetchCatalog,syncDesktop,loadCloudOperations,cloudMutation} from './cloud-client';
+import {cloudAccess,fetchCatalog,syncDesktop,loadCloudOperations,cloudMutation} from './cloud-client';
 import type {CloudManifest,CloudOperationRevision,CloudOperationsFile} from '../shared/sync';
 import {hasPermission} from '../shared/export-permission';
 import type {Bank,Question} from './types';
@@ -18,12 +18,22 @@ function operationRowsFromFile(file:CloudOperationsFile):Operation[]{
  return file.revisions.map(map);
 }
 
+function historyFromOperations(file:CloudOperationsFile):History{
+ const operations=operationRowsFromFile(file),formal=new Map<string,{latest:Operation;added_count:number;changed_count:number;revised_count:number;removed_count:number;has_incremental_json:boolean;has_revision_questions:boolean}>();
+ for(const operation of operations){
+  const label=operation.release_version_label||`v${operation.release_version}`,previous=formal.get(label);
+  if(previous){
+   previous.added_count+=(operation.added_count||0);previous.changed_count+=(operation.changed_count||0);previous.revised_count+=(operation.revised_count||0);previous.removed_count+=(operation.removed_count||0);
+   previous.has_incremental_json=previous.has_incremental_json||!!operation.has_incremental_json;previous.has_revision_questions=previous.has_revision_questions||!!operation.has_revision_questions;
+   if(operation.revision>previous.latest.revision)previous.latest=operation;
+  }else formal.set(label,{latest:operation,added_count:operation.added_count||0,changed_count:operation.changed_count||0,revised_count:operation.revised_count||0,removed_count:operation.removed_count||0,has_incremental_json:!!operation.has_incremental_json,has_revision_questions:!!operation.has_revision_questions});
+ }
+ const versions=[...formal.values()].map(group=>({...group.latest,added_count:group.added_count,changed_count:group.changed_count,revised_count:group.revised_count,removed_count:group.removed_count,has_incremental_json:group.has_incremental_json,has_revision_questions:group.has_revision_questions}));
+ return {current_revision:file.current_revision,current_formal_revision:String(file.current_release_version),release_version:file.current_release_version,release_version_label:file.current_release_version_label,versions,operations};
+}
+
 async function loadDisplayHistory(bankId:string,advertised?:CloudManifest):Promise<History>{
- const [formalHistory,operations]=await Promise.all([
-  cloudCall<History>(`/v1/banks/${bankId}/history`,undefined,true),
-  loadCloudOperations(bankId,advertised),
- ]);
- return {...formalHistory,operations:operationRowsFromFile(operations)};
+ return historyFromOperations(await loadCloudOperations(bankId,advertised));
 }
 
 export function CloudPanel({banks,onChanged,onClose,onBusy,embedded=false}:{banks:Bank[];onChanged:()=>Promise<unknown>;onClose:()=>void;onBusy:(value:boolean)=>void;embedded?:boolean}){
@@ -37,10 +47,10 @@ export function CloudPanel({banks,onChanged,onClose,onBusy,embedded=false}:{bank
  const access=cloudAccess(),roles=access?.grants[selected]||[],canMerge=hasPermission(access?.capabilities,'maintainer:manage')||roles.includes('merge'),canCreate=hasPermission(access?.capabilities,'cloud_bank:create');
  const task=async(fn:()=>Promise<void>)=>{if(busy)return;setBusy(true);onBusy(true);setMessage('');try{await fn()}catch(e){setMessage(String(e))}finally{setBusy(false);onBusy(false)}};
  const exportRevision=async(v:Version)=>{await task(async()=>{
-  const operations=await loadCloudOperations(selected,selectedBank),operation=operations.revisions.find(item=>item.revision===v.revision),ids=new Set(operation?operationQuestionIds(operation):[]);
+  const operations=await loadCloudOperations(selected,selectedBank),label=v.release_version_label||`v${v.release_version}`,selectedRevisions=operations.revisions.filter(item=>(item.release_version_label||`v${item.release_version}`)===label).map(item=>item.revision),ids=new Set(selectedRevisions.flatMap(revision=>{const operation=operations.revisions.find(item=>item.revision===revision);return operation?operationQuestionIds(operation):[]}));
   if(!ids.size)throw Error('此修订没有可导出的题目变更');
   const latest=await invoke<Question[]>('bank_questions',{bankId:selected});
-  const {questions,skipped}=selectRevisionQuestions(operations,[v.revision],latest);
+  const {questions,skipped}=selectRevisionQuestions(operations,selectedRevisions,latest);
   if(!questions.length)throw Error('所选修订中的题目均已删除，没有可导出的题目');
   const bankName=selectedBank?.name||banks.find(bank=>bank.id===selected)?.name||'题库';
   const safeName=bankName.replace(/[\\/:*?"<>|\u0000-\u001f]/g,'_').replace(/\s+/g,'_').replace(/^[_ .-]+|[_ .-]+$/g,'').slice(0,48)||'题库';
