@@ -1,5 +1,5 @@
 import {invoke} from '@tauri-apps/api/core';
-import {readManifest,readSnapshot,snapshotPayload,snapshotPath,readQuestionFile,readOperationsFile,questionFilePath,operationsFilePath,type CloudManifest,type CloudOperationsFile} from '../../shared/sync';
+import {readManifest,questionFilePayload,readQuestionFile,readOperationsFile,questionFilePath,operationsFilePath,type CloudManifest,type CloudOperationsFile} from '../../shared/sync';
 import {sha256} from '../../shared/intake';
 import {cloudAccess,cloudOrigin,cloudCall} from './session-service';
 import {runDesktopQueue} from './submission-runner';
@@ -20,26 +20,21 @@ export function syncDesktop(bankId:string,advertised?:CloudManifest):Promise<boo
   if(old&&m.revision<old.revision)throw Error(`云端版本倒退：本地修订 ${old.revision}，云端修订 ${m.revision}，继续保留本地题库`);
   // A rollback or administrative restore can replace content without changing
   // the public release number. Skip only when both the history revision and
-  // the snapshot digest match; the digest also repairs same-revision restores.
-  const contentDigest=m.question_file_sha256||m.sha256;
+  // the question-file digest match; the digest also repairs same-revision restores.
+  const contentDigest=m.question_file_sha256;
   if(old?.revision===m.revision&&old.sha256===contentDigest){
    const operationsReady=!cloudAccess()||cachedOperationsMatches(await cachedOperations(bankId),m);
    if(operationsReady)return false;
   }
   if(m.revision===0)return false;
-  if(m.question_file_sha256&&m.operations_file_sha256&&m.question_file_format==='qbank-question-bank-1'&&(m.operations_file_format==='qbank-operations-1'||m.operations_file_format==='qbank-operations-2')){
+  {
    const includeOperations=!!cloudAccess(),[questionWrapper,operationsWrapper]=await Promise.all([cloudCall<unknown>(questionFilePath(m)),includeOperations?cloudCall<unknown>(operationsFilePath(m),undefined,true):Promise.resolve(null)]);
    const question=readQuestionFile(questionWrapper,m),operations=operationsWrapper?readOperationsFile(operationsWrapper,m):null;checkOrigin();
    await invoke('cloud_clear_cached_snapshot',{bankIds:[bankId]});
    checkOrigin();
-   await invoke('cloud_apply',questionFileApplyPayload(questionWrapper));
+   await invoke('cloud_apply',questionFileApplyPayload(questionWrapper,m));
    if(operations)await cacheOperations(bankId,operations);return true;
   }
-  const wrapper=await cloudCall<unknown>(snapshotPath(m));readSnapshot(wrapper,m);
-  checkOrigin();
-  await invoke('cloud_clear_cached_snapshot',{bankIds:[bankId]});
-  checkOrigin();
-  await invoke('cloud_apply',snapshotPayload(wrapper));return true;
  })();syncing.set(key,task);void task.finally(()=>{if(syncing.get(key)===task)syncing.delete(key)}).catch(()=>{});return task;
 }
 
@@ -50,11 +45,8 @@ export function reloadDesktopCache(bankId:string,advertised:CloudManifest):Promi
   if(previous){try{await previous}catch{/* Continue with a fresh download after the in-flight sync settles. */}}
   const m=readManifest(advertised);if(m.bank_id!==bankId)throw Error('题库身份不一致');
   checkOrigin();
-  let payload:{payload:string;sha256:string};let operations:CloudOperationsFile|null=null;
-  if(m.question_file_sha256&&m.operations_file_sha256&&m.question_file_format==='qbank-question-bank-1'&&(m.operations_file_format==='qbank-operations-1'||m.operations_file_format==='qbank-operations-2')){
-   const includeOperations=!!cloudAccess(),[questionWrapper,operationsWrapper]=await Promise.all([cloudCall<unknown>(questionFilePath(m)),includeOperations?cloudCall<unknown>(operationsFilePath(m),undefined,true):Promise.resolve(null)]);
-   readQuestionFile(questionWrapper,m);if(operationsWrapper)operations=readOperationsFile(operationsWrapper,m);payload=questionFileApplyPayload(questionWrapper);
-  }else{const wrapper=await cloudCall<unknown>(snapshotPath(m));readSnapshot(wrapper,m);payload=snapshotPayload(wrapper);}
+  const includeOperations=!!cloudAccess(),[questionWrapper,operationsWrapper]=await Promise.all([cloudCall<unknown>(questionFilePath(m)),includeOperations?cloudCall<unknown>(operationsFilePath(m),undefined,true):Promise.resolve(null)]);
+  readQuestionFile(questionWrapper,m);const operations=operationsWrapper?readOperationsFile(operationsWrapper,m):null;const payload=questionFileApplyPayload(questionWrapper,m);
   checkOrigin();
   await invoke('cloud_clear_cached_snapshot',{bankIds:[bankId]});
   checkOrigin();
@@ -71,24 +63,24 @@ export async function reloadDesktopBank(bankId:string):Promise<boolean>{
  return reloadDesktopCache(bankId,manifest);
 }
 
-function questionFileApplyPayload(value:unknown){
+function questionFileApplyPayload(value:unknown,m:CloudManifest){
  // The native importer accepts the pure question-bank JSON directly and
  // stores its digest as the cloud revision identity.
- return snapshotPayload(value);
+ return questionFilePayload(value,m);
 }
 
 const operationKey=(bankId:string)=>`cloud-operations:${bankId}`;
 type CachedOperations=CloudOperationsFile&{origin:string};
 function cachedOperationsMatches(value:CloudOperationsFile|null,m:CloudManifest){
  if(!m.operations_file_sha256)return true;
- if(!value||value.format!==m.operations_file_format)return false;
+ if(!value||value.format!=='qbank-operations-2')return false;
  const {origin,...file}=value as CachedOperations;
  return sha256(JSON.stringify(file))===m.operations_file_sha256;
 }
 export async function cacheOperations(bankId:string,operations:CloudOperationsFile){await invoke('client_state',{key:operationKey(bankId),value:{...operations,origin:cloudOrigin()}});}
 export async function cachedOperations(bankId:string):Promise<CloudOperationsFile|null>{
  const value=await invoke<CloudOperationsFile|null>('client_state',{key:operationKey(bankId),value:null});
- return value&&(value.format==='qbank-operations-1'||value.format==='qbank-operations-2')&&(value as CachedOperations).origin===cloudOrigin()?value:null;
+ return value&&value.format==='qbank-operations-2'&&(value as CachedOperations).origin===cloudOrigin()?value:null;
 }
 export async function loadCloudOperations(bankId:string,advertised?:CloudManifest):Promise<CloudOperationsFile>{
  const cached=await cachedOperations(bankId);if(cached&&(!advertised||cached.current_revision===advertised.revision))return cached;

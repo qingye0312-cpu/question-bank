@@ -12,13 +12,13 @@ const version = sourcePackage.version;
 if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)) throw new Error(`无效的自托管服务版本号：${version}`);
 const files = ['service.cjs', 'workflow.cjs', 'operations.cjs', 'codec.cjs', 'catalog.cjs', 'common.cjs', 'access.cjs', 'password.cjs',
   'config.cjs', 'auth.cjs', 'submission.cjs', 'projection.cjs', 'fs-store.cjs', 'local-server.cjs', 'intake.cjs', 'seed-bank.cjs','repair-bank-status.cjs',
-  'quality-repair.cjs','repair-bank-quality.cjs','migrate-operation-pipeline.cjs'];
+  'quality-repair.cjs','repair-bank-quality.cjs'];
 
 await fs.rm(output, { recursive: true, force: true });
 await fs.mkdir(output, { recursive: true });
 for (const name of files) {
   const from = name === 'intake.cjs' ? null
-    : ['seed-bank.cjs','repair-bank-status.cjs','repair-bank-quality.cjs','migrate-operation-pipeline.cjs'].includes(name) ? path.join(root, 'tools/self-host', name) : path.join(source, name);
+    : ['seed-bank.cjs','repair-bank-status.cjs','repair-bank-quality.cjs'].includes(name) ? path.join(root, 'tools/self-host', name) : path.join(source, name);
   if (name === 'intake.cjs') {
     const sourceText = await fs.readFile(path.join(root, 'desktop/shared/intake.ts'), 'utf8');
     await fs.writeFile(path.join(output, name), ts.transpileModule(sourceText, {

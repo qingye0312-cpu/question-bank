@@ -2,6 +2,14 @@ use super::*;
 use rusqlite::Connection;
 #[derive(Deserialize, Serialize)]
 pub struct Snapshot {
+    pub format: String,
+    pub bank_id: String,
+    pub name: String,
+    pub revision: u64,
+    pub release_version: u64,
+    #[serde(default)]
+    pub release_version_label: Option<String>,
+    pub updated_at: String,
     #[serde(default)]
     pub merged_at: Option<String>,
     #[serde(default)]
@@ -12,22 +20,7 @@ pub struct Snapshot {
     pub rollback_at: Option<String>,
     #[serde(default)]
     pub rollback_of: Option<u64>,
-    #[serde(default)]
-    pub merges: Vec<Value>,
-    pub format: String,
-    pub bank_id: String,
-    pub name: String,
-    pub revision: u64,
-    pub release_version: u64,
-    pub updated_at: String,
-    #[serde(default)]
-    pub formal: Option<Vec<Question>>,
-    #[serde(default)]
     pub questions: Vec<Question>,
-    #[serde(default)]
-    pub pending: Vec<Question>,
-    #[serde(default)]
-    pub removed: Vec<Value>,
 }
 pub fn versions(store: &Store) -> Result<Vec<Value>> {
     let c = store.conn()?;
@@ -115,67 +108,31 @@ pub fn apply(store: &Store, payload: &str, digest: &str) -> Result<()> {
     if payload.len() > 4 * 1024 * 1024 || hash(payload.as_bytes()) != digest {
         return Err("同步数据摘要或大小无效".into());
     }
-    let mut s: Snapshot = serde_json::from_str(payload).map_err(err)?;
-    let pure_question_file = s.format == "qbank-question-bank-1";
-    if !pure_question_file && s.format != "qbank-snapshot-2"
+    let s: Snapshot = serde_json::from_str(payload).map_err(err)?;
+    if s.format != "qbank-question-bank-1"
         || uuid::Uuid::parse_str(&s.bank_id).is_err()
         || s.name.trim().is_empty()
         || s.revision == 0
         || s.revision > 9_007_199_254_740_991
         || s.release_version > 9_007_199_254_740_991
         || chrono::DateTime::parse_from_rfc3339(&s.updated_at).is_err()
-        || s.rollback_at
-            .as_deref()
-            .is_some_and(|at| chrono::DateTime::parse_from_rfc3339(at).is_err())
+        || s.rollback_at.as_deref().is_some_and(|at| chrono::DateTime::parse_from_rfc3339(at).is_err())
         || s.rollback_of.is_some_and(|revision| revision == 0)
     {
-        return Err("云端题库身份无效".into());
+        return Err("云端题库身份或内容无效".into());
     }
-    if pure_question_file {
-        if s.questions.is_empty() {
-            return Err("云端题库题目为空或格式无效".into());
-        }
-        s.formal = Some(std::mem::take(&mut s.questions));
-        s.pending.clear();
-        s.removed.clear();
-    } else if !s.questions.is_empty() {
-        return Err("云端题库包含未知题目层".into());
+    for q in &s.questions {
+        q.validate(q.status == "needs_review" && !q.issues.is_empty())?;
     }
-    if !s.pending.is_empty()
-        || s.removed.iter().any(|r| {
-            r["status"] != "merged"
-                || uuid::Uuid::parse_str(r["question_id"].as_str().unwrap_or("")).is_err()
-        })
-    {
-        return Err("云端题库不支持候选层".into());
-    }
-    // Normalize legacy released records that contain a flagged missing answer
-    // but were incorrectly labeled verified. Keep the question and issue text.
-    if let Some(formal) = s.formal.as_mut() {
-        for q in formal {
-            if q.status == "verified"
-                && q.kind != "programming"
-                && q.answer.is_null()
-                && !q.issues.is_empty()
-            {
-                q.status = "needs_review".into();
-            }
-        }
-    }
-    for qs in [s.formal.as_deref().unwrap_or(&[])] {
-        let mut ids = HashSet::new();
-        for q in qs {
-            q.validate(q.status == "needs_review" && !q.issues.is_empty())?;
-            if uuid::Uuid::parse_str(&q.question_id).is_err()
-                || q.options
-                    .iter()
-                    .any(|o| uuid::Uuid::parse_str(&o.option_id).is_err())
-                || !["unreviewed", "needs_review", "verified"].contains(&q.status.as_str())
-                || q.bank != s.name
-                || !ids.insert(&q.question_id)
-            {
-                return Err("云端题库含错误身份或重复 ID".into());
-            }
+    let mut ids = HashSet::new();
+    for q in &s.questions {
+        if uuid::Uuid::parse_str(&q.question_id).is_err()
+            || q.options.iter().any(|o| uuid::Uuid::parse_str(&o.option_id).is_err())
+            || !["unreviewed", "needs_review", "verified"].contains(&q.status.as_str())
+            || q.bank != s.name
+            || !ids.insert(&q.question_id)
+        {
+            return Err("云端题库含错误身份或重复 ID".into());
         }
     }
     let mut c = store.conn()?;
@@ -214,15 +171,14 @@ pub fn apply(store: &Store, payload: &str, digest: &str) -> Result<()> {
         )
         .map_err(err)?;
     }
-    let converting = crate::promotion::begin_apply(&tx, &s.bank_id, &s.name, s.formal.as_deref())?;
-    let previous = db::questions(&tx, &s.bank_id)?;
+    let converting = crate::promotion::begin_apply(&tx, &s.bank_id, &s.name, Some(&s.questions[..]))?;
     let deleted: Vec<_> = intake::all_questions(&tx, &s.bank_id)?
         .into_iter()
         .filter(|(_, deleted)| *deleted)
         .map(|(q, _)| q)
         .collect();
     let locals = intake::local_question_ids(&tx, &s.bank_id)?;
-    for q in previous.iter().filter(|q| locals.contains(&q.question_id)) {
+    for q in db::questions(&tx, &s.bank_id)?.iter().filter(|q| locals.contains(&q.question_id)) {
         tx.execute(
             "INSERT OR IGNORE INTO intake_originals(bank_id,question_id,data) VALUES(?1,?2,?3)",
             params![
@@ -233,45 +189,13 @@ pub fn apply(store: &Store, payload: &str, digest: &str) -> Result<()> {
         )
         .map_err(err)?;
     }
-    let baseline: Vec<_> = previous
-        .into_iter()
-        .filter(|q| !locals.contains(&q.question_id))
-        .collect();
-    let formal = match &s.formal {
-        Some(q) => {
-            // The baseline is the authoritative cloud layer, not a one-time
-            // import marker. Replace it on every revision, including rollback.
-            tx.execute(
-                "INSERT INTO cloud_baselines VALUES(?1,?2) ON CONFLICT(bank_id) DO UPDATE SET payload=excluded.payload",
-                params![s.bank_id, serde_json::to_string(q).map_err(err)?],
-            )
-            .map_err(err)?;
-            q.clone()
-        }
-        None => {
-            let raw: Option<String> = tx
-                .query_row(
-                    "SELECT payload FROM cloud_baselines WHERE bank_id=?1",
-                    [&s.bank_id],
-                    |r| r.get(0),
-                )
-                .map_err(err)?;
-            if let Some(raw) = raw {
-                serde_json::from_str(&raw).map_err(err)?
-            } else {
-                let raw = serde_json::to_string(&baseline).map_err(err)?;
-                tx.execute(
-                    "INSERT INTO cloud_baselines VALUES(?1,?2)",
-                    params![s.bank_id, raw],
-                )
-                .map_err(err)?;
-                baseline
-            }
-        }
-    };
-    if let Some(formal) = s.formal.as_deref() {
-        clear_missing_uploaded_entries(&tx, &s.bank_id, formal)?;
-    }
+    tx.execute(
+        "INSERT INTO cloud_baselines VALUES(?1,?2) ON CONFLICT(bank_id) DO UPDATE SET payload=excluded.payload",
+        params![s.bank_id, serde_json::to_string(&s.questions).map_err(err)?],
+    )
+    .map_err(err)?;
+    let formal = s.questions.clone();
+    clear_missing_uploaded_entries(&tx, &s.bank_id, &formal)?;
     let mut st=tx.prepare("SELECT o.data FROM intake_originals o JOIN intake_entries e ON e.bank_id=o.bank_id AND e.question_id=o.question_id WHERE o.bank_id=?1 AND o.deleted=0 AND e.upload_status='pending' ORDER BY e.created_at,o.question_id").map_err(err)?;
     let drafts = st
         .query_map([&s.bank_id], |r| r.get::<_, String>(0))
@@ -279,7 +203,7 @@ pub fn apply(store: &Store, payload: &str, digest: &str) -> Result<()> {
         .map(|r| serde_json::from_str::<Question>(&r.map_err(err)?).map_err(err))
         .collect::<Result<Vec<_>>>()?;
     drop(st);
-    // Materialize search rows in the same transaction as the formal snapshot.
+    // Materialize search rows in the same transaction as the formal file.
     // Original drafts stay separately addressable even when the formal row wins.
     db::clear_bank(&tx, &s.bank_id)?;
     tx.execute("DELETE FROM question_layers WHERE bank_id=?1", [&s.bank_id])
@@ -329,7 +253,7 @@ pub fn apply(store: &Store, payload: &str, digest: &str) -> Result<()> {
         params![s.bank_id, s.revision as i64, payload, digest],
     )
     .map_err(err)?;
-    // Every accepted snapshot invalidates package fingerprints. Current formal
+    // Every accepted question file invalidates package fingerprints. Current formal
     // questions are still protected by the question-level duplicate checks.
     tx.execute("DELETE FROM delta_imports WHERE bank_id=?1", [&s.bank_id])
         .map_err(err)?;

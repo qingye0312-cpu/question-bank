@@ -9,7 +9,7 @@ import type {Bank} from './types';
 import './question-export.css';
 
 type ExportScope = 'all' | 'range' | 'revision';
-type Revision={revision:number;formal_revision?:string;release_version:number;release_version_label?:string|null;updated_at:string;added_count?:number;changed_count?:number;question_count?:number;batch_id?:string|null;has_incremental_json?:boolean;has_revision_questions?:boolean;uploader_real_name?:string|null;uploader_nickname?:string|null};
+type Revision={revision:number;release_version:number;release_version_label?:string|null;updated_at:string;added_count?:number;changed_count?:number;question_count?:number;batch_id?:string|null;uploader_real_name?:string|null;uploader_nickname?:string|null};
 const displayUploader=(...values:Array<string|null|undefined>)=>values.map(value=>value?.trim()).find(value=>value&&value!=='未记录')||'star';
 
 export function QuestionExport({banks, defaultBankId, busy, onClose, onExport}: {
@@ -59,7 +59,7 @@ export function QuestionExport({banks, defaultBankId, busy, onClose, onExport}: 
     setValidation('');
     void loadCloudOperations(bankId).then(result => {
       if (!active) return;
-      const rows = (Array.isArray(result.revisions) ? result.revisions.map(row => {const operator=operationUploader(row);return {...row,updated_at:'operated_at' in row?row.operated_at:row.updated_at,added_count:row.added_count,changed_count:row.changed_count,has_revision_questions:row.changed_count>0,has_incremental_json:!!row.batch_id,uploader_real_name:operator.real_name||null,uploader_nickname:operator.nickname||null};}) : []).sort((left, right) => right.revision - left.revision);
+      const rows = (Array.isArray(result.revisions) ? result.revisions.map(row => {const operator=operationUploader(row);return {...row,updated_at:row.operated_at,added_count:row.added_count,changed_count:row.changed_count,uploader_real_name:operator.real_name||null,uploader_nickname:operator.nickname||null};}) : []).sort((left, right) => right.revision - left.revision);
       setRevisions(rows);
       setRevisionOperations(result);
       setSelectedRevisions([]);
@@ -163,7 +163,7 @@ export function QuestionExport({banks, defaultBankId, busy, onClose, onExport}: 
             </div> : scope === 'revision' ? <div className="question-export-revisions">
               {revisionLoading ? <p className="question-export-range-note">正在读取修订记录…</p> : !revisions.length ? <p className="question-export-range-note">当前题库暂无可用修订记录。</p> : <>
                 <div className="question-export-revision-table-wrap"><table className="question-export-revision-table"><thead><tr><th scope="col">选择</th><th scope="col">正式版</th><th scope="col">操作人</th><th scope="col">本次变更</th><th scope="col">操作时间</th></tr></thead><tbody>{revisions.map(row => {
-                  const added = row.added_count || 0, changed = row.changed_count ?? added, canSelect = !!(row.has_revision_questions ?? row.has_incremental_json) && changed > 0, checked = selectedRevisions.includes(row.revision);
+                  const added = row.added_count || 0, changed = row.changed_count ?? added, canSelect = changed > 0, checked = selectedRevisions.includes(row.revision);
                   const displayRevision = String(row.revision);
                   return <tr key={row.revision} className={!canSelect ? 'unavailable' : ''}><td><input type="checkbox" checked={checked} disabled={busy || !canSelect} aria-label={`选择修订 ${displayRevision}`} onChange={() => setSelectedRevisions(current => checked ? current.filter(value => value !== row.revision) : [...current, row.revision])}/></td><td>修订 {displayRevision} · {row.release_version_label || `v${row.release_version}`}</td><td>{displayUploader(row.uploader_real_name,row.uploader_nickname)}</td><td>{changed.toLocaleString()} 题</td><td>{new Date(row.updated_at).toLocaleString()}</td></tr>;
                 })}</tbody></table></div>

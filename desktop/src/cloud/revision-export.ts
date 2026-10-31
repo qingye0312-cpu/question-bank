@@ -1,12 +1,11 @@
 import type {CloudOperationsFile} from '../../shared/sync';
 
 export function operationQuestionIds(operation:CloudOperationsFile['revisions'][number]){
-  if('questions' in operation)return operation.questions.map(question => question.question_id);
   return [...operation.added,...operation.revised,...operation.removed];
 }
 
 export function operationUploader(operation:CloudOperationsFile['revisions'][number]){
-  return 'operator' in operation ? operation.operator : operation.uploader;
+  return operation.operator;
 }
 
 export function revisionQuestionIds(operations: CloudOperationsFile, revisions: number[]) {

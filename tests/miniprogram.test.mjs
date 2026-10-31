@@ -34,8 +34,8 @@ const lines = payload.trimEnd().split('\n'), questions = lines.map(line => JSON.
 const index = {schema_version:'qbank-index-1',release_id:'source-basic',question_count:questions.length,postings:core.buildPostings(questions)};
 const manifest = {schema_version:'1.0',bank_id:'ad50971f-66af-51c2-bb0e-dc798b03b369',name:'HarmonyOS 初级认证',release_id:'a'.repeat(64),release_version:9,question_count:questions.length,release_name:'云端初级认证 v9'};
 const cloudUpdatedAt='2026-10-29T04:16:20.176Z';
-const cloudManifest={bank_id:manifest.bank_id,name:manifest.name,revision:19,release_version:9,question_count:questions.length,sha256:'b'.repeat(64),bytes:0,minimum_client:'0.2.7',updated_at:cloudUpdatedAt,snapshot_format:'qbank-cloud-file-1',protocol:3};
-const cloudSnapshot={format:'qbank-snapshot-2',bank_id:manifest.bank_id,name:manifest.name,revision:19,release_version:9,updated_at:cloudUpdatedAt,formal:questions,pending:[],removed:[]};
+const cloudQuestionFile={format:'qbank-question-bank-1',bank_id:manifest.bank_id,name:manifest.name,revision:19,release_version:9,release_version_label:'v9',updated_at:cloudUpdatedAt,merged_at:null,release_name:null,release_id:null,rollback_at:null,rollback_of:null,questions};
+const cloudManifest={bank_id:manifest.bank_id,name:manifest.name,revision:19,release_version:9,release_version_label:'v9',question_count:questions.length,minimum_client:'0.2.7',updated_at:cloudUpdatedAt,question_file_sha256:'b'.repeat(64),question_file_bytes:0,question_file_format:'qbank-question-bank-1',operations_file_sha256:'c'.repeat(64),operations_file_bytes:0,operations_file_format:'qbank-operations-2'};
 const bank = () => new core.LocalBank(lines, index);
 const fixture = (overrides = {}) => ({...questions[0], stem: '用户与系统', options: [{key: 'A', content: '聊天服务', option_id: 'a'}],
   answer: ['A'], type: 'single', explanation: '只在解析中出现的秘密词', chapter: '第一章', tags: ['标签示例'], ...overrides});
@@ -95,7 +95,7 @@ async function loadService(readResource, extra = {}) {
   const exports = {};
   const intake = await import('../desktop/shared/intake.ts');
   const sync = await import('../desktop/shared/sync.ts');
-  const syncService=extra.sync||{cachedSnapshot:async id=>id===manifest.bank_id?{manifest:cloudManifest,snapshot:cloudSnapshot}:null,cloudCatalog:()=>[cloudManifest],restoreCatalog:async()=>{}};
+  const syncService=extra.sync||{cachedQuestionFile:async id=>id===manifest.bank_id?{manifest:cloudManifest,questionFile:cloudQuestionFile}:null,cloudCatalog:()=>[cloudManifest],restoreCatalog:async()=>{}};
   const localState=extra.local||{version:1,banks:[],entries:[],batches:[]};
   const draftRecords=extra.drafts||[];
   vm.runInNewContext(outputText, {exports, require: name => name==='./draft-repository'?{readDraftFile:async()=>draftRecords}:name==='./sync'?syncService:name.endsWith('/core/sync')||name==='../core/sync'?sync:name.endsWith('/intake-store') ? {readLocal:async()=>localState} : name.endsWith('/intake') ? intake : core,
@@ -103,7 +103,7 @@ async function loadService(readResource, extra = {}) {
   return exports;
 }
 
-test('bank loader reads the cloud snapshot cache and never opens package data', async () => {
+test('bank loader reads the cloud question-file cache and never opens package data', async () => {
   const service = await loadService(() => { throw new Error('package data must not be read'); });
   const first = service.loadBank(manifest.bank_id), concurrent = service.loadBank(manifest.bank_id);
   assert.equal(first, concurrent);
@@ -114,8 +114,8 @@ test('bank loader reads the cloud snapshot cache and never opens package data', 
   assert.equal(await service.loadBank(manifest.bank_id), loaded);
 });
 
-test('bank loader rejects an uncached cloud bank until sync has written a snapshot', async () => {
-  const service = await loadService(() => { throw new Error('package data must not be read'); }, {sync:{cachedSnapshot:async()=>null,cloudCatalog:()=>[cloudManifest],restoreCatalog:async()=>{}}});
+test('bank loader rejects an uncached cloud bank until sync has written a question file', async () => {
+  const service = await loadService(() => { throw new Error('package data must not be read'); }, {sync:{cachedQuestionFile:async()=>null,cloudCatalog:()=>[cloudManifest],restoreCatalog:async()=>{}}});
   await assert.rejects(service.loadBank(manifest.bank_id), /尚未下载/);
 });
 
@@ -138,7 +138,7 @@ test('shared questions marked uploaded_manual remain visible in their local bank
   const localBankId='00000000-0000-4000-8000-000000000125';
   const shared=fixture({question_id:'00000000-0000-4000-8000-000000000126',stem:'共享导入的本地题目'});
   const local={version:1,banks:[{id:localBankId,name:'共享题库'}],batches:[],entries:[{bankId:localBankId,batchId:'00000000-0000-4000-8000-000000000127',question:shared,createdAt:'2026-10-31T00:00:00Z',uploadStatus:'uploaded_manual',exportedAt:'',sharedAt:''}]};
-  const service=await loadService(()=>{throw new Error('package data must not be read');},{local,sync:{cachedSnapshot:async()=>null,cloudCatalog:()=>[],restoreCatalog:async()=>{}}});
+  const service=await loadService(()=>{throw new Error('package data must not be read');},{local,sync:{cachedQuestionFile:async()=>null,cloudCatalog:()=>[],restoreCatalog:async()=>{}}});
   const loaded=await service.loadBank(localBankId);
   assert.equal(loaded.manifest.release_id,'local');
   assert.equal(loaded.bank.count,1);

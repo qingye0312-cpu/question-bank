@@ -9,7 +9,7 @@ const bankId='ad50971f-66af-51c2-bb0e-dc798b03b369',key='d'.repeat(64);
 const password='StrongPass123';
 
 function setup(){
- const current=new Map(),history=new Map(),records=new Map();
+ const current=new Map(),history=new Map(),records=new Map(),operationFiles=new Map();
  const env={QBANK_SESSION_SECRET:'a'.repeat(64),QBANK_UPLOAD_ENABLED:'true',QBANK_SYNC_ENABLED:'true',
   QBANK_BANKS:JSON.stringify([{bank_id:bankId,name:'测试库'}]),QBANK_CLOUD_CREATORS:JSON.stringify(['maintainer-owner']),
   QBANK_MAINTAINERS:JSON.stringify([{id:'maintainer-owner',key_sha256:sha256(key),grants:{[bankId]:['upload','merge']}}])};
@@ -19,6 +19,8 @@ function setup(){
   async readStateAt(id,revision){const value=history.get(`${id}/${revision}`);return value?structuredClone(value):null;},
   async listStates(id){return [...history.values()].filter(value=>value.bank_id===id).sort((a,b)=>b.revision-a.revision).map(value=>structuredClone(value));},
   async createSubmission(path,record){if(records.has(path))return {record:records.get(path),created:false};records.set(path,structuredClone(record));return {record,created:true};},
+  async readOperations(id){return operationFiles.has(id)?structuredClone(operationFiles.get(id)):null;},
+  async writeOperations(value){operationFiles.set(value.bank_id,structuredClone(value));return true;},
  };
  const handler=createHandler({env:()=>env,store,parseDelta,validateStandardQuestion,parseModelReply});
  const call=async(method,path,body,token)=>{const response=await handler({httpMethod:method,path,headers:{'content-type':'application/json',...(token?{authorization:`Bearer ${token}`}:{})},...(body===undefined?{}:{body:JSON.stringify(body)})});return {status:response.statusCode,data:JSON.parse(response.body)}};

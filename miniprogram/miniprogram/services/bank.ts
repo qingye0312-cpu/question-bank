@@ -2,7 +2,7 @@ import {readDraftFile} from './draft-repository';
 import {resultName,sha256} from '../core/intake';
 import {LocalBank, buildPostingsFromLines} from '../core/search';
 import {readLocal,updateLocal,createIds} from './intake-store';
-import {cachedSnapshot,cloudCatalog,restoreCatalog} from './sync';
+import {cachedQuestionFile,cloudCatalog,restoreCatalog} from './sync';
 import {combineLayers,type SyncQuestion} from '../core/sync';
 
 export type Manifest = {
@@ -30,7 +30,7 @@ export async function listBanks():Promise<BankSummary[]> {
   return [...new Map(all.map(b=>[b.id,b])).values()].map(b=>{
     const m=cloudCatalog().find(manifest=>manifest.bank_id===b.id);
     const own=local.banks.find(v=>v.id===b.id);
-    const version=m?.release_version??1,digest=m?.sha256??sha256(b.id);
+    const version=m?.release_version??1,digest=m?.question_file_sha256??sha256(b.id);
     return {...b,release_name:m?.release_name||own?.release_name||resultName(null,b.name,'历史迁移','v'+version,b.id,digest)};
   });
 }
@@ -48,13 +48,13 @@ export function loadBank(id=activeBankId()):Promise<BankBundle>{
     if(!info)throw new Error('题库不存在，请先连接云端同步题库');
     let bundle:BankBundle={manifest:{schema_version:'1.0',bank_id:id,name:info.name,release_id:'local',release_version:1,question_count:0},
       bank:new LocalBank([],{schema_version:'qbank-index-1',release_id:'local',question_count:0,postings:Object.create(null)})};
-    const cached=await cachedSnapshot(id);
+    const cached=await cachedQuestionFile(id);
     if(!cached&&cloudCatalog().some(b=>b.bank_id===id)&&!local.banks.some(b=>b.id===id))
       throw new Error('此云端题库尚未下载，联网后点击上方同步提示重试');
     if(cached){
-      const lines=(cached.snapshot.formal||[]).map(q=>JSON.stringify({...q,cloud_layer:'formal'}));
-      bundle={manifest:{schema_version:'1.0',bank_id:id,name:cached.manifest.name,merged_at:cached.manifest.merged_at,release_name:cached.manifest.release_name,release_id:cached.manifest.sha256,release_version:cached.manifest.release_version,question_count:lines.length},
-        bank:new LocalBank(lines,{schema_version:'qbank-index-1',release_id:cached.manifest.sha256,question_count:lines.length,postings:await buildPostingsFromLines(lines)})};
+      const lines=(cached.questionFile.questions||[]).map(q=>JSON.stringify({...q,cloud_layer:'formal'}));
+      bundle={manifest:{schema_version:'1.0',bank_id:id,name:cached.manifest.name,merged_at:cached.manifest.merged_at,release_name:cached.manifest.release_name,release_id:cached.manifest.question_file_sha256,release_version:cached.manifest.release_version,question_count:lines.length},
+        bank:new LocalBank(lines,{schema_version:'qbank-index-1',release_id:cached.manifest.question_file_sha256,question_count:lines.length,postings:await buildPostingsFromLines(lines)})};
     }
     const formal=Array.from({length:bundle.bank.count},(_,i)=>bundle.bank.question(i)) as unknown as SyncQuestion[];
     const drafts=await readDraftFile(id),ids=new Set(drafts.map(r=>r.id));

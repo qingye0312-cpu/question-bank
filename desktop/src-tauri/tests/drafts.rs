@@ -179,13 +179,13 @@ fn promotion_guards_one_bank_backups_and_verifies_exact_first_release() {
         promotion::prepare(&reopened, &b, "https://example.test", "d_admin", 0).unwrap(),
         task
     );
-    let mut snapshot = json!({"format":"qbank-snapshot-2","bank_id":b,"name":"录题测试","revision":1,"release_version":1,"updated_at":now(),"formal":task["snapshot"]["questions"],"pending":[],"removed":[]});
-    snapshot["formal"][0]["chapter"] = json!("不一致");
+    let mut snapshot = json!({"format":"qbank-question-bank-1","bank_id":b,"name":"录题测试","revision":1,"release_version":1,"updated_at":now(),"questions":task["snapshot"]["questions"],"pending":[],"removed":[]});
+    snapshot["questions"][0]["chapter"] = json!("不一致");
     let raw = snapshot.to_string();
     assert!(cloud::apply(&s, &raw, &hash(raw.as_bytes())).is_err());
     assert!(!s.bank(&b).unwrap().read_only);
     assert_eq!(promotion::list(&s).unwrap()[0]["status"], "pending");
-    snapshot["formal"][0]["chapter"] = json!("");
+    snapshot["questions"][0]["chapter"] = json!("");
     let raw = snapshot.to_string();
     cloud::apply(&s, &raw, &hash(raw.as_bytes())).unwrap();
     assert!(s.bank(&b).unwrap().read_only);

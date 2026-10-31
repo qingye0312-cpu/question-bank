@@ -41,12 +41,12 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
       if (method === 'GET' && path === '/health') return respond(200, {
         service: 'qbank-auth', version: VERSION, auth_configured: authConfigured(config),
         auth_checks: authChecks(config),
-        uploads_enabled: config.uploadsEnabled, sync_enabled: config.syncEnabled, capabilities:['confirmed-upload-v1','snapshot-v2','question-bank-file-v1','operations-file-v1','operations-file-v2','cloud-file-gzip-base64-v1','recorded-at-v1','merge-v1','cloud-bank-promotion-v1','session-upload-v1','maintainer-approval-v1','certificate-import-v1','password-maintainer-v1','global-export-permission-v1'], limits: LIMITS,
+        uploads_enabled: config.uploadsEnabled, sync_enabled: config.syncEnabled, capabilities:['confirmed-upload-v1','question-bank-file-v1','operations-file-v2','cloud-file-gzip-base64-v1','recorded-at-v1','merge-v1','cloud-bank-promotion-v1','session-upload-v1','maintainer-approval-v1','certificate-import-v1','password-maintainer-v1','global-export-permission-v1'], limits: LIMITS,
       });
       const operationsFileRoute = method==='GET' && /^\/v1\/banks\/[0-9a-f-]{36}\/operations-file$/.test(path||'');
       const publicResult = await workflow.read(method,path,config);
       if(publicResult !== undefined && !operationsFileRoute)return respond(200,publicResult);
-      const workflowRoute = /^\/v1\/banks\/[0-9a-f-]{36}\/(seed|history|history\/[0-9]+\/questions|rollback)$/.test(path||'');
+      const workflowRoute = /^\/v1\/banks\/[0-9a-f-]{36}\/(seed|rollback)$/.test(path||'');
       const maintainerRoute = method==='GET' && ['/v1/maintainer-applications','/v1/maintainer-accounts'].includes(path)
         || method==='POST' && (path==='/v1/maintainer-applications' || /^\/v1\/maintainer-applications\/[0-9a-f-]{36}\/decision$/.test(path) || /^\/v1\/maintainer-accounts\/[0-9a-f-]{36}\/(?:permissions|revoke|password-reset)$/.test(path));
       if (!workflowRoute && !operationsFileRoute && !maintainerRoute && !['POST /v1/auth/desktop', 'POST /v1/auth/register', 'POST /v1/auth/password-login', 'POST /v1/auth/password-reset', 'POST /v1/auth/refresh', 'POST /v1/auth/logout', 'GET /v1/me', 'POST /v1/uploads', 'POST /v1/banks/promote'].includes(`${method} ${path}`))

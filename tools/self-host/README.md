@@ -11,17 +11,6 @@ pnpm build:self-host
 pnpm test:self-host
 ```
 
-## 已有题库的一次性流水迁移
-
-流水线记录启用前，为已有题库生成一次初始记录。命令只会处理没有 `operations/<bank_id>/pipeline.json` 的题库，重复执行不会覆盖已有流水：
-
-```sh
-QBANK_STORAGE_ROOT=/var/lib/qbank-auth \
-  node tools/self-host/migrate-operation-pipeline.cjs <bank-uuid> [<bank-uuid> ...]
-```
-
-也可以通过 `QBANK_BANKS` 传入 JSON 数组，例如 `[{"bank_id":"..."}]`。每个题库的当前正式题目会写成唯一一条“历史题库初始化记录”；之后的首版、上传合并、回退和状态修正由服务端追加新流水。
-
 ## 部署边界
 
 - 先备份服务器数据目录，再上传当前版本包。

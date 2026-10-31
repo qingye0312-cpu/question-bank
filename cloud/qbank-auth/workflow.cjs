@@ -4,8 +4,8 @@
 // concurrent writers never overwrite one another.
 const {HttpError,sha256}=require('./common.cjs');
 const {packText}=require('./codec.cjs');
-const {key,answer,releaseName,projected,manifest,safeQuestion,questionFile}=require('./projection.cjs');
-const {buildOperationFile,buildInitialOperation,appendOperation,diffQuestionIds}=require('./operations.cjs');
+const {key,answer,releaseName,manifest,questionFile}=require('./projection.cjs');
+const {buildInitialOperation,appendOperation,diffQuestionIds}=require('./operations.cjs');
 const MAX_STATE_BYTES=4*1024*1024;
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const deny=(status,code,message)=>{throw new HttpError(status,code,message)};
@@ -20,38 +20,23 @@ function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission})
   return store.readStateAt(b.bank_id,revision);
  }
  async function operationFileFor(b,state){
-  // Test doubles and older stores do not have the pipeline sidecar yet. Keep
-  // the old projection only for those stores; the production filesystem store
-  // reads and advances the append-only pipeline directly.
+  // The current service reads and advances the append-only pipeline sidecar.
+  // Historical state files are never scanned to rebuild operation records.
   if(typeof store.readOperations!=='function'||typeof store.writeOperations!=='function'){
-   const states=await store.listStates(b.bank_id);
-   return buildOperationFile(states,{bankId:b.bank_id,name:b.name});
+   throw new Error('题库流水存储未启用');
   }
   let pipeline=await store.readOperations(b.bank_id);
   if(!pipeline){
+   if(state.revision>0&&!state.operation_event)throw new Error('题库流水侧车缺失，请先上传 qbank-operations-2');
    const initial=buildInitialOperation(state,{name:b.name,event:state.revision===1?state.operation_event:null});
    await store.writeOperations(initial);
    return (await store.readOperations(b.bank_id))||initial;
   }
-  if(pipeline.format!=='qbank-operations-2'){
-   const initial=buildInitialOperation(state,{name:b.name,event:state.revision===1?state.operation_event:null});
-   await store.writeOperations(initial);
-   return (await store.readOperations(b.bank_id))||initial;
-  }
+  if(pipeline.format!=='qbank-operations-2')throw new Error('题库包含已停用的旧流水格式');
   if(pipeline.current_revision>state.revision)throw new Error('操作流水版本高于题库版本');
   if(pipeline.current_revision<state.revision){
-   let next=pipeline;
-   for(let revision=pipeline.current_revision+1;revision<=state.revision;revision++){
-    const historical=revision===state.revision?state:await store.readStateAt(b.bank_id,revision);
-    if(!historical?.operation_event){
-     // Existing banks are migrated with one synthetic initial record. A gap
-     // without an operation event belongs to that legacy history; do not
-     // rebuild every old state on every request.
-     next=buildInitialOperation(state,{name:b.name});
-     break;
-    }
-    next=appendOperation(next,historical,historical.operation_event);
-   }
+   if(state.revision!==pipeline.current_revision+1||!state.operation_event)throw new Error('题库修订流水缺少当前操作事件');
+   const next=appendOperation(pipeline,state,state.operation_event);
    await store.writeOperations(next);
    pipeline=(await store.readOperations(b.bank_id))||next;
   }
@@ -60,72 +45,6 @@ function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission})
  async function manifestFor(b,state){
   const operations=await operationFileFor(b,state),payload=JSON.stringify(operations);
   return manifest(state,{operations_file_sha256:sha256(payload),operations_file_bytes:Buffer.byteLength(payload),operations_file_format:operations.format});
- }
- function stateDiff(previous,current){
-  if(current?.rollback_reference||!Array.isArray(current?.formal))return [];
-  const previousIds=new Set(Array.isArray(previous?.formal)?previous.formal.map(q=>q.question_id):[]);
-  const previousKeys=new Set();
-  for(const q of Array.isArray(previous?.formal)?previous.formal:[]){try{previousKeys.add(key(q));}catch{/* Preserve the ID-only fallback for legacy records. */}}
-  return current.formal.filter(q=>{
-   if(previousIds.has(q.question_id))return false;
-   try{return !previousKeys.has(key(q));}catch{return true;}
-  });
- }
- function revisionLabel(state){return state?.release_version_label||`v${state?.release_version||0}`;}
- function labelSort(left,right){
-  const parse=value=>{const match=/^v(\d+)(?:\.(\d+))?$/.exec(value||'');return match?[Number(match[1]),Number(match[2]||0)]:[Number.MAX_SAFE_INTEGER,Number.MAX_SAFE_INTEGER];};
-  const a=parse(left),b=parse(right);return a[0]-b[0]||a[1]-b[1];
- }
- async function formalHistory(b){
-  const allStates=await store.listStates(b.bank_id),latestState=allStates[0]||null;
-  if(!latestState||!Array.isArray(latestState.formal))return [];
-  const currentVersion=latestState.release_version||0;
-  const candidates=allStates.filter(state=>!state.rollback_reference&&Array.isArray(state.formal)
-    &&Number.isSafeInteger(state.release_version)&&state.release_version<=currentVersion);
-  const byLabel=new Map();
-  for(const state of candidates){
-   const label=revisionLabel(state),existing=byLabel.get(label);
-   if(!existing||state.revision>existing.revision)byLabel.set(label,state);
-  }
-  // A current rollback reference resolves to its target formal state. Keep
-  // the newest full state for that release so export uses added questions,
-  // while the operational rollback event stays out of the release list.
-  const labels=[...byLabel.keys()].sort(labelSort);
-  return labels.map((label,index)=>({state:byLabel.get(label),formal_revision:String(index+1),release_version_label:label}));
- }
- async function history(b){
-  const entries=await formalHistory(b),allStates=await store.listStates(b.bank_id);
-  const rollbackEvents=allStates.filter(state=>state.rollback&&Number.isSafeInteger(state.revision)).sort((left,right)=>left.revision-right.revision);
-  return entries.map(({state:s,formal_revision,release_version_label},index)=>{
-   const previous=entries[index-1]?.state||null,previousRevision=previous?.revision||0,rollbackEvent=rollbackEvents.filter(event=>event.revision>previousRevision&&event.revision<s.revision).at(-1),rollbackTarget=rollbackEvent?.rollback?.target_revision||s.rollback?.target_revision||null,rollbackTargetState=rollbackTarget?allStates.find(state=>state.revision===rollbackTarget):null,rollbackLabel=rollbackEvent?.release_version_label||(rollbackTargetState?revisionLabel(rollbackTargetState):null),derived=stateDiff(previous,s),merge=(s.merge_history||[]).find(m=>m.release_version_label===release_version_label&&Number.isSafeInteger(m.added_count)&&m.added_count===derived.length&&m.added_count>0),seeded=index===0&&!merge&&Array.isArray(s.formal);
-   const declaredAdded=Number.isSafeInteger(merge?.added_count)?merge.added_count:null;
-   const addedCount=declaredAdded===null?(seeded?s.formal.length:derived.length):declaredAdded||derived.length;
-   const declaredQuestions=Number.isSafeInteger(merge?.question_count)?merge.question_count:null;
-   const formalLabel=release_version_label;
-   return {revision:s.revision,formal_revision,release_version:s.release_version,release_version_label:formalLabel,updated_at:s.updated_at,merged_at:s.merged_at||null,
-    release_name:s.release_name||null,release_id:s.release_id||null,rollback_at:rollbackEvent?.rollback_at||s.rollback_at||null,
-    rollback_of:rollbackTarget,rollback_to_release_version_label:rollbackLabel,merge_count:Array.isArray(s.merge_history)?s.merge_history.length:0,
-    batch_id:merge?.batch_id||null,question_count:declaredQuestions===null?(seeded?s.formal.length:addedCount):declaredQuestions,
-    added_count:addedCount,
-    uploader_account_id:merge?.uploader_account_id||s.seed_uploader_account_id||null,
-    uploader_real_name:uploaderName(merge?.uploader_real_name,s.seed_uploader_real_name),
-    uploader_nickname:uploaderName(merge?.uploader_nickname),uploader_auth_type:merge?.uploader_auth_type||null,
-    has_incremental_json:!!merge?.batch_id,has_revision_questions:addedCount>0};
-  }).reverse();
- }
- async function operationHistory(b){
-  const state=await latest(b),file=await operationFileFor(b,state);
-  if(file.format==='qbank-operations-2'){
-   const releaseLabels=new Map(file.revisions.map(item=>[item.revision,item.release_version_label||`v${item.release_version}`]));
-   return file.revisions.slice().sort((left,right)=>right.revision-left.revision).map(item=>({
-    revision:item.revision,kind:item.kind,release_version:item.release_version,release_version_label:item.release_version_label||`v${item.release_version}`,
-    updated_at:item.operated_at,merged_at:item.merged_at||null,release_name:item.release_name||null,release_id:item.release_id||null,batch_id:item.batch_id||null,
-    note:item.note||null,question_count:item.question_count,added_count:item.added_count,changed_count:item.changed_count,revised_count:item.revised_count,removed_count:item.removed_count,
-    duplicate_count:item.duplicate_count,rollback_of:item.rollback_of||null,rollback_to_release_version_label:item.rollback_of?releaseLabels.get(item.rollback_of)||null:null,
-    uploader_account_id:item.operator?.account_id||null,uploader_real_name:item.operator?.real_name||null,uploader_nickname:item.operator?.nickname||null,uploader_auth_type:item.operator?.auth_type||null,
-   }));
-  }
-  return file.revisions.map(item=>({revision:item.revision,kind:item.kind,release_version:item.release_version,release_version_label:item.release_version_label||`v${item.release_version}`,updated_at:item.updated_at,merged_at:item.merged_at||null,release_name:item.release_name||null,release_id:item.release_id||null,batch_id:item.batch_id||null,note:item.note||null,question_count:item.question_count,added_count:item.added_count,changed_count:item.changed_count,revised_count:item.revised_count,removed_count:item.removed_count,duplicate_count:item.duplicate_count,rollback_of:item.rollback_of||null,uploader_account_id:item.uploader?.account_id||null,uploader_real_name:item.uploader?.real_name||null,uploader_nickname:item.uploader?.nickname||null,uploader_auth_type:item.uploader?.auth_type||null}));
  }
  function validateQuestion(q,name){
   try{validateStandardQuestion(q,name);}catch{deny(422,'QUESTION_INVALID','请核对题目结构、题库身份、选项和答案');}
@@ -150,7 +69,7 @@ function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission})
   async read(method,path,config,auth){
    if(method!=='GET')return;
    if(path==='/v1/catalog'){enabled(config);return {banks:await Promise.all(config.banks.map(async b=>manifestFor(b,await latest(b))))};}
-   const match=/^\/v1\/banks\/([0-9a-f-]{36})\/(manifest|snapshot-file|question-file|operations-file)$/.exec(path||'');if(!match)return;
+   const match=/^\/v1\/banks\/([0-9a-f-]{36})\/(manifest|question-file|operations-file)$/.exec(path||'');if(!match)return;
    enabled(config);const s=await latest(bank(config,match[1]));
    if(match[2]==='manifest')return manifestFor(bank(config,match[1]),s);
    if(match[2]==='question-file')return packText(JSON.stringify(questionFile(s)));
@@ -161,7 +80,6 @@ function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission})
     const b=bank(config,match[1]),operations=await operationFileFor(b,s);
     return packText(JSON.stringify(operations));
    }
-   const payload=JSON.stringify(projected(s));return packText(payload);
   },
   async mergeSubmission(config,record,delta,auth){
    const b=bank(config,delta.bank_id);
@@ -223,47 +141,11 @@ function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission})
   },
   async write(method,path,body,config,auth){
    enabled(config);
-   const exportedMatch=/^\/v1\/banks\/([0-9a-f-]{36})\/history\/([0-9]+)\/questions$/.exec(path||'');
-   const match=exportedMatch||new RegExp('^/v1/banks/([0-9a-f-]{36})/(seed|history|rollback)$').exec(path);
-   const id=match[1],action=exportedMatch?'history_questions':match[2];
+   const match=new RegExp('^/v1/banks/([0-9a-f-]{36})/(seed|rollback)$').exec(path);
+   const id=match[1],action=match[2];
    const b=bank(config,id),roles=auth.grants[id]||[],globalAdmin=auth.capabilities?.includes('maintainer:manage');
-   const canViewHistory=globalAdmin||(auth.desktop&&roles.includes('merge'))||roles.includes('upload')||auth.permissions?.includes('export');
-   if(action==='history_questions'||action==='history'){
-    if(!canViewHistory)deny(403,'ROLE_FORBIDDEN','没有此题库的版本查看权限');
-   }else if(!globalAdmin&&!roles.includes('merge'))deny(403,'ROLE_FORBIDDEN','没有此题库的合并发布权限');
+   if(!globalAdmin&&!roles.includes('merge'))deny(403,'ROLE_FORBIDDEN','没有此题库的合并发布权限');
    const s=await latest(b);
-   if(action==='history_questions'&&method==='GET'){
-    const revision=Number(exportedMatch[2]),entries=await formalHistory(b),entry=entries.find(item=>item.state.revision===revision),target=entry?.state||await atRevision(b,revision),previous=entry?entries[entries.indexOf(entry)-1]?.state:null;
-    const releaseLabel=entry?.release_version_label||revisionLabel(target);
-    if(!target)deny(404,'VERSION_MISSING','目标版本不存在或已损坏');
-    const fallback=stateDiff(previous,target).map(q=>{try{return safeQuestion(q);}catch{return q;}});
-    const merge=target.merge_history?.find(item=>item.release_version_label===releaseLabel&&Number.isSafeInteger(item.added_count)&&item.added_count===fallback.length&&item.added_count>0);
-    const declaredAdded=Number.isSafeInteger(merge?.added_count)?merge.added_count:null;
-    let questions=[];
-    if(merge?.batch_id&&declaredAdded>0&&typeof store.readSubmission==='function'&&typeof decodeSubmission==='function'){
-     let record;
-     try{record=await store.readSubmission(id,merge.batch_id);}catch{record=null;}
-     if(record&&record.format==='qbank-submission-1'&&record.bank_id===id&&record.batch_id===merge.batch_id){
-      try{
-       const decoded=decodeSubmission(record.package),ids=new Set(Array.isArray(merge.added_question_ids)?merge.added_question_ids:
-        (target.resolved||[]).filter(item=>item.id?.startsWith(`${merge.batch_id}/`)&&!item.duplicate).map(item=>item.question_id));
-       questions=(decoded.questions||[]).filter(q=>ids.has(q.question_id)).map(safeQuestion);
-      }catch{/* Fall back to the immutable version diff for legacy or damaged packages. */}
-     }
-    }
-    if(!questions.length&&fallback.length&&(!declaredAdded||declaredAdded===fallback.length))questions=fallback;
-    const addedCount=declaredAdded===null?fallback.length:declaredAdded||fallback.length;
-    if(questions.length!==addedCount)deny(502,'INCREMENTAL_JSON_INCOMPLETE','此修订的新增题目记录不完整');
-    const currentFormal=Array.isArray(s.formal)?s.formal:[],currentById=new Map(currentFormal.map(question=>[question.question_id,question])),currentByKey=new Map();
-    for(const question of currentFormal){try{currentByKey.set(key(question),question);}catch{/* Keep ID matching for malformed legacy records. */}}
-    const latestQuestions=questions.map(question=>{
-     const current=currentById.get(question.question_id)||(()=>{try{return currentByKey.get(key(question));}catch{return undefined;}})();
-     if(!current)deny(409,'REVISION_NOT_CURRENT','所选修订中的题目已不在最新正式题库中，请重新选择修订导出');
-     return safeQuestion(current);
-    });
-    return {revision,batch_id:merge?.batch_id||null,question_count:Number.isSafeInteger(merge?.question_count)?merge.question_count:latestQuestions.length,added_count:addedCount,questions:latestQuestions};
-   }
-   if(action==='history'&&method==='GET'){const formalLabel=s.release_version_label||`v${s.release_version}`;return {current_revision:s.revision,current_formal_revision:formalLabel.slice(1),release_version:s.release_version,release_version_label:formalLabel,versions:await history(b),operations:await operationHistory(b)};}
    if(method!=='POST')deny(405,'METHOD_NOT_ALLOWED','不支持此请求方法');
    const operation=body?.operation_id,operationHash=sha256(JSON.stringify({actor:auth.openid,action,body}));
    if(operation){
@@ -271,9 +153,8 @@ function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission})
     const old=(s.operations||[]).find(o=>o.id===operation);
     if(old){
      if(old.hash!==operationHash)deny(409,'OPERATION_CONFLICT','任务 ID 已用于不同内容');
-     // Rebuild the manifest from the immutable full state. Legacy rollback
-     // finalizers are intentionally not called: new revisions never use a
-     // pointer/reference file and must expose the operation-file digest.
+     // Rebuild the manifest from the immutable full state. Every current
+     // revision exposes the append-only operation-file digest.
      return manifestFor(b,s);
     }
    }
@@ -303,7 +184,6 @@ function createWorkflow({store,validateStandardQuestion,clock,decodeSubmission})
       real_name:uploaderName(auth.real_name),nickname:uploaderName(auth.nickname),auth_type:auth.password_account?'password':'key'},note:rollbackNote||null,
       added:changes.added,revised:changes.revised,removed:changes.removed,question_count:restored.length,duplicate_count:0};
     s.operations=[...(s.operations||[]),operationRecord];
-    delete s.rollback_reference;
     if(!await store.createState(s)){
      const latestState=await latest(b),previous=(latestState.operations||[]).find(o=>o.id===operation);
      if(previous){if(previous.hash!==operationHash)deny(409,'OPERATION_CONFLICT','任务 ID 已用于不同内容');return manifestFor(b,latestState);}

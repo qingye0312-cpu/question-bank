@@ -1,5 +1,5 @@
 import {authOrigin} from '../config/cloud';
-import {readManifest,readSnapshot,snapshotPath,type CloudManifest,type CloudSnapshot} from '../core/sync';
+import {readManifest,readQuestionFile,questionFilePath,type CloudManifest,type CloudQuestionFile} from '../core/sync';
 import {buildPostings} from '../core/search';
 import {sha256} from '../core/intake';
 import {foregroundGeneration} from './foreground';
@@ -47,8 +47,8 @@ async function write(filePath:string,value:unknown){
  await checked(filePath);
  await remove(backup);
 }
-export async function cachedSnapshot(id:string):Promise<{manifest:CloudManifest;snapshot:CloudSnapshot}|null>{
- try{const c=await recovered(path(id)),manifest=readManifest(c.manifest);if(manifest.bank_id!==id)throw Error('题库身份错误');return {manifest,snapshot:readSnapshot(c.wrapper,manifest)};}catch{return null;}
+export async function cachedQuestionFile(id:string):Promise<{manifest:CloudManifest;questionFile:CloudQuestionFile}|null>{
+ try{const c=await recovered(path(id)),manifest=readManifest(c.manifest);if(manifest.bank_id!==id)throw Error('题库身份错误');return {manifest,questionFile:readQuestionFile(c.wrapper,manifest)};}catch{return null;}
 }
 function requestFailureMessage(message:string):string {
  if(/url not in domain|不在.*合法域名|domain list/i.test(message))return '微信 request 合法域名校验未通过，暂用已缓存题库';
@@ -107,19 +107,14 @@ export async function purgeCloudCache():Promise<number>{
 }
 async function downloadBank(id:string,advertised:CloudManifest|undefined,force:boolean):Promise<boolean>{
   const manifest=readManifest(advertised||await request(`/v1/banks/${id}/manifest`));if(manifest.bank_id!==id)throw Error('题库身份不符');
-  const previous=await cachedSnapshot(id);
-  // Compare the revision and digest. A rollback or server-side restore can
-  // replace a snapshot while retaining the same revision, so revision alone
-  // must not leave a stale local bank in place.
-  if(!force&&previous&&manifest.revision===previous.manifest.revision&&manifest.sha256===previous.manifest.sha256)return false;
-  // Revision zero is the catalog placeholder for a bank with no formal snapshot.
+  const previous=await cachedQuestionFile(id);
+  // Compare the revision and question-file digest. A rollback or server-side
+  // restore can replace content while retaining the same release number.
+  if(!force&&previous&&manifest.revision===previous.manifest.revision&&manifest.question_file_sha256===previous.manifest.question_file_sha256)return false;
+  // Revision zero is the catalog placeholder for a bank with no formal file.
   if(manifest.revision===0)return false;
-  const wrapper=await request(snapshotPath(manifest)),snapshot=readSnapshot(wrapper,manifest);
-  if(manifest.question_count!=null&&(snapshot.formal?.length||0)!==manifest.question_count)throw Error('云端题库数量与版本清单不一致，保留本地题库');
-  // A concurrent server update produces a mismatch: retry on the next sync,
-  // never install content from a different revision than the checked manifest.
-  if(snapshot.revision===0)return false;
-  buildPostings((snapshot.formal||[]) as unknown as import('../core/search').Question[]);
+  const wrapper=await request(questionFilePath(manifest)),questionFile=readQuestionFile(wrapper,manifest);
+  buildPostings((questionFile.questions||[]) as unknown as import('../core/search').Question[]);
   await write(path(id),{manifest,wrapper});return true;
 }
 export function syncBank(id:string,advertised?:CloudManifest,force=false):Promise<boolean>{

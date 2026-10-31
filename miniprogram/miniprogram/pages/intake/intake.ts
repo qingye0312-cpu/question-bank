@@ -21,7 +21,7 @@ Page({
    if(!bank)throw Error('首次使用需要联网下载云端题库');
    this.setData({banks,bankIndex:Math.max(0,banks.findIndex(b=>b.id===bank))});
    try{await controller!.open(bank);}catch(error){
-     // A restored catalog can exist without its snapshot after an interrupted
+     // A restored catalog can exist without its question file after an interrupted
      // first download. Repair that cache once before showing the error.
      await downloadCloudBanks();banks=await listBanks();bank=chooseBank()||bank;
      if(!bank)throw error;await controller!.open(bank);this.setData({banks,bankIndex:Math.max(0,banks.findIndex(b=>b.id===bank))});
