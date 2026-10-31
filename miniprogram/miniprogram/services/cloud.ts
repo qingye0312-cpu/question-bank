@@ -243,9 +243,10 @@ export function createCloudClient(deps:{origin:()=>string;request:Transport;now?
     if(!current.uploadsEnabled)throw new UploadError(messages.UPLOAD_DISABLED,503,'UPLOAD_DISABLED');
     return current.origin;
   }
-  async function upload(expected:ReturnType<typeof prepareUpload>,expectedOrigin:string){
+  async function upload(expected:ReturnType<typeof prepareUpload>,expectedOrigin:string,note=''){
     const current=active();if(!current||current.origin!==expectedOrigin)throw new Error('登录已失效或服务地址改变，请重新登录后重试');
-    const response=await call('/v1/uploads','POST',{format:'qbank-confirmed-upload-1',package:expected.envelope},current),body=object(response.body);
+    const normalized=note.trim();if(normalized.length>500)throw new Error('上传备注不能超过 500 字');
+    const response=await call('/v1/uploads','POST',{format:'qbank-confirmed-upload-1',package:expected.envelope,...(normalized?{note:normalized}:{})},current),body=object(response.body);
     if(!((response.status===201&&body.duplicate===false)||(response.status===200&&body.duplicate===true)))throw new Error('云端上传响应无效，请重试本批次');
     return {receipt:verifyReceipt(body.receipt,expected),duplicate:body.duplicate as boolean};
   }

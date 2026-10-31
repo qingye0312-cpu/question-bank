@@ -178,6 +178,7 @@ fn pending_cloud_conversion_and_uploads_remain_recoverable() {
         json!([{"id":r["id"],"revision":r["revision"]}]),
         "https://example.test",
         "d_admin",
+        "",
     )
     .unwrap();
     assert!(remove(&store, &local).unwrap_err().contains("上传任务"));

@@ -186,7 +186,7 @@ test('desktop confirmed queue retries the same frozen transfer after reopening a
  const invoke=async(command,args)=>{
   if(command==='credential_save'||command==='credential_refresh_save'||command==='credential_logout')return;
   if(command==='draft_records')return [{id:'q1',revision:1,submissionId:''},{id:'q2',revision:3,submissionId:''}];
-  if(command==='draft_submit'){assert.deepEqual(JSON.parse(JSON.stringify(args.expected)),[{id:'q1',revision:1},{id:'q2',revision:3}]);const job={id:'session-one',groupId:'session-one',bankId:bank,endpoint:args.endpoint,actor:args.actor,confirmedAt:new Date().toISOString(),status:'queued',attempts:0,nextAt:0,error:''};state.set('upload-queue',[job]);return job;}
+  if(command==='draft_submit'){assert.deepEqual(JSON.parse(JSON.stringify(args.expected)),[{id:'q1',revision:1},{id:'q2',revision:3}]);assert.equal(args.note,'回归测试备注');const job={id:'session-one',groupId:'session-one',bankId:bank,endpoint:args.endpoint,actor:args.actor,confirmedAt:new Date().toISOString(),status:'queued',attempts:0,nextAt:0,error:'',note:args.note};state.set('upload-queue',[job]);return job;}
   if(command==='cloud_transfer')return {envelope:{frozen:args.batchId},receipt:null};
   if(command==='cloud_receipt'){receipts.push(args);return;}
   if(command==='cloud_versions')return [];
@@ -199,11 +199,11 @@ test('desktop confirmed queue retries the same frozen transfer after reopening a
   }
   throw Error(command);
  };
- const c=client(invoke,state,storage);await c.cloudLogin('test-maintainer-key');await c.enqueueDesktop(['local-group'],bank);
+ const c=client(invoke,state,storage);await c.cloudLogin('test-maintainer-key');await c.enqueueDrafts(bank,[{id:'q1',revision:1},{id:'q2',revision:3}],'回归测试备注');
  assert.equal(sent.length,0);assert.equal((await c.desktopJobs()).length,1);await c.runDesktopQueue();
  assert.equal((await c.desktopJobs()).filter(j=>j.status==='done').length,0);
  const reopened=client(invoke,state,storage);await reopened.cloudLogin('test-maintainer-key');await reopened.retryDesktopJobs();await reopened.runDesktopQueue();
- assert.ok((await reopened.desktopJobs()).every(j=>j.status==='done'));assert.deepEqual(sent.map(s=>s.package.frozen),['session-one','session-one']);assert.ok(sent.every(s=>s.format==='qbank-confirmed-upload-1'));
+ assert.ok((await reopened.desktopJobs()).every(j=>j.status==='done'));assert.deepEqual(sent.map(s=>s.package.frozen),['session-one','session-one']);assert.ok(sent.every(s=>s.format==='qbank-confirmed-upload-1'&&s.note==='回归测试备注'));
  state.get('upload-queue')[0].status='queued';reopened.cloudLogout();await reopened.pauseDesktopJobs();const count=sent.length;await reopened.runDesktopQueue();assert.equal(sent.length,count);
  actor='maintainer-b';await reopened.cloudLogin('another-test-key');await reopened.retryDesktopJobs();await reopened.runDesktopQueue();assert.equal(sent.length,count);assert.equal((await reopened.desktopJobs())[0].status,'paused');assert.equal(receipts.length,1);
 });

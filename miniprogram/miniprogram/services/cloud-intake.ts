@@ -9,8 +9,9 @@ export async function uploadBatch(bankId:string,batchId:string,actor?:string){
   if(uploading.has(batchId))throw new Error('本批次正在上传，请稍候');
   uploading.add(batchId);
   try{
-    const batch=(await readLocal()).batches.find(b=>b.id===batchId&&b.bankId===bankId);
+    const local=await readLocal(),batch=local.batches.find(b=>b.id===batchId&&b.bankId===bankId);
     if(!batch)throw new Error('请选择当前题库的录入批次');
+    const note=(local.jobs?.find(job=>job.id===batchId)?.note||'').trim();
     const {manifest}=await loadBank(bankId);
     const endpoint=await cloud.authorize(bankId,manifest.name);
     if(actor&&cloud.state().openid!==actor)throw new UploadError("登录身份已改变",403,"IDENTITY_CHANGED");
@@ -30,7 +31,7 @@ export async function uploadBatch(bankId:string,batchId:string,actor?:string){
     if(prepared.delta.bank_id!==bankId||prepared.delta.batch_id!==batchId)throw new Error('本地上传批次身份不一致，请先备份并联系维护者');
     if(snapshot.receipt)return {receipt:verifyReceipt(snapshot.receipt,prepared),duplicate:true};
     if(actor){const job=(await readLocal()).jobs?.find(j=>j.id===batchId);if(job?.status==='paused'||cloud.state().openid!==actor)throw new UploadError("任务已暂停",401,"SIGNED_OUT");}
-    const result=await cloud.upload(prepared,endpoint),receipt=verifyReceipt(result.receipt,prepared);
+    const result=await cloud.upload(prepared,endpoint,note),receipt=verifyReceipt(result.receipt,prepared);
     try{
       await updateLocal(data=>{
         const current=data.batches.find(b=>b.id===batchId&&b.bankId===bankId);

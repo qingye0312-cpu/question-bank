@@ -87,14 +87,24 @@ test('one compressed Base64 upload is decoded, decompressed, merged, recompresse
 
 test('preserve-status upload inserts unreviewed questions into the formal snapshot',async()=>{
  const s=setup(),token=await s.login();await seed(s,token);
- const response=await s.call('POST','/v1/uploads',{...encodeUpload(fixture),status_mode:'preserve'},token);
+ const note='补充 26 道未审核题';
+ const response=await s.call('POST','/v1/uploads',{...encodeUpload(fixture),status_mode:'preserve',note:`  ${note}  `},token);
  assert.equal(response.status,201,JSON.stringify(response.data));
+ assert.equal(response.data.receipt.note,note);
+ const submission=s.records.get(`inbox/${id}/${JSON.parse(fixture).batch_id}.json`);
+ assert.equal(submission.note,note);
  const state=await s.store.readState(id),question=state.formal.find(item=>item.question_id===questions[0].question_id);
  assert.equal(question.status,'unreviewed');
+ assert.equal(state.merge_history.at(-1).note,note);
  const manifest=readManifest((await s.call('GET',`/v1/banks/${id}/manifest`)).data);
  assert.equal(manifest.question_count,2);
  const snapshot=readSnapshot((await s.call('GET',`/v1/banks/${id}/snapshot-file`)).data,manifest);
  assert.equal(snapshot.formal.find(item=>item.question_id===questions[0].question_id).status,'unreviewed');
+ const operations=readOperationsFile((await s.call('GET',`/v1/banks/${id}/operations-file`,undefined,token)).data,manifest);
+ assert.equal(operations.revisions.find(item=>item.revision===2).note,note);
+ const oversized=await s.call('POST','/v1/uploads',{...encodeUpload(fixture),status_mode:'preserve',note:'字'.repeat(501)},token);
+ assert.equal(oversized.status,422);
+ assert.equal(oversized.data.error.code,'CONFIRMATION_INVALID');
 });
 
 test('same batch is idempotent, bad content never partially merges, and old versions roll back',async()=>{

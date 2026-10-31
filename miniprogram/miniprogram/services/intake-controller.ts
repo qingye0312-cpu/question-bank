@@ -33,9 +33,9 @@ export class IntakeController {
  async next(){await this.flush();const metadata=this.current?.metadata;this.current=newDraft((await createIds(1))(),this.bankId);if(metadata)this.current.metadata={...metadata,external_id:''};this.render();}
  async select(id:string){await this.flush();this.current=this.records.find(r=>r.id===id)||this.current;this.render();}
  async remove(id:string){await this.flush();const r=this.records.find(r=>r.id===id);if(!r)return;this.stage(reviseDraft(r,{removed:true}));await this.flush();await this.next();}
- async upload(){await this.flush();const pending=this.records.filter(r=>!r.removed&&!r.submissionId);
+ async upload(note=''){await this.flush();const pending=this.records.filter(r=>!r.removed&&!r.submissionId);
   if(pending.some(r=>r.issues.length))throw Error('还有待补全题目，请修改或删除后上传');
-  await submitDrafts(this.bankId,pending.map(r=>({id:r.id,revision:r.revision})));
+  await submitDrafts(this.bankId,pending.map(r=>({id:r.id,revision:r.revision})),note);
   this.records=await listDrafts(this.bankId);this.saver.seed(this.records);await this.next();await this.refreshJobs();void runUploadQueue().then(()=>this.refreshJobs()).catch(e=>{this.error=String(e);this.render()});
  }
  async retry(){await retryUploads(true);void runUploadQueue().then(()=>this.refreshJobs()).catch(e=>{this.error=String(e);this.render()});}

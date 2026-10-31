@@ -353,9 +353,12 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
       if (!config.syncEnabled) fail(503, 'SYNC_DISABLED', '云端合并服务尚未启用，本地批次仍然保留');
       throttle(`upload:${auth.openid}`, 20);
       const body=jsonBody(event,LIMITS.requestBytes);
-      if(!(exact(body,['format','package'])||exact(body,['format','package','status_mode']))
+      if(!(exact(body,['format','package'])||exact(body,['format','package','status_mode'])
+        ||exact(body,['format','package','note'])||exact(body,['format','package','status_mode','note']))
         ||body.format!=='qbank-confirmed-upload-1'
-        ||body.status_mode!==undefined&&!['preserve','verified'].includes(body.status_mode))fail(422,'CONFIRMATION_INVALID','上传必须使用当前确认包格式');
+        ||body.status_mode!==undefined&&!['preserve','verified'].includes(body.status_mode)
+        ||body.note!==undefined&&(typeof body.note!=='string'||body.note.length>500))fail(422,'CONFIRMATION_INVALID','上传必须使用当前确认包格式');
+      const note=typeof body.note==='string'?body.note.trim():'';
       const { delta, envelope } = decodeUpload(body.package, parseDelta, parseModelReply);
       if (!auth.capabilities?.includes('maintainer:manage')&&!auth.grants[delta.bank_id]?.includes('upload')) fail(403, 'BANK_FORBIDDEN', '没有此题库的上传权限');
       if (config.banks.find(b => b.bank_id === delta.bank_id)?.name !== delta.name)
@@ -367,7 +370,7 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
       const record = { format: 'qbank-submission-1', submission_id: sha256(`${delta.bank_id}/${delta.batch_id}`),
         bank_id: delta.bank_id, batch_id: delta.batch_id, sha256: envelope.sha256, payload_sha256: delta.sha256,
         question_count: delta.question_count, status:'merging', accepted_at: new Date(clock()).toISOString(),
-        submitted_by: sha256(`${config.appId}\0${auth.openid}`), status_mode:body.status_mode||'preserve', package: envelope };
+        submitted_by: sha256(`${config.appId}\0${auth.openid}`), status_mode:body.status_mode||'preserve', note, package: envelope };
       record.confirmation={version:1,actor:record.submitted_by,confirmed_at:record.accepted_at,sha256:record.sha256};
       record.uploader_account_id=auth.account_id||auth.maintainer_id||auth.openid;
       record.uploader_real_name=typeof auth.real_name==='string'&&auth.real_name.trim()&&auth.real_name.trim()!=='未记录'
@@ -380,7 +383,8 @@ function createHandler({ env = () => process.env, store, parseDelta, parseModelR
       catch { fail(502, 'STORAGE_UNAVAILABLE', '云端保存未确认，请保留本地批次并重试'); }
       if (!accepted || accepted.record?.format !== 'qbank-submission-1')
         fail(502, 'STORAGE_UNAVAILABLE', '云端记录无效，请联系维护者');
-      if (accepted.record.sha256 !== record.sha256 || accepted.record.bank_id !== delta.bank_id || accepted.record.batch_id !== delta.batch_id || accepted.record.submitted_by !== record.submitted_by)
+      if (accepted.record.sha256 !== record.sha256 || accepted.record.bank_id !== delta.bank_id || accepted.record.batch_id !== delta.batch_id
+        || accepted.record.submitted_by !== record.submitted_by || (accepted.record.note||'') !== note)
         fail(409, 'BATCH_CONFLICT', '此批次已提交不同内容，请使用新批次提交修改');
       let merged;
       try { merged=await workflow.mergeSubmission(config,accepted.record,delta,auth); }

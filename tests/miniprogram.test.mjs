@@ -541,6 +541,31 @@ test('maintainer registration validates required information, shows progress and
  page.onUnload();
 });
 
+test('cloud upload opens a confirmation dialog and forwards the optional trimmed note',async()=>{
+ const notes=[];
+ class Controller{async open(){}async upload(note){notes.push(note)}dispose(){}flush(){}}
+ const page=await loadPage('pages/intake/intake.ts',{},core,{
+  controller:{IntakeController:Controller},
+  cloud:{cloud:{state:()=>({loggedIn:true})}},
+ });
+ page.onLoad();
+ await new Promise(resolve=>setTimeout(resolve,0));
+ page.setData({pendingCount:2,ready:true});
+ page.onUpload();
+ assert.equal(page.data.uploadConfirm,true);
+ assert.equal(notes.length,0);
+ page.onUploadNote({detail:{value:'  修订者 令星煜；补充 26 道未审核题  '}});
+ page.onConfirmUpload();
+ await new Promise(resolve=>setTimeout(resolve,0));
+ assert.deepEqual(notes,['修订者 令星煜；补充 26 道未审核题']);
+ assert.equal(page.data.uploadConfirm,false);
+ assert.equal(page.data.tab,'uploads');
+ const markup=await readFile(new URL('pages/intake/intake.wxml',base),'utf8');
+ assert.match(markup,/是否确认上传？/);
+ assert.match(markup,/maxlength="500"/);
+ assert.match(markup,/bindinput="onUploadNote"/);
+});
+
 test('intake export button shares a prepared file directly from the tap handler',async()=>{
  let shared=0;
  const page=await loadPage('pages/intake/intake.ts',{shareFileMessage:options=>{shared++;options.success?.()}},core,{controller:{IntakeController:class{}}});

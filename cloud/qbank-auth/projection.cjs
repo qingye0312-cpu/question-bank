@@ -14,7 +14,7 @@ function releaseName(at,name,stage,version,id,digest){const stamp=new Date(Date.
  function projected(s){return {format:'qbank-snapshot-2',bank_id:s.bank_id,name:s.name,revision:s.revision,release_version:s.release_version,release_version_label:s.release_version_label||`v${s.release_version}`,
    updated_at:s.updated_at,merged_at:s.merged_at||null,release_name:s.release_name||null,release_id:s.release_id||null,
    rollback_at:s.rollback_at||null,rollback_of:s.rollback?.target_revision||null,
-   merges:Array.isArray(s.merge_history)?s.merge_history.map(m=>({batch_id:m.batch_id,merged_at:m.merged_at,question_count:m.question_count,added_count:m.added_count,duplicate_count:m.duplicate_count,revision:m.revision,release_version:m.release_version,release_version_label:m.release_version_label||`v${m.release_version}`})):[],
+   merges:Array.isArray(s.merge_history)?s.merge_history.map(m=>({batch_id:m.batch_id,merged_at:m.merged_at,question_count:m.question_count,added_count:m.added_count,duplicate_count:m.duplicate_count,revision:m.revision,release_version:m.release_version,release_version_label:m.release_version_label||`v${m.release_version}`,note:m.note||null})):[],
    formal:s.formal===null?null:s.formal.map(safeQuestion),pending:[],
    removed:s.resolved.map(r=>({question_id:r.question_id,status:r.status}))};}
  function manifest(s,files={}){const payload=JSON.stringify(projected(s)),questions=JSON.stringify(questionFile(s));return {bank_id:s.bank_id,name:s.name,revision:s.revision,release_version:s.release_version,release_version_label:s.release_version_label||`v${s.release_version}`,question_count:Array.isArray(s.formal)?s.formal.length:0,

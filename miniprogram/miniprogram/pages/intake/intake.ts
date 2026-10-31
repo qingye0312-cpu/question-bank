@@ -12,7 +12,7 @@ type MaintainerBankChoice={bank_id:string;name:string;checked:boolean};
 function includesPermission(value:unknown,permission:string){return Array.isArray(value)&&value.includes(permission)}
 let controller:IntakeController|undefined,alive=false,poll:ReturnType<typeof setInterval>|undefined,prepareTimer:ReturnType<typeof setTimeout>|undefined,exportGeneration=0,exportSignature='',previousType:ModelReply|null=null;
 Page({
-  data:{...themePageData(),currentId:'',banks:[] as BankSummary[],bankIndex:0,tab:'edit',busy:false,ready:false,reply:null as ModelReply|null,locked:false,raw:'',records:[] as any[],visibleRecords:[] as any[],jobs:[] as any[],pendingCount:0,issues:[] as any[],sourceIssues:[] as any[],saved:'',error:'',notice:'',more:false,tools:false,canUndoType:false,recordedAt:'',metadata:{} as any,editOptions:[] as any[],boolSelected:false,typeIndex:0,sourceIndex:2,warningsText:'',tagsText:'',difficultyIndex:0,filePath:'',fileName:'',exportPrepared:false,query:'',loggedIn:false,hasExportPermission:false,pendingExportPermission:false,authMode:'login',maintainerPassword:'',maintainerPasswordRules:[] as PasswordRule[],maintainerPasswordConfirm:'',maintainerPasswordValid:false,maintainerPasswordsMatch:false,maintainerResetToken:'',maintainerAuthType:'',maintainerAccountStatus:'',maintainerPhone:'',maintainerPhoneDisplay:'',maintainerRealName:'',maintainerNickname:'',maintainerIdentity:'',applyExportPermission:false,maintainerBanks:[] as MaintainerBankChoice[],maintainerBankIds:[] as string[],maintainerBanksLoading:false,maintainerBanksError:'',maintainerApplication:'',applying:false,applicationMessage:'',applicationError:false,
+  data:{...themePageData(),currentId:'',banks:[] as BankSummary[],bankIndex:0,tab:'edit',busy:false,ready:false,reply:null as ModelReply|null,locked:false,raw:'',records:[] as any[],visibleRecords:[] as any[],jobs:[] as any[],pendingCount:0,issues:[] as any[],sourceIssues:[] as any[],saved:'',error:'',notice:'',more:false,tools:false,canUndoType:false,recordedAt:'',metadata:{} as any,editOptions:[] as any[],boolSelected:false,typeIndex:0,sourceIndex:2,warningsText:'',tagsText:'',difficultyIndex:0,filePath:'',fileName:'',exportPrepared:false,query:'',loggedIn:false,hasExportPermission:false,pendingExportPermission:false,authMode:'login',maintainerPassword:'',maintainerPasswordRules:[] as PasswordRule[],maintainerPasswordConfirm:'',maintainerPasswordValid:false,maintainerPasswordsMatch:false,maintainerResetToken:'',maintainerAuthType:'',maintainerAccountStatus:'',maintainerPhone:'',maintainerPhoneDisplay:'',maintainerRealName:'',maintainerNickname:'',maintainerIdentity:'',applyExportPermission:false,maintainerBanks:[] as MaintainerBankChoice[],maintainerBankIds:[] as string[],maintainerBanksLoading:false,maintainerBanksError:'',maintainerApplication:'',applying:false,applicationMessage:'',applicationError:false,uploadConfirm:false,uploadNote:'',
   types:['单选','多选','判断'],versionSources:['平台提供','用户提供','未知'],difficulties:['未设置','简单','中等','困难']},
  onLoad(){alive=true;previousType=null;exportSignature='';controller=new IntakeController(view=>{if(!alive)return;const changed=view.currentId!==this.data.currentId||view.raw!==this.data.raw;const signature=[view.pendingCount,...view.records.map(r=>`${r.id}:${r.revision}:${r.status}`)].join('|');if(signature!==exportSignature){exportSignature=signature;this.queueExportPreparation(signature,view.pendingCount)}if(changed)previousType=null;this.setData({...view,...(changed?{canUndoType:false}:{}),visibleRecords:view.records.filter(r=>!this.data.query||r.stem.includes(this.data.query))})});void this.run(async()=>{
    let banks=await listBanks();const chooseBank=()=>{const preferred=activeBankId();return banks.some(item=>item.id===preferred)?preferred:banks[0]?.id||'';};let bank=chooseBank();
@@ -62,7 +62,15 @@ Page({
  onOptionMenu(e:WechatMiniprogram.TouchEvent){if(this.data.locked||this.data.busy)return;const r=controller?.current?.reply;if(!r)return;const index=Number(e.currentTarget.dataset.index),actions=['上移','下移','删除'];wx.showActionSheet({itemList:actions,success:result=>{const current=controller?.current?.reply;if(!alive||this.data.locked||this.data.busy||current!==r)return;const order=r.options.map((_,i)=>i),action=result.tapIndex;if(action===2){if(r.options.length<=2&&r.type!=='true_false'){this.setData({error:'选择题至少保留两个选项'});return;}order.splice(index,1);}else{const to=index+(action===0?-1:1);if(to<0||to>=order.length)return;[order[index],order[to]]=[order[to],order[index]];}controller!.change({reply:reorderOptions(r,order)})}})},
  onUpload(){
   if(!cloud.state().loggedIn){this.setData({tab:'uploads',error:'上传前请先注册或登录维护者账号；申请需经桌面管理员审批'});return;}
-  void this.run(async()=>{await controller!.upload();this.setData({tab:'uploads',notice:'全部题目已统一压缩编码，任务已保存。可以继续录题。'})})
+  if(!this.data.pendingCount)return;
+  this.setData({uploadConfirm:true,uploadNote:'',error:''});
+ },
+ onUploadNote(e:WechatMiniprogram.Input){this.setData({uploadNote:e.detail.value})},
+ onCancelUpload(){if(!this.data.busy)this.setData({uploadConfirm:false})},
+ onConfirmUpload(){
+  if(this.data.busy||!this.data.uploadConfirm)return;
+  const note=this.data.uploadNote.trim();this.setData({uploadConfirm:false});
+  void this.run(async()=>{await controller!.upload(note);this.setData({tab:'uploads',notice:'全部题目已统一压缩编码，任务已保存。可以继续录题。'})});
  },
  onMaintainerPhone(e:WechatMiniprogram.Input){this.setData({maintainerPhone:e.detail.value})},
  onMaintainerRealName(e:WechatMiniprogram.Input){this.setData({maintainerRealName:e.detail.value})},
@@ -166,7 +174,7 @@ Page({
   void this.run(()=>controller!.retry())
  },
  onSync(){void this.run(()=>controller!.sync())},
- onLogout(){void cloud.logout();void pauseUploads().catch(e=>{controller!.error=String(e);controller!.render()});this.setData({loggedIn:false,hasExportPermission:false,pendingExportPermission:false,maintainerPhone:'',maintainerPhoneDisplay:'',maintainerPassword:'',maintainerPasswordConfirm:'',maintainerPasswordValid:false,maintainerPasswordsMatch:false,maintainerResetToken:'',maintainerAccountStatus:'',maintainerAuthType:'',applicationMessage:'已退出登录'})},
+ onLogout(){void cloud.logout();void pauseUploads().catch(e=>{controller!.error=String(e);controller!.render()});this.setData({loggedIn:false,hasExportPermission:false,pendingExportPermission:false,maintainerPhone:'',maintainerPhoneDisplay:'',maintainerPassword:'',maintainerPasswordConfirm:'',maintainerPasswordValid:false,maintainerPasswordsMatch:false,maintainerResetToken:'',maintainerAccountStatus:'',maintainerAuthType:'',applicationMessage:'已退出登录',uploadConfirm:false,uploadNote:''})},
  queueExportPreparation(signature:string,pendingCount?:number){
   const count=pendingCount===undefined?this.data.pendingCount:pendingCount;
   if(prepareTimer)clearTimeout(prepareTimer);

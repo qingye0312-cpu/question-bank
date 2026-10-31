@@ -3,7 +3,7 @@ import {failedJob,readyJob,UploadError,type UploadJob} from '../../shared/queue'
 import {hasPermission} from '../../shared/export-permission';
 import {cloudOrigin,cloudCall,cloudAccess,resumeDesktop,sessionGeneration,setLogoutHandler,type Access} from './session-service';
 import {reloadDesktopBank} from './sync-service';
-export async function uploadDesktop(batchId:string,bankId:string){
+export async function uploadDesktop(batchId:string,bankId:string,note=''){
  const origin=cloudOrigin(),attempt=sessionGeneration();
  const check=()=>{if(origin!==cloudOrigin()||attempt!==sessionGeneration())throw Error("服务地址或登录已改变，请重试原批次");};
  const me=await cloudCall<Access>('/v1/me',undefined,true);if(!hasPermission(me.grants[bankId],'upload'))throw new UploadError('没有当前题库的上传权限',403);
@@ -11,7 +11,7 @@ export async function uploadDesktop(batchId:string,bankId:string){
  check();
  const transfer=await invoke<{envelope:unknown;receipt:unknown}>('cloud_transfer',{batchId,endpoint:origin});
  check();
- const accepted=await cloudCall<{receipt:unknown;duplicate:boolean}>('/v1/uploads',{format:'qbank-confirmed-upload-1',package:transfer.envelope},true);
+ const accepted=await cloudCall<{receipt:unknown;duplicate:boolean}>('/v1/uploads',{format:'qbank-confirmed-upload-1',package:transfer.envelope,...(note?{note}:{})},true);
  try{await invoke('cloud_receipt',{batchId,receipt:accepted.receipt});}catch{throw new UploadError('云端已接收，本地回执未保存；将使用原包找回回执',0,'RECEIPT_SAVE_FAILED');}
  return accepted;
 }
@@ -24,7 +24,7 @@ export async function enqueueDesktop(_batches:string[],bankId:string){
  const records=await invoke<import('../../shared/draft').DraftRecord[]>('draft_records',{bankId});
  return enqueueDrafts(bankId,records.filter(r=>!r.removed&&!r.submissionId).map(r=>({id:r.id,revision:r.revision})));
 }
-export async function enqueueDrafts(bankId:string,expected:{id:string;revision:number}[]){
+export async function enqueueDrafts(bankId:string,expected:{id:string;revision:number}[],note=''){
  const attempt=sessionGeneration(),origin=cloudOrigin(),me=await cloudCall<Access>('/v1/me',undefined,true);
  if(!me.openid||!hasPermission(me.grants[bankId],'upload'))throw new UploadError('请先登录有此题库上传权限的维护者',403);
  const health=await cloudCall<{capabilities?:string[]}>('/health');
@@ -32,7 +32,9 @@ export async function enqueueDrafts(bankId:string,expected:{id:string;revision:n
  if(attempt!==sessionGeneration()||origin!==cloudOrigin())throw Error('登录或服务地址已改变，未提交');
  // Queue updates and native preparation share this writer, so a background
  // receipt cannot overwrite the transaction that appends a newly confirmed job.
- const task=queueWrite.catch(()=>{}).then(()=>invoke<UploadJob>('draft_submit',{bankId,expected,endpoint:origin,actor:me.openid}));
+ const normalized=note.trim();
+ if(normalized.length>500)throw new UploadError('上传备注不能超过 500 字',422);
+ const task=queueWrite.catch(()=>{}).then(()=>invoke<UploadJob>('draft_submit',{bankId,expected,endpoint:origin,actor:me.openid,note:normalized}));
  queueWrite=task;const job=await task;window.dispatchEvent(new Event('qbank-upload-change'));return job;
 }
 export function pauseDesktopJobs(){return updateJobs(jobs=>{for(const j of jobs)if(!['done','failed'].includes(j.status)){j.status='paused';j.error='已退出登录，任务保留';}});}
@@ -53,7 +55,7 @@ export function runDesktopQueue():Promise<void>{
    const latest=(await desktopJobs()).find(j=>j.id===job.id);if(latest?.status==='paused')continue;
    await updateJobs(js=>{const j=js.find(j=>j.id===job.id)!;if(j.status!=='paused')j.status='uploading';});
    if((await desktopJobs()).find(j=>j.id===job.id)?.status==='paused')continue;
-   await uploadDesktop(job.id,job.bankId);
+   await uploadDesktop(job.id,job.bankId,job.note||'');
    await updateJobs(js=>{const j=js.find(j=>j.id===job.id)!;j.status='done';j.error='';});
    await syncUploadedBank(job.bankId).catch(()=>{});
   }catch(e){await updateJobs(js=>{const i=js.findIndex(j=>j.id===job.id);if(i>=0&&!['done','paused'].includes(js[i].status))js[i]=failedJob(js[i],e);});}

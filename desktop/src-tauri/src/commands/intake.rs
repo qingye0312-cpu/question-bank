@@ -48,12 +48,13 @@ pub(crate) async fn draft_submit(
     expected: serde_json::Value,
     endpoint: String,
     actor: String,
+    note: Option<String>,
 ) -> Result<serde_json::Value> {
     let d = s.store.clone();
     let lock = s.writes.clone();
     blocking(move || {
         let _g = lock.lock().map_err(err)?;
-        drafts::enqueue(&d, &bank_id, expected, &endpoint, &actor)
+        drafts::enqueue(&d, &bank_id, expected, &endpoint, &actor, note.as_deref().unwrap_or(""))
     })
     .await
 }

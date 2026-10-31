@@ -35,7 +35,7 @@ fn autosave_preserves_invalid_input_cas_identity_time_and_remove_undo() {
     let reopened = Store::open(&s.path).unwrap();
     let rows = drafts::list(&reopened, &b).unwrap();
     assert_eq!(rows[0]["raw"], "完整未完成原文");
-    assert!(drafts::enqueue(&s, &b, expected(&rows), "https://example.test", "d_admin").is_err());
+    assert!(drafts::enqueue(&s, &b, expected(&rows), "https://example.test", "d_admin", "").is_err());
     assert!(cloud::client_state(&s, "upload-queue", None)
         .unwrap()
         .is_null());
@@ -79,9 +79,10 @@ fn final_submit_is_one_immutable_package_and_export_does_not_freeze() {
     rows[0]["revision"] = json!(2);
     rows[0]["reply"]["explanation"] = json!("导出后继续改");
     drafts::save(&s, rows[0].clone(), 1).unwrap();
-    assert!(drafts::enqueue(&s, &b, json!([]), "https://example.test", "d_admin").is_err());
+    assert!(drafts::enqueue(&s, &b, json!([]), "https://example.test", "d_admin", "").is_err());
     let rows = drafts::list(&s, &b).unwrap();
-    let job = drafts::enqueue(&s, &b, expected(&rows), "https://example.test", "d_admin").unwrap();
+    let job = drafts::enqueue(&s, &b, expected(&rows), "https://example.test", "d_admin", "测试备注").unwrap();
+    assert_eq!(job["note"], "测试备注");
     let id = job["id"].as_str().unwrap();
     let transfer = cloud::transfer(&s, id, "https://example.test").unwrap();
     let decoded = cloud::decode(&serde_json::to_vec(&transfer["envelope"]).unwrap()).unwrap();
@@ -145,7 +146,7 @@ fn oversize_session_never_splits_or_freezes_any_record() {
     tx.commit().unwrap();
     let rows = drafts::list(&s, &b).unwrap();
     assert!(
-        drafts::enqueue(&s, &b, expected(&rows), "https://example.test", "d_admin")
+        drafts::enqueue(&s, &b, expected(&rows), "https://example.test", "d_admin", "")
             .unwrap_err()
             .contains("1000")
     );

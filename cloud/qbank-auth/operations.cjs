@@ -58,7 +58,7 @@ function buildOperationFile(states,{bankId,name}={}){
     const addedCount=events.filter(event=>event.action==='added'||event.action==='restored').length;
     const revisedCount=events.filter(event=>event.action==='revised').length;
     const removedCount=events.filter(event=>event.action==='removed').length;
-    revisions.push({revision:state.revision,kind,release_version:state.release_version,release_version_label:releaseVersionLabel,updated_at:at,merged_at:state.merged_at||null,release_name:state.release_name||null,release_id:state.release_id||null,batch_id:merge?.batch_id||null,question_count:Number.isSafeInteger(merge?.question_count)?merge.question_count:(state.formal||[]).length,added_count:addedCount,changed_count:addedCount+revisedCount,duplicate_count:Number.isSafeInteger(merge?.duplicate_count)?merge.duplicate_count:0,revised_count:revisedCount,removed_count:removedCount,rollback_of:state.rollback?.target_revision||null,uploader:clone(uploader),questions:events});
+    revisions.push({revision:state.revision,kind,release_version:state.release_version,release_version_label:releaseVersionLabel,updated_at:at,merged_at:state.merged_at||null,release_name:state.release_name||null,release_id:state.release_id||null,batch_id:merge?.batch_id||null,note:merge?.note||null,question_count:Number.isSafeInteger(merge?.question_count)?merge.question_count:(state.formal||[]).length,added_count:addedCount,changed_count:addedCount+revisedCount,duplicate_count:Number.isSafeInteger(merge?.duplicate_count)?merge.duplicate_count:0,revised_count:revisedCount,removed_count:removedCount,rollback_of:state.rollback?.target_revision||null,uploader:clone(uploader),questions:events});
     previous=state;
   }
   const latest=ordered.at(-1)||null;
