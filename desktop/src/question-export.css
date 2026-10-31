@@ -42,6 +42,7 @@
 .question-export-segments label:has(input:focus-visible) { outline:2px solid var(--accent); outline-offset:2px; }
 .question-export-segments label:has(input:disabled) { opacity:.5; cursor:default; }
 .question-export-range-content { min-height:0; display:flex; align-items:stretch; }
+.question-export-panel[data-scope="revision"] .question-export-range-content { height:100%; align-self:stretch; }
 .question-export-all { width:100%; text-align:center; padding:.5rem 0; }
 .question-export-range-content > .question-export-all { align-self:center; }
 .question-export-all strong { display:block; color:var(--accent); font-size:3.25rem; font-weight:650; letter-spacing:-.045em; line-height:1.15; font-variant-numeric:tabular-nums; }
