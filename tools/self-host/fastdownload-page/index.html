@@ -221,6 +221,15 @@
       });
     }
 
+    async function closePeer(peer) {
+      if (!peer || peer.connectionState === 'closed') return;
+      try {
+        // RTCPeerConnection.close() is void in browsers; older wrappers may return a promise.
+        const result = peer.close();
+        if (result && typeof result.catch === 'function') await result.catch(() => {});
+      } catch {}
+    }
+
     async function negotiateTransport(key, iceServers, allowTurn, label) {
       const peer = new RTCPeerConnection({ iceServers });
       try {
@@ -244,7 +253,7 @@
         await waitForDataChannel(peer, channel, 15_000, label);
         return { peer, channel };
       } catch (error) {
-        await peer.close().catch(() => {});
+        await closePeer(peer);
         throw error;
       }
     }
@@ -379,14 +388,14 @@
         }
         if (writable) await writable.abort().catch(() => {});
         if (worker) worker.terminate();
-        if (peer) await peer.close().catch(() => {});
+        await closePeer(peer);
         const message = error instanceof Error ? error.message : String(error);
         statusNode.textContent = `加速下载未完成（${message}）。可以选择下面的普通 HTTPS 下载。`;
         statusNode.classList.add('error');
         fallback.focus();
       } finally {
         if (worker) worker.terminate();
-        if (peer && peer.connectionState !== 'closed') await peer.close().catch(() => {});
+        await closePeer(peer);
         button.disabled = false;
       }
     }
