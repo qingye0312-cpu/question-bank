@@ -124,7 +124,7 @@ export function QuestionExport({banks, defaultBankId, busy, onClose, onExport}: 
   }
 
   return <div className="modal-backdrop question-export-backdrop" onMouseDown={event => {if (event.target === event.currentTarget && !busy && !confirming) onClose();}}>
-    <section ref={panel} className="modal question-export-panel" role="dialog" aria-modal="true" aria-labelledby="question-export-title" onKeyDown={handleKeys}>
+    <section ref={panel} className="modal question-export-panel" data-scope={scope} role="dialog" aria-modal="true" aria-labelledby="question-export-title" onKeyDown={handleKeys}>
       <div className="question-export-content" inert={confirming}>
         <header className="question-export-heading">
           <div className="modal-icon"><FileText aria-hidden="true"/></div>

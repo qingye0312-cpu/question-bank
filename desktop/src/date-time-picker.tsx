@@ -61,11 +61,22 @@ function DateTimePopover({id, label, value, trigger, onClose, onChange}: Props &
     function fit() {
       const rect = anchor.getBoundingClientRect();
       const width = document.documentElement.clientWidth, height = document.documentElement.clientHeight;
-      const margin = 12, gap = 8, popupHeight = popup.offsetHeight;
-      const below = height - rect.bottom - gap - margin;
-      const top = popupHeight <= below ? rect.bottom + gap : rect.top - gap - popupHeight;
+      const boundary = anchor.closest<HTMLElement>('.question-export-body')?.getBoundingClientRect();
+      const margin = 12, gap = 8;
+      const topBound = Math.max(margin, (boundary?.top ?? margin) + (boundary ? 8 : 0));
+      const bottomBound = Math.min(height - margin, (boundary?.bottom ?? height - margin) - (boundary ? 8 : 0));
+      const availableHeight = Math.max(160, bottomBound - topBound);
+      popup.style.maxHeight = `${availableHeight}px`;
+      const popupHeight = popup.offsetHeight;
+      const below = bottomBound - rect.bottom - gap;
+      const above = rect.top - topBound - gap;
+      const top = popupHeight <= below
+        ? rect.bottom + gap
+        : popupHeight <= above
+          ? rect.top - gap - popupHeight
+          : (below >= above ? rect.bottom + gap : rect.top - gap - popupHeight);
       popup.style.left = `${Math.max(margin, Math.min(rect.left, width - popup.offsetWidth - margin))}px`;
-      popup.style.top = `${Math.max(margin, Math.min(top, height - popupHeight - margin))}px`;
+      popup.style.top = `${Math.max(topBound, Math.min(top, bottomBound - popupHeight))}px`;
       popup.style.visibility = 'visible';
     }
     function outside(event: Event) {
